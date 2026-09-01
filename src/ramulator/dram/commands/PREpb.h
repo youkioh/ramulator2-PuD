@@ -1,6 +1,8 @@
 #ifndef RAMULATOR_DRAM_COMMANDS_PREPB_H
 #define RAMULATOR_DRAM_COMMANDS_PREPB_H
 
+#include <stdexcept>
+
 #include "ramulator/dram/node.h"
 
 namespace Ramulator::Cmd {
@@ -16,6 +18,15 @@ struct PREpb {
   }
 
   static int preq(DRAMNode* bank, int cmd, const AddrVec_t& addr_vec, Clk_t clk) {
+    if constexpr (requires { T::State::PuDChargeSharing; T::State::PuDSensed; }) {
+      if (bank->m_state == T::State::PuDChargeSharing) {
+        throw std::runtime_error("[PREpb] Invalid bank state!");
+      }
+      if (bank->m_state == T::State::PuDSensed) {
+        return T::Command::PREpb;
+      }
+    }
+
     switch (bank->m_state) {
       case T::State::Closed:
         return cmd;

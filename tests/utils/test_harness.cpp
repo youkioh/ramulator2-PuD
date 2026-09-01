@@ -40,6 +40,37 @@ class DeviceUnderTestCpp {
     return spec().command_names;
   }
 
+  std::vector<std::string> state_names() const {
+    return spec().state_names;
+  }
+
+  nb::dict command_info(const std::string& command_name) const {
+    int command = spec().get_command_id(command_name);
+    const auto& meta = spec().command_meta[command];
+
+    nb::dict out;
+    out["is_opening"] = meta.is_opening;
+    out["is_closing"] = meta.is_closing;
+    out["is_accessing"] = meta.is_accessing;
+    out["is_refreshing"] = meta.is_refreshing;
+    switch (spec().bank_targets[command]) {
+      case BankTarget::Single:
+        out["bank_target"] = "Single";
+        break;
+      case BankTarget::All:
+        out["bank_target"] = "All";
+        break;
+      case BankTarget::SameBank:
+        out["bank_target"] = "SameBank";
+        break;
+    }
+    out["has_action"] = spec().funcs.actions[command] != nullptr;
+    out["has_preq"] = spec().funcs.preqs[command] != nullptr;
+    out["has_rowhit"] = spec().funcs.rowhits[command] != nullptr;
+    out["has_rowopen"] = spec().funcs.rowopens[command] != nullptr;
+    return out;
+  }
+
   std::map<std::string, int> timings() const {
     return timing_map(spec());
   }
@@ -501,8 +532,10 @@ NB_MODULE(_ramulator_test, m) {
       .def(nb::init<nb::dict, int>(), nb::arg("dram_config"), nb::arg("channel_id") = 0)
       .def_prop_ro("level_names", &DeviceUnderTestCpp::level_names)
       .def_prop_ro("command_names", &DeviceUnderTestCpp::command_names)
+      .def_prop_ro("state_names", &DeviceUnderTestCpp::state_names)
       .def_prop_ro("timings", &DeviceUnderTestCpp::timings)
       .def("timing", &DeviceUnderTestCpp::timing, nb::arg("name"))
+      .def("command_info", &DeviceUnderTestCpp::command_info, nb::arg("command"))
       .def("probe", &DeviceUnderTestCpp::probe, nb::arg("command"), nb::arg("addr_vec"), nb::arg("clk"))
       .def("issue", &DeviceUnderTestCpp::issue, nb::arg("command"), nb::arg("addr_vec"), nb::arg("clk"));
 

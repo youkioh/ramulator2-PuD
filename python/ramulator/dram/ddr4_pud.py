@@ -9,8 +9,14 @@ class DDR4_PuD(DDR4):
 
     # Keep every mutable definition independent before PuD extends it.
     levels = dict(DDR4.levels)
-    commands = list(DDR4.commands)
-    states = list(DDR4.states)
+    commands = list(DDR4.commands) + [
+        "ACT_PUD",
+        "ACT_PUD_OC",
+        "ACT_PUD_S",
+        "ACT_PUD_S_OC",
+        "N",
+    ]
+    states = list(DDR4.states) + ["PuDChargeSharing", "PuDSensed"]
     timing_params = list(DDR4.timing_params)
     supported_requests = dict(DDR4.supported_requests)
     supported_requests.update({

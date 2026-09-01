@@ -1,6 +1,6 @@
 # DDR4_PuD Basic Primitives Implementation Plan
 
-Status: Phases 1 and 2 complete; Phase 3 not started
+Status: Phases 1 through 4 complete; Phase 5 not started
 
 ## Scope
 
@@ -30,10 +30,21 @@ NOT:     A_S*(X) -> N -> P
 - RowCopy has one source and one or more destinations.
 - Do not impose an arbitrary maximum RowCopy destination count.
 - Model NOT from `A_S*(X) -> N -> P`.
-- Do not assume that the internal circuit operations within `N` require
-  separate Ramulator2 commands.
+- Represent `N` as one explicit lower-level DRAM command. Keep its internal
+  circuit phases internal rather than exposing independently schedulable
+  Ramulator2 commands.
 - Accept PuD requests carrying the required row operands and execute their
   modeled DRAM command sequences.
+- Represent `A`, `A*`, `A_S`, and `A_S*` as the explicit lower-level commands
+  `ACT_PUD`, `ACT_PUD_OC`, `ACT_PUD_S`, and `ACT_PUD_S_OC`, respectively.
+- Keep RowCopy, MAJ3, MAJ5, and NOT as request-level operations only.
+- Add only `PuDChargeSharing` and `PuDSensed` as PuD device states, returning
+  to the existing `Closed` state after final precharge.
+- Keep primitive identity, operands, counts, sequence progress, and the next
+  expected command as controller responsibilities.
+- Use a phase-only device legality model and map final `P` to ordinary per-bank
+  `PREpb`, with the detailed transitions and conventional-command legality
+  recorded by Decision Gate 7.
 
 ## Out of scope
 
@@ -202,6 +213,8 @@ identity and interleaving remain deferred and are not required by Phase 2.
 
 ## Phase 3 — Define the PuD command and state model
 
+Status: Complete
+
 ### Objective
 
 Define simulator representations for the activation variants, NOT operation
@@ -230,81 +243,58 @@ After the decision gates:
 
 ### Decision Gate 4 — Activation-command representation
 
-Determine whether the four activation variants are:
+Status: Accepted. See
+`docs/pud/decisions/pud-activation-command-representation.md`.
 
-- Four explicit DRAM commands.
-- A smaller command set with explicit variant or phase metadata.
-- Another approved abstraction.
-
-Also decide whether RowCopy, MAJ3, MAJ5, and NOT exist as device-level
-primitive commands or only as request-level operations expanded into
-lower-level commands.
+Represent `A`, `A*`, `A_S`, and `A_S*` as the explicit lower-level commands
+`ACT_PUD`, `ACT_PUD_OC`, `ACT_PUD_S`, and `ACT_PUD_S_OC`, respectively.
+RowCopy, MAJ3, MAJ5, and NOT remain request-level operations only. This
+decision establishes command identity only; state transitions, prerequisites,
+legality, and timing remain unresolved.
 
 ### Decision Gate 5 — Minimum simulator abstraction for `N`
 
-Evaluate two principal alternatives:
+Status: Accepted. See
+`docs/pud/decisions/pud-not-command-granularity.md`.
 
-1. Model `N` as one DRAM command whose internal circuit behavior is abstracted
-   into aggregate timing, state transitions, resource occupancy, and
-   prerequisites.
-2. Expose one or more internal phases as separate Ramulator2 commands or
-   states.
+Represent `N` as one explicit lower-level DRAM command. Separate BL/BL-bar
+precharge, BL-BL-bar charge sharing, sensing, and other internal circuit phases
+remain internal to `N` and are not independently schedulable Ramulator2
+commands.
 
-Separate BL/BL-bar precharge, BL-BL-bar charge sharing, sensing, or another
-internal phase should be exposed only if it independently affects at least one
-of:
-
-- command legality;
-- timing boundaries;
-- resource occupancy;
-- scheduling or interleaving;
-- interruptibility or atomicity;
-- observable DRAM state;
-- interaction with conventional commands or refresh.
-
-This gate must document why the selected abstraction is sufficient. It must
-not assume that circuit-level phases map one-to-one to Ramulator2 commands.
+This is a simulator abstraction, not a claim that `N` is physically a single
+indivisible circuit operation. Detailed state transitions, numeric timing,
+resource occupancy, and interleaving or interruption of the surrounding NOT
+sequence remain unresolved.
 
 ### Decision Gate 6 — Intermediate state representation
 
-Define the minimum representation for:
+Status: Accepted. See
+`docs/pud/decisions/pud-intermediate-state-representation.md`.
 
-- Sequential activation of the participating rows.
-- Wordline-only versus sensed activation.
-- Offset-cancellation effects when relevant to legality or timing.
-- State before, during, and after `N`.
-- PuD operation ownership if the accepted model requires the device to track
-  it.
-- Repeated RowCopy destination activations according to the accepted RowCopy
-  semantics.
+Add only `PuDChargeSharing` and `PuDSensed`. Use the existing `Closed` state
+after final precharge. Unsensed `A*`/`A` sequences use `PuDChargeSharing`;
+sensing through `A_S` or `A_S*` enters `PuDSensed`; RowCopy destination `A`
+commands and `N` may remain in `PuDSensed`.
 
-This gate does not assume that request-specific operand ordering or sequence
-ownership must be validated by the device model. It also does not assume that
-multi-destination RowCopy requires all destination rows to be represented as
-simultaneously activated.
+Do not add a finalized or primitive-specific device state. Primitive identity,
+operand identities and ordering, activation and destination counts, exact
+sequence progress, and the next expected command remain controller
+responsibilities.
 
-### Missing reference information
-
-References are needed to determine:
-
-- Which intermediate activation distinctions affect simulator-visible
-  behavior.
-- Whether any internal `N` phase can be interrupted or interleaved.
-- Whether internal `N` phases have independently observable timing or resource
-  effects.
-- The state effects of repeated RowCopy destination activations.
+This decision does not define precharge or conventional-command legality,
+interleaving, timing, resource occupancy, interruption, or scheduling.
 
 ### Prerequisite decisions
 
-- Resolve Decision Gates 4, 5, and 6.
-- Supply the missing state and `N` behavior references required by those gates.
+- Satisfied by the accepted Decision Gates 4, 5, and 6 decisions.
 
 ### Validation before proceeding
 
 - Specify device-level tests for every accepted simulator-visible state and
   command transition before controller sequencing begins.
 - Keep request-specific operand ordering and operation ownership tests at the
-  layer selected by the corresponding decision gates.
+  controller layer.
 
 ### Completion criteria
 
@@ -316,6 +306,8 @@ References are needed to determine:
 - No numeric timing assumptions have been introduced.
 
 ## Phase 4 — Add device-level PuD command behavior
+
+Status: Complete
 
 ### Objective
 
@@ -346,25 +338,26 @@ and state abstractions.
 - Implement the accepted interaction with conventional ACT, RD, WR, and PRE
   during PuD intermediate states.
 
-Request-specific operand ordering and sequence ownership are not inherently
-device responsibilities. They are implemented and tested at whichever layer is
-selected by the corresponding decision gates.
+Request-specific operand ordering and sequence ownership are controller
+responsibilities and are implemented and tested at the controller layer.
 
 ### Decision Gate 7 — Precharge and legality semantics
 
-Confirm:
+Status: Accepted. See
+`docs/pud/decisions/pud-precharge-and-legality-semantics.md`.
 
-- Whether reference `P` maps to ordinary `PREpb`.
-- Which conventional commands are legal during each PuD phase.
-- Whether premature precharge aborts, completes, or is illegal.
-- The device-visible legality rules for repeated RowCopy destination
-  activations.
-- Whether operation ownership is enforced by the device, controller, or both.
-- How illegal interruption of `N` is represented.
+Use a phase-only legality model. Reference `P` maps to ordinary per-bank
+`PREpb`. PuD activations and `N` follow the accepted phase transitions;
+conventional `ACT`, `RD`, and `WR` are illegal in either PuD state. `PREpb` is
+illegal in `PuDChargeSharing` and returns `PuDSensed` to `Closed`.
+
+Exact primitive sequencing and request-level premature precharge remain
+controller responsibilities. This gate does not define `PREab`, refresh,
+scheduling or interleaving, numeric timing, or interruption semantics.
 
 ### Prerequisite decisions
 
-- Resolve Decision Gates 4 through 7.
+- Satisfied by the accepted Decision Gates 4, 5, 6, and 7 decisions.
 
 ### Validation before proceeding
 
@@ -375,16 +368,14 @@ accepted gates:
   repeated destination activations.
 - Legal state transitions for MAJ3 and MAJ5.
 - `N` is illegal before its required source activation state.
-- Repeated or misplaced `N` is rejected if the device state model is assigned
-  that responsibility.
-- If internal `N` phases are exposed, their accepted state transitions are
-  tested.
+- Repeated or misplaced `N` is rejected at the controller layer.
+- The accepted state transitions of the explicit `N` command are tested.
 - Final precharge clears the accepted intermediate state.
 - Conventional DDR4_PuD accesses retain ordinary behavior outside a PuD
   operation.
 
 Request-specific operand order, operand identity, and sequence ownership are
-validated later at the layer selected by the relevant decisions.
+validated later at the controller layer.
 
 ### Completion criteria
 
@@ -446,7 +437,6 @@ The current material does not provide:
 - Timing relationships with ordinary commands or refresh.
 - Command-bus occupancy.
 - Resource occupancy of `N`.
-- Independently relevant timing boundaries for the internal `N` operations.
 - Destination-count-dependent RowCopy timing, if any.
 
 ### Prerequisite decisions
@@ -507,15 +497,16 @@ MAJ5:    A*(V) -> A(W) -> A(X) -> A(Y) -> A_S(Z) -> P
 NOT:     A_S*(X) -> N -> P
 ```
 
-If Decision Gate 5 exposes internal `N` phases, the NOT sequence uses the
-accepted expanded representation.
+`N` appears exactly once as an explicit command in the NOT sequence; its
+internal circuit phases are not exposed in that sequence.
 
-### Decision Gate 9 — Sequence ownership and scheduling atomicity
+### Decision Gate 9 — Controller sequencing and scheduling atomicity
 
 Define:
 
-- Which layer owns request-specific operand ordering and sequence progress.
-- Whether the device, controller, or both track operation ownership.
+- How the controller tracks request-specific operand ordering and sequence
+  progress.
+- How the controller tracks operation ownership.
 - Whether same-bank commands may interleave.
 - Whether other-bank, rank, or channel commands may interleave.
 - Whether sequence arrows require contiguous issue.
@@ -541,7 +532,7 @@ The available material does not specify:
 
 - Atomicity or interleaving requirements.
 - Reservation scope.
-- Whether `N` or an internal phase is interruptible.
+- Whether the `N` command or surrounding NOT sequence is interruptible.
 - Whether RowCopy may be interrupted between destination activations.
 
 ### Prerequisite decisions
@@ -552,7 +543,7 @@ The available material does not specify:
 
 ### Validation before proceeding
 
-At the layer selected by Decision Gate 9:
+At the controller layer:
 
 - Every issued command uses the correct request operand row.
 - RowCopy visits each destination exactly once and in submitted order.
@@ -569,7 +560,7 @@ At the layer selected by Decision Gate 9:
 - Valid requests for all four primitives deterministically produce their
   complete accepted sequences.
 - Request-specific operand ordering and sequence ownership are enforced at the
-  layer selected by Decision Gate 9.
+  controller layer.
 - RowCopy sequence length is determined by its destination list rather than a
   hard-coded maximum.
 
@@ -672,7 +663,8 @@ For MAJ3 and MAJ5:
 For NOT:
 
 - Verify `A_S*(X) -> N -> P` under the accepted abstraction.
-- Verify any exposed internal `N` phases if Decision Gate 5 requires them.
+- Verify that `N` is issued exactly once and no internal circuit phase is
+  exposed as a command.
 - Verify accepted state, timing, resource, and scheduling behavior of `N`.
 - Reject malformed requests and verify final cleanup.
 
@@ -697,19 +689,13 @@ data-value tracking is out of scope.
 - Repeated RowCopy destination activations follow the accepted state semantics.
 - `N` uses the minimum abstraction accepted at Decision Gate 5.
 - Request-specific operand ordering and sequence ownership are handled at the
-  layer selected by the corresponding decision gates.
+  controller layer.
 - Every accepted modeling decision is covered by tests.
 - Missing references are never replaced with undocumented assumptions.
 - Existing standard DDR4 behavior remains unchanged.
 
 ## Decisions still requiring user approval
 
-- Activation-command representation.
-- Minimum simulator abstraction for `N`.
-- Intermediate activation and NOT state.
-- Mapping of reference `P` to Ramulator2 precharge.
-- Conventional-command legality during PuD operations.
-- Ownership of request-specific operand ordering and sequence progress.
 - Atomicity and interleaving policy, including interruption between RowCopy
   destinations.
 - Refresh, row-policy, and plugin interaction.
@@ -717,13 +703,12 @@ data-value tracking is out of scope.
 
 ## Missing reference information blocking implementation
 
-- Simulator-visible intermediate activation behavior.
-- State effects of repeated RowCopy destination activations.
 - Numeric timings for PuD activation variants, `N`, and precharge.
 - Timing relationships with ordinary commands and refresh.
 - Command-bus and internal-resource occupancy.
-- Whether internal `N` phases independently affect timing, legality,
-  scheduling, interruptibility, or observable state.
+- Aggregate timing and resource occupancy of `N`.
+- Whether the `N` command or surrounding NOT sequence can be interrupted or
+  interleaved.
 - Atomicity and interleaving requirements for all primitives.
 - Whether RowCopy may be interrupted between destination activations.
 - Whether RowCopy timing or legality depends on destination count beyond the

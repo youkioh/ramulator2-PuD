@@ -7,6 +7,11 @@
  * Regenerate:   python -m ramulator codegen DDR4_PuD
  ******************************************************************************/
 #include "ramulator/dram/commands/ACT.h"
+#include "ramulator/dram/commands/ACT_PUD.h"
+#include "ramulator/dram/commands/ACT_PUD_OC.h"
+#include "ramulator/dram/commands/ACT_PUD_S.h"
+#include "ramulator/dram/commands/ACT_PUD_S_OC.h"
+#include "ramulator/dram/commands/N.h"
 #include "ramulator/dram/commands/PREab.h"
 #include "ramulator/dram/commands/PREpb.h"
 #include "ramulator/dram/commands/RD.h"
@@ -25,10 +30,10 @@ class DDR4_PuD : public DRAMSpec {
     enum : int { Channel, Rank, BankGroup, Bank, Row, Column, COUNT };
   };
   struct Command {
-    enum : int { ACT, PREpb, PREab, RD, WR, RDA, WRA, REFab, COUNT };
+    enum : int { ACT, PREpb, PREab, RD, WR, RDA, WRA, REFab, ACT_PUD, ACT_PUD_OC, ACT_PUD_S, ACT_PUD_S_OC, N, COUNT };
   };
   struct State {
-    enum : int { Opened, Closed, N_A, COUNT };
+    enum : int { Opened, Closed, N_A, PuDChargeSharing, PuDSensed, COUNT };
   };
   struct Timing {
     enum : int {
@@ -57,8 +62,10 @@ class DDR4_PuD : public DRAMSpec {
     };
   };
 
-  using CommandImpls = std::tuple<Cmd::ACT<DDR4_PuD>, Cmd::PREpb<DDR4_PuD>, Cmd::PREab<DDR4_PuD>, Cmd::RD<DDR4_PuD>,
-                                  Cmd::WR<DDR4_PuD>, Cmd::RDA<DDR4_PuD>, Cmd::WRA<DDR4_PuD>, Cmd::REFab<DDR4_PuD> >;
+  using CommandImpls =
+      std::tuple<Cmd::ACT<DDR4_PuD>, Cmd::PREpb<DDR4_PuD>, Cmd::PREab<DDR4_PuD>, Cmd::RD<DDR4_PuD>, Cmd::WR<DDR4_PuD>,
+                 Cmd::RDA<DDR4_PuD>, Cmd::WRA<DDR4_PuD>, Cmd::REFab<DDR4_PuD>, Cmd::ACT_PUD<DDR4_PuD>,
+                 Cmd::ACT_PUD_OC<DDR4_PuD>, Cmd::ACT_PUD_S<DDR4_PuD>, Cmd::ACT_PUD_S_OC<DDR4_PuD>, Cmd::N<DDR4_PuD> >;
 
   DDR4_PuD(const ConfigNode& config) {
     // Counts
@@ -69,8 +76,10 @@ class DDR4_PuD : public DRAMSpec {
 
     // String name maps + reverse lookup vectors
     set_names(levels, level_names, {"Channel", "Rank", "BankGroup", "Bank", "Row", "Column"});
-    set_names(commands, command_names, {"ACT", "PREpb", "PREab", "RD", "WR", "RDA", "WRA", "REFab"});
-    set_names(states, state_names, {"Opened", "Closed", "N_A"});
+    set_names(commands, command_names,
+              {"ACT", "PREpb", "PREab", "RD", "WR", "RDA", "WRA", "REFab", "ACT_PUD", "ACT_PUD_OC", "ACT_PUD_S",
+               "ACT_PUD_S_OC", "N"});
+    set_names(states, state_names, {"Opened", "Closed", "N_A", "PuDChargeSharing", "PuDSensed"});
     set_names(timings, timing_names,
               {"rate",  "nBL",   "nCL",   "nRCD",  "nRP",   "nRAS", "nRC",  "nWR",   "nRTP", "nCWL",  "nCCDS",
                "nCCDL", "nRRDS", "nRRDL", "nWTRS", "nWTRL", "nFAW", "nRFC", "nREFI", "nCS",  "tCK_ps"});

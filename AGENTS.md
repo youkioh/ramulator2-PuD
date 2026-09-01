@@ -124,3 +124,14 @@ Before implementation, determine what Ramulator2 should represent and
 identify any limitations of the existing model.
 
 If this requires a new modeling decision, discuss it with the user first.
+
+## File Editing Constraints (for codex)
+
+- If `apply_patch` fails because of a sandbox or tool-infrastructure error,
+  retry it at most once with repository-relative paths. If the same error
+  recurs, run `apply_patch` through an escalated command and provide the patch
+  through standard input; do not use shell heredocs or another file-writing
+  mechanism.
+- For documentation-only tasks, collect all required edits before patching,
+  apply them in one patch when practical, and validate with `git diff --check`.
+  Do not broaden the edit into unrelated documentation cleanup.

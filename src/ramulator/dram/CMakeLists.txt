@@ -8,6 +8,8 @@ target_sources(
   func_types.h
 
   commands/ACT.h  commands/ACT1.h  commands/ACT2.h
+  commands/ACT_PUD.h  commands/ACT_PUD_OC.h
+  commands/ACT_PUD_S.h  commands/ACT_PUD_S_OC.h  commands/N.h
   commands/PREpb.h  commands/PREab.h
   commands/RD.h   commands/WR.h
   commands/RDA.h  commands/WRA.h
