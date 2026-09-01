@@ -2,6 +2,7 @@
 #define RAMULATOR_CONTROLLER_CONTROLLER_BASE_H
 
 #include <deque>
+#include <optional>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -40,6 +41,8 @@ class ControllerBase : public IController, public Implementation {
   bool send(Request& req) override;
   bool priority_send(Request& req) override;
 
+  const ReqBuffer& pending_pud_requests() const { return m_pud_buffer; }
+
   void update_stats() override;
   void finalize() override;
   void reset_stats() override;
@@ -55,6 +58,12 @@ class ControllerBase : public IController, public Implementation {
   // Shared stats registration — call from subclass setup()
   void setup_base(IFrontEnd* frontend, IMemorySystem* memory_system);
 
+  // Optional derived-controller ingress handling. A value means the request
+  // was handled; nullopt continues through the generic Read/Write path.
+  virtual std::optional<bool> try_send_special_request(Request& req) {
+    return std::nullopt;
+  }
+
   // Sub-components
   IScheduler* m_scheduler = nullptr;
   IRefreshManager* m_refresh = nullptr;
@@ -67,6 +76,7 @@ class ControllerBase : public IController, public Implementation {
   ReqBuffer m_priority_buffer;
   ReqBuffer m_read_buffer;
   ReqBuffer m_write_buffer;
+  ReqBuffer m_pud_buffer;
   // Efficiently tracks addresses of buffered write requests for write-forwarding
   std::unordered_set<Addr_t> m_buffered_write_addrs;
 

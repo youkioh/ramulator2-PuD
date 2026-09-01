@@ -18,7 +18,7 @@ struct Request {
   // Universal built-in external request types — always Read = 0, Write = 1.
   // Additional non-negative ids may exist as metadata for future extensions.
   struct Type {
-    enum : int { Read = 0, Write = 1 };
+    enum : int { Read = 0, Write = 1, RowCopy = 2, MAJ3 = 3, MAJ5 = 4, NOT = 5 };
   };
 
   int type_id = -1;        // Request type. -1 is the convention for internal maintenance/direct-command requests.
@@ -26,6 +26,10 @@ struct Request {
   int ingress_id = -1;     // External ingress identifier (e.g., gem5 memory port)
 
   int size_bytes = -1;     // Request size in bytes. Must be set explicitly by the frontend.
+
+  // Ordered, request-owned row operands for PuD requests.
+  // RowCopy uses operand 0 as source and operands 1..N as destinations.
+  std::vector<AddrVec_t> operands{};
 
   int command = -1;        // Current command to issue to progress the request
   int final_command = -1;  // Terminal command needed to complete the request
@@ -43,9 +47,13 @@ struct Request {
   Request() = default;
   Request(Addr_t addr, int type);
   Request(AddrVec_t addr_vec, int type);
+  Request(std::vector<AddrVec_t> operands, int type);
   Request(Addr_t addr, int type, int source_id, std::function<void(Request&)> callback);
   Request(AddrVec_t addr_vec, Cmd_t, int final_cmd);  // internal commands (refresh, row close, etc.)
 };
+
+bool is_pud_request_type(int type_id);
+const char* request_type_name(int type_id);
 
 }  // namespace Ramulator
 

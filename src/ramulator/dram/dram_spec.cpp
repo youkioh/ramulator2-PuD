@@ -25,6 +25,23 @@ void DRAMSpec::load_config(const ConfigNode& config) {
         "Got: " + std::to_string(organization.level_sizes[0]));
   }
 
+  ConfigNode geometry_node = dram["geometry"];
+  if (geometry_node) {
+    ConfigNode rows_per_subarray_node = geometry_node["rows_per_subarray"];
+    if (rows_per_subarray_node) {
+      geometry.rows_per_subarray = rows_per_subarray_node.as<int>();
+      if (geometry.rows_per_subarray <= 0) {
+        throw std::runtime_error("DRAMSpec: rows_per_subarray must be positive");
+      }
+      int row_level = get_level_id("Row");
+      int rows_per_bank = organization.level_sizes[row_level];
+      if (rows_per_bank % geometry.rows_per_subarray != 0) {
+        throw std::runtime_error(
+            "DRAMSpec: rows_per_subarray must divide the number of rows per bank");
+      }
+    }
+  }
+
   // Timing values
   ConfigNode timing_node = dram["timing"];
   const auto& timing = timing_node.seq();

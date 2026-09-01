@@ -132,6 +132,22 @@ void ControllerBase::setup_base(IFrontEnd* frontend, IMemorySystem* memory_syste
 // ── IController overrides ───────────────────────────────────────────────
 
 bool ControllerBase::send(Request& req) {
+  if (req.type_id < 0 || req.type_id >= static_cast<int>(m_device.m_spec->supported_requests.size())) {
+    throw std::runtime_error(fmt::format(
+        "DRAM standard {} does not support request type_id {}",
+        m_device.m_spec->standard_name, req.type_id));
+  }
+
+  if (auto result = try_send_special_request(req); result.has_value()) {
+    return *result;
+  }
+
+  if (m_device.m_spec->supported_requests[req.type_id] == DRAMSpec::CONTROLLER_SEQUENCED) {
+    throw std::runtime_error(fmt::format(
+        "Controller does not handle controller-sequenced request type_id {}",
+        req.type_id));
+  }
+
   // Address mapping: addr mapper populates addr_vec from intra_channel_addr.
   // PassThroughAddrMapper is a no-op (addr_vec already set by frontend).
   m_addr_mapper->apply(req);

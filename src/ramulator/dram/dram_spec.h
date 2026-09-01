@@ -31,6 +31,13 @@ struct Organization {
   std::vector<int> level_sizes;
 };
 
+struct DRAMGeometry {
+  int rows_per_subarray = -1;
+
+  bool has_subarrays() const { return rows_per_subarray > 0; }
+  int subarray_id(int row) const { return row / rows_per_subarray; }
+};
+
 // Meta information about a command
 struct DRAMCommandMeta {
   bool is_opening = false;
@@ -66,6 +73,8 @@ using TimingCons = std::vector<std::vector<std::vector<TimingConsEntry>>>;
 // Base class for concrete standards (e.g., DDR4) which self-populate
 // in their constructor from static enums + config.
 struct DRAMSpec {
+  static constexpr int CONTROLLER_SEQUENCED = -1;
+
   virtual ~DRAMSpec() = default;
 
   // String -> int maps for named lookups.
@@ -96,8 +105,10 @@ struct DRAMSpec {
 
   // Per-level/command arrays
   Organization organization;
+  DRAMGeometry geometry;
   std::vector<int> init_states;         // per level
-  std::vector<int> supported_requests;  // per request type
+  // Per request type: terminal command, or CONTROLLER_SEQUENCED.
+  std::vector<int> supported_requests;
   std::vector<int> timing_vals;         // per timing parameter
   std::vector<int> command_cycles;      // per command: CA bus cycles (ticks)
   TimingCons timing_cons;                // per level x command

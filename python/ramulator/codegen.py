@@ -15,7 +15,7 @@ Usage:
 import os
 import sys
 
-from ramulator.dram.spec import DRAMStandard
+from ramulator.dram.spec import CONTROLLER_SEQUENCED, DRAMStandard
 
 # Components with custom Python logic — skip auto-generation.
 _CUSTOM_COMPONENTS = set()
@@ -96,10 +96,16 @@ def generate_header(cls):
     # supported_requests in constructor
     req_entries = []
     for req_type, cmd_name in cls.supported_requests.items():
-        req_entries.append(
-            f"        Command::{cmd_name},{' ' * max(1, 10 - len(cmd_name))}"
-            f"// {req_type} -> {cmd_name}"
-        )
+        if cmd_name is CONTROLLER_SEQUENCED:
+            req_entries.append(
+                f"        DRAMSpec::CONTROLLER_SEQUENCED,  "
+                f"// {req_type} -> controller sequence"
+            )
+        else:
+            req_entries.append(
+                f"        Command::{cmd_name},{' ' * max(1, 10 - len(cmd_name))}"
+                f"// {req_type} -> {cmd_name}"
+            )
     supported_requests_body = "\n".join(req_entries)
 
     # Command include headers

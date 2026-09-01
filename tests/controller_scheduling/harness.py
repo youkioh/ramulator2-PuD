@@ -8,6 +8,7 @@ from dataclasses import dataclass
 
 import ramulator
 from ramulator._ramulator_test import _ControllerUnderTest as _CppControllerUnderTest
+from ramulator._ramulator_test import _validate_pud_routing
 from tests.validation_common import _metadata_from_dram
 from tests.validation_common import _request_type_ids
 from tests.validation_common import build_addr_vec
@@ -116,6 +117,30 @@ class ControllerUnderTest:
         if type_name not in self._request_type_ids:
             raise ValueError(f"Unknown request type: {type_name}")
         self._cpp.send_request(self._request_type_ids[type_name], addr_vec, source_id)
+
+    def send_pud_request(
+        self, type_name: str, operands: list[list[int]], source_id: int = 0
+    ) -> dict:
+        if type_name not in self._request_type_ids:
+            raise ValueError(f"Unknown request type: {type_name}")
+        item = self._cpp.send_pud_request(
+            self._request_type_ids[type_name], operands, source_id
+        )
+        return {
+            "type_id": item["type_id"],
+            "operands": [list(operand) for operand in item["operands"]],
+            "addr_vec": list(item["addr_vec"]),
+            "source_id": item["source_id"],
+        }
+
+    def validate_pud_routing(
+        self, type_name: str, operands: list[list[int]], num_channels: int
+    ) -> int:
+        if type_name not in self._request_type_ids:
+            raise ValueError(f"Unknown request type: {type_name}")
+        return _validate_pud_routing(
+            self._request_type_ids[type_name], operands, num_channels
+        )
 
     def priority_send(self, command_name: str, addr_vec: list[int]) -> None:
         if command_name not in self.command_names:

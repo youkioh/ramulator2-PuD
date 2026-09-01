@@ -18,6 +18,7 @@
 #include "ramulator/frontend/i_frontend.h"
 #include "ramulator/memory_system/channel_mapper/i_channel_mapper.h"
 #include "ramulator/memory_system/i_memory_system.h"
+#include "ramulator/memory_system/pud_request_routing.h"
 #include "ramulator/python/binding_utils.h"
 
 // ---- DeviceUnderTest ----
@@ -159,6 +160,13 @@ class HarnessMemorySystem final : public IMemorySystem, public Implementation {
   void setup(IFrontEnd* frontend, IMemorySystem* memory_system) override {}
 
   bool send(Request& req) override {
+    if (is_pud_request_type(req.type_id)) {
+      int channel = validate_pud_routing(req, 1);
+      if (channel != 0) {
+        throw std::runtime_error("HarnessMemorySystem only owns channel 0");
+      }
+      return m_controller->send(req);
+    }
     if (req.intra_channel_addr < 0) {
       req.intra_channel_addr = req.addr;
     }
@@ -191,6 +199,82 @@ class HarnessMemorySystem final : public IMemorySystem, public Implementation {
 
  private:
   IController* m_controller = nullptr;
+};
+
+// Test-only controller used to observe which GenericDRAMSystem channel receives
+// a request without exposing the production controller list.
+class RoutingControllerStub final : public IController, public Implementation {
+  RAMULATOR_REGISTER_IMPLEMENTATION(IController, RoutingControllerStub, "RoutingControllerStub");
+
+ public:
+  inline static int last_receiver = -1;
+  inline static Request last_request{};
+
+  static void reset() {
+    last_receiver = -1;
+    last_request = Request{};
+  }
+
+  void init() override {}
+  bool send(Request& req) override {
+    last_receiver = m_channel_id;
+    last_request = req;
+    return true;
+  }
+  bool priority_send(Request& req) override { return send(req); }
+  void tick() override {}
+  int get_tx_bytes() const override { return 64; }
+  int get_num_levels() const override { return 0; }
+  float get_tCK() const override { return 1.0f; }
+};
+
+class PuDRoutingSystemUnderTestCpp {
+ public:
+  explicit PuDRoutingSystemUnderTestCpp(int num_channels)
+      : m_frontend(std::make_unique<HarnessFrontEnd>(1)) {
+    if (num_channels <= 0) {
+      throw std::runtime_error("PuDRoutingSystemUnderTest requires at least one channel");
+    }
+
+    ConfigNode::Seq controllers;
+    for (int channel = 0; channel < num_channels; channel++) {
+      controllers.emplace_back(ConfigNode::Map{{"impl", "RoutingControllerStub"}});
+    }
+    ConfigNode system_config(ConfigNode::Map{
+        {"impl", "GenericDRAM"},
+        {"clock_ratio", 1},
+        {"channel_mapper", ConfigNode::Map{{"impl", "PassThroughChannelMapper"}}},
+        {"controllers", std::move(controllers)},
+    });
+    ConfigNode wrapped = wrap_interface_config(IMemorySystem::get_name(), std::move(system_config));
+    m_memory_system = Factory::create_memory_system(wrapped);
+    m_memory_system_impl.reset(dynamic_cast<Implementation*>(m_memory_system));
+    if (!m_memory_system_impl) {
+      throw std::runtime_error("PuDRoutingSystemUnderTest failed to create GenericDRAMSystem");
+    }
+
+    m_frontend->connect_memory_system(m_memory_system);
+    m_memory_system->connect_frontend(m_frontend.get());
+  }
+
+  nb::dict send_pud_request(int type_id, const std::vector<AddrVec_t>& operands) {
+    RoutingControllerStub::reset();
+    Request req(operands, type_id);
+    req.size_bytes = m_memory_system->get_tx_bytes();
+    if (!m_memory_system->send(req)) {
+      throw std::runtime_error("GenericDRAMSystem failed to route PuD request");
+    }
+
+    nb::dict out;
+    out["receiver"] = RoutingControllerStub::last_receiver;
+    out["operands"] = RoutingControllerStub::last_request.operands;
+    return out;
+  }
+
+ private:
+  std::unique_ptr<HarnessFrontEnd> m_frontend;
+  std::unique_ptr<Implementation> m_memory_system_impl;
+  IMemorySystem* m_memory_system = nullptr;
 };
 
 // ---- ChannelMapperUnderTest harness ----
@@ -292,6 +376,29 @@ class ControllerUnderTestCpp {
     if (!was_forwarded) {
       m_command_outstanding++;
     }
+  }
+
+  nb::dict send_pud_request(int type_id, const std::vector<AddrVec_t>& operands, int source_id) {
+    Request req(operands, type_id);
+    req.size_bytes = m_controller->get_tx_bytes();
+    req.source_id = source_id;
+
+    size_t before = m_controller_base->pending_pud_requests().size();
+    if (!m_memory_system->send(req)) {
+      throw std::runtime_error("ControllerUnderTest failed to enqueue PuD request");
+    }
+    const auto& pending = m_controller_base->pending_pud_requests();
+    if (pending.size() != before + 1) {
+      throw std::runtime_error("ControllerUnderTest PuD request was not preserved by the controller");
+    }
+    const Request& stored = pending.buffer.back();
+
+    nb::dict out;
+    out["type_id"] = stored.type_id;
+    out["operands"] = stored.operands;
+    out["addr_vec"] = stored.addr_vec;
+    out["source_id"] = stored.source_id;
+    return out;
   }
 
   void priority_send(const std::string& command_name, const AddrVec_t& addr_vec) {
@@ -418,8 +525,22 @@ NB_MODULE(_ramulator_test, m) {
       .def("timing", &ControllerUnderTestCpp::timing, nb::arg("name"))
       .def("send_request", &ControllerUnderTestCpp::send_request,
            nb::arg("type_id"), nb::arg("addr_vec"), nb::arg("source_id") = 0)
+      .def("send_pud_request", &ControllerUnderTestCpp::send_pud_request,
+           nb::arg("type_id"), nb::arg("operands"), nb::arg("source_id") = 0)
       .def("priority_send", &ControllerUnderTestCpp::priority_send, nb::arg("command"), nb::arg("addr_vec"))
       .def("tick", &ControllerUnderTestCpp::tick)
       .def("is_idle", &ControllerUnderTestCpp::is_idle)
       .def("stats", &ControllerUnderTestCpp::stats);
+
+  nb::class_<PuDRoutingSystemUnderTestCpp>(m, "_PuDRoutingSystemUnderTest")
+      .def(nb::init<int>(), nb::arg("num_channels"))
+      .def("send_pud_request", &PuDRoutingSystemUnderTestCpp::send_pud_request,
+           nb::arg("type_id"), nb::arg("operands"));
+
+  m.def("_validate_pud_routing",
+        [](int type_id, const std::vector<AddrVec_t>& operands, int num_channels) {
+          Request req(operands, type_id);
+          return validate_pud_routing(req, num_channels);
+        },
+        nb::arg("type_id"), nb::arg("operands"), nb::arg("num_channels"));
 }

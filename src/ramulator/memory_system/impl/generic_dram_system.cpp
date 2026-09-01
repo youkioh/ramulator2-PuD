@@ -6,6 +6,7 @@
 #include "ramulator/controller/i_controller.h"
 #include "ramulator/memory_system/channel_mapper/i_channel_mapper.h"
 #include "ramulator/memory_system/i_memory_system.h"
+#include "ramulator/memory_system/pud_request_routing.h"
 #include "ramulator/translation/i_translation.h"
 
 namespace Ramulator {
@@ -58,10 +59,15 @@ class GenericDRAMSystem final : public IMemorySystem, public Implementation {
           req.size_bytes, m_tx_bytes));
     }
 
-    // Channel mapper sets req.addr_vec[0] and req.intra_channel_addr.
-    // Controller::send() handles address mapping internally.
-    m_channel_mapper->apply(req);
-    int channel_id = req.addr_vec[0];
+    int channel_id = -1;
+    if (is_pud_request_type(req.type_id)) {
+      channel_id = validate_pud_routing(req, static_cast<int>(m_controllers.size()));
+    } else {
+      // Channel mapper sets req.addr_vec[0] and req.intra_channel_addr.
+      // Controller::send() handles address mapping internally.
+      m_channel_mapper->apply(req);
+      channel_id = req.addr_vec[0];
+    }
     bool is_success = m_controllers[channel_id]->send(req);
 
     if (is_success) {

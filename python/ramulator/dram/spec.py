@@ -26,6 +26,14 @@ from ramulator.components import Component
 from ramulator.param import Param
 
 
+class _ControllerSequencedMarker:
+    def __repr__(self):
+        return "CONTROLLER_SEQUENCED"
+
+
+CONTROLLER_SEQUENCED = _ControllerSequencedMarker()
+
+
 class TimingConstraint:
     """A timing constraint between commands at a specific hierarchy level.
 
@@ -72,7 +80,7 @@ class DRAMStandard(Component):
     commands = []  # type: list[str]  — command names
     states = []  # type: list[str]  — state names
     timing_params = []  # type: list[str]
-    supported_requests = {}  # type: dict[str, str]
+    supported_requests = {}  # type: dict[str, str | _ControllerSequencedMarker]
     timing_constraints = []  # type: list[TimingConstraint]
     command_cycles = {}  # type: dict[str, float] — CA bus cycles per command (default 1 CK)
     tick_multiplier = 1  # ticks per CK cycle (e.g. 2 for HBM3 half-CK ticks)
@@ -81,6 +89,7 @@ class DRAMStandard(Component):
     read_latency = "nCL + nBL"
     row_commands = []  # type: list[str]  — commands on the row bus (dual-bus standards)
     column_commands = []  # type: list[str]  — commands on the column bus (dual-bus standards)
+    geometry = {}  # type: dict[str, int] — optional internal physical geometry
 
     # ---- Class-level: presets ----
     org_presets = {}  # type: dict[str, dict]
@@ -256,6 +265,8 @@ class DRAMStandard(Component):
         }
         if cls.data_payload_bytes is not None:
             config["data_payload_bytes"] = cls.data_payload_bytes
+        if cls.geometry:
+            config["geometry"] = dict(cls.geometry)
         return config
 
     @classmethod
@@ -342,6 +353,13 @@ class DRAMStandard(Component):
                 f"supported_requests must start with 'Read' and 'Write', got {req_keys[:2]}"
             )
         for req_type, cmd_name in cls.supported_requests.items():
+            if cmd_name is CONTROLLER_SEQUENCED:
+                continue
+            if cmd_name is None:
+                raise ValueError(
+                    f"supported_requests['{req_type}'] must use "
+                    "CONTROLLER_SEQUENCED instead of None"
+                )
             if cmd_name not in cmd_names:
                 raise ValueError(
                     f"supported_requests['{req_type}'] -> '{cmd_name}' not in commands"
