@@ -58,6 +58,11 @@ class DDR4_PuD : public DRAMSpec {
       nREFI,
       nCS,
       tCK_ps,
+      nPUD_ACT_OC,
+      nPUD_ACT,
+      nPUD_ACT_S_OC,
+      nPUD_ACT_S,
+      nPUD_N,
       COUNT
     };
   };
@@ -81,8 +86,9 @@ class DDR4_PuD : public DRAMSpec {
                "ACT_PUD_S_OC", "N"});
     set_names(states, state_names, {"Opened", "Closed", "N_A", "PuDChargeSharing", "PuDSensed"});
     set_names(timings, timing_names,
-              {"rate",  "nBL",   "nCL",   "nRCD",  "nRP",   "nRAS", "nRC",  "nWR",   "nRTP", "nCWL",  "nCCDS",
-               "nCCDL", "nRRDS", "nRRDL", "nWTRS", "nWTRL", "nFAW", "nRFC", "nREFI", "nCS",  "tCK_ps"});
+              {"rate",  "nBL",   "nCL",    "nRCD",        "nRP",      "nRAS",          "nRC",        "nWR",   "nRTP",
+               "nCWL",  "nCCDS", "nCCDL",  "nRRDS",       "nRRDL",    "nWTRS",         "nWTRL",      "nFAW",  "nRFC",
+               "nREFI", "nCS",   "tCK_ps", "nPUD_ACT_OC", "nPUD_ACT", "nPUD_ACT_S_OC", "nPUD_ACT_S", "nPUD_N"});
 
     // Static spec data
     internal_prefetch_size = 8;

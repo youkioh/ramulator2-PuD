@@ -45,6 +45,9 @@ NOT:     A_S*(X) -> N -> P
 - Use a phase-only device legality model and map final `P` to ordinary per-bank
   `PREpb`, with the detailed transitions and conventional-command legality
   recorded by Decision Gate 7.
+- Use the DDR4_2400R baseline and the accepted bank-local directed PuD timing,
+  aggregate-`N`, command-bus, activation-window, and RowCopy scaling rules
+  recorded by Decision Gate 8.
 
 ## Out of scope
 
@@ -416,33 +419,23 @@ timing engine or an explicitly approved minimal extension.
 
 ### Decision Gate 8 — Timing, resource, and command-bus rules
 
-Approve:
+Status: Accepted. See
+`docs/pud/decisions/pud-timing-resource-and-command-bus-rules.md`.
 
-- Numeric timings for all activation variants, `N`, and precharge.
-- Whether `N` has one aggregate duration or separately relevant phase
-  boundaries.
-- Resource occupancy during `N`.
-- Constraint hierarchy levels.
-- Command duration and bus occupancy.
-- Interactions with conventional ACT, PRE, RD, WR, and refresh.
-- Activation-window or rolling-history limits.
-- Whether RowCopy timing depends on destination count beyond the repeated
-  destination activation relationships.
+Use the actual Ramulator2 DDR4_2400R baseline, the accepted continuous-time
+derivation and ceiling conversion, and target-bank-local directed timing
+constraints. Model `N` as one aggregate bank-local command, use one CK of
+command-bus occupancy per PuD command, exclude PuD activations from `tRRD` and
+`tFAW`, and add one 5 CK interval per RowCopy destination. The evidence,
+derived values, explicit modeling assumptions, and vendor-validation issues
+are recorded in the decision document.
 
-### Missing reference information
-
-The current material does not provide:
-
-- Numeric PuD timings.
-- Timing relationships with ordinary commands or refresh.
-- Command-bus occupancy.
-- Resource occupancy of `N`.
-- Destination-count-dependent RowCopy timing, if any.
+Refresh during an intermediate PuD phase remains unsupported. Do not infer a
+timing or interruption behavior for it in Phase 5.
 
 ### Prerequisite decisions
 
-- Resolve Decision Gate 8.
-- Supply the timing and resource references listed above.
+- Satisfied by the accepted Decision Gate 8 decision.
 
 ### Validation before proceeding
 
@@ -456,7 +449,9 @@ The current material does not provide:
 
 ### Completion criteria
 
-- Every supported transition has source-backed timing behavior.
+- Every supported transition has accepted timing behavior whose provenance is
+  identified as source-backed evidence, a derived value, or an explicit
+  project modeling assumption.
 - `N` exposes no more internal timing structure than required by the accepted
   model.
 - No PuD timing is inferred silently from ordinary DDR4.
