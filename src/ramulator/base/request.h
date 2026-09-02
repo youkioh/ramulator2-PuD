@@ -32,7 +32,8 @@ struct Request {
   std::vector<AddrVec_t> operands{};
 
   int command = -1;        // Current command to issue to progress the request
-  int final_command = -1;  // Terminal command needed to complete the request
+  int final_command = -1;  // Terminal command, or next controller-sequenced command
+  size_t pud_sequence_index = 0;  // Next PuD sequence step to issue
   bool is_stat_updated = false;
 
   Clk_t arrive = -1;  // Clock cycle when the request arrives at the memory controller

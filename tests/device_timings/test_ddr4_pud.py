@@ -102,6 +102,16 @@ def test_ddr4_pud_n_command_metadata_and_handlers_are_registered_without_interna
     }
 
 
+@pytest.mark.parametrize("opening_command", ("ACT_PUD_OC", "ACT_PUD_S_OC"))
+def test_ddr4_pud_opening_requests_prepb_from_conventional_opened(opening_command):
+    dut = make_dut(ramulator.dram.DDR4_PuD)
+    addr = dut.addr_vec(Rank=0, BankGroup=0, Bank=0, Row=9, Column=0)
+
+    dut.issue("ACT", addr, clk=0)
+
+    assert dut.probe(opening_command, addr, clk=0).preq == "PREpb"
+
+
 def test_ddr4_pud_rowcopy_device_transitions_support_repeated_destinations():
     dut = make_dut(ramulator.dram.DDR4_PuD)
     source = dut.addr_vec(Rank=0, BankGroup=0, Bank=0, Row=10, Column=0)

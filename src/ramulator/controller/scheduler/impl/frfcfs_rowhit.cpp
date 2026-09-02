@@ -26,17 +26,25 @@ class FRFCFSRowHitScheduler : public IScheduler, public Implementation {
     m_bank_rowhit_arrivals.assign(num_banks, -1);
   }
 
-  ReqBuffer::iterator get_best_request(ReqBuffer& buffer, RequestFilterRef filter) override {
+  ReqBuffer::iterator get_best_request(
+      ReqBuffer& buffer,
+      RequestFilterRef eligibility_filter,
+      RequestFilterRef command_filter) override {
     if (buffer.size() == 0) {
       return buffer.end();
     }
 
     std::fill(m_bank_rowhit_flags.begin(), m_bank_rowhit_flags.end(), false);
 
-    // Pass 1: resolve prerequisites and record all row-hits.
+    // Pass 1: filter pre-prerequisite eligibility, resolve prerequisites, and
+    // record all eligible row-hits. command_filter intentionally retains its
+    // pre-existing pass-2-only semantics.
     for (auto it = buffer.begin(); it != buffer.end(); it++) {
+      if (eligibility_filter && !eligibility_filter(*it)) {
+        continue;
+      }
       it->command = m_ctrl->get_preq_command(it->final_command, it->addr_vec);
-      
+
       if (m_ctrl->m_device.check_rowbuffer_hit(it->final_command, it->addr_vec, m_ctrl->m_clk)) {
         const int bank_id = m_ctrl->m_device.get_flat_bank_id(it->addr_vec);
         if (bank_id >= 0 && bank_id < static_cast<int>(m_bank_rowhit_flags.size())) {
@@ -53,7 +61,10 @@ class FRFCFSRowHitScheduler : public IScheduler, public Implementation {
     bool cand_timing_ok = false;
 
     for (auto it = buffer.begin(); it != buffer.end(); it++) {
-      if (filter && !filter(*it)) {
+      if (eligibility_filter && !eligibility_filter(*it)) {
+        continue;
+      }
+      if (command_filter && !command_filter(*it)) {
         continue;
       }
 

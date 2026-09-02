@@ -248,15 +248,26 @@ def test_gddr7_internal_rckstrt_does_not_depend_on_priority_buffer_capacity():
 
 
 def test_gddr7_frfcfs_rowhit_protects_column_hits_from_row_slot_prepb():
-    dut = _make_gddr7(scheduler=ramulator.scheduler.FRFCFSRowHit(), read_buffer_size=128)
+    dram = _dram(nRTPSB=1, nCCDSB=8)
+    dut = _make_gddr7(
+        dram,
+        scheduler=ramulator.scheduler.FRFCFSRowHit(),
+        read_buffer_size=16,
+    )
     row_level = _level_index(dut, "Row")
     open_row = _addr(dut, bank=0, row=0, column=0)
     conflict = _addr(dut, bank=0, row=1, column=0)
 
     dut.send_request("Read", open_row)
     dut.run_until_idle(max_ticks=128)
+    for _ in range(dut.timing("nRAS")):
+        assert dut.tick() == []
 
-    for column in range(4):
+    # nRTPSB < nCCDSB makes PREpb ready while the second row hit is timing-
+    # blocked. The row-slot command filter must not hide that hit from the
+    # scheduler's precharge-protection metadata.
+    num_row_hits = 2
+    for column in range(num_row_hits):
         dut.send_request("Read", _addr(dut, bank=0, row=0, column=column))
     dut.send_request("Read", conflict)
 
@@ -268,7 +279,7 @@ def test_gddr7_frfcfs_rowhit_protects_column_hits_from_row_slot_prepb():
         if item.command == "RD" and item.addr_vec[row_level] == 0
     ]
 
-    assert len(row0_rds_before_pre) == 4
+    assert len(row0_rds_before_pre) == num_row_hits
 
 
 def test_gddr7_manual_rfm_commands_use_device_command_plumbing():

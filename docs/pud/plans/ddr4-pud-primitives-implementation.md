@@ -48,6 +48,12 @@ NOT:     A_S*(X) -> N -> P
 - Use the DDR4_2400R baseline and the accepted bank-local directed PuD timing,
   aggregate-`N`, command-bus, activation-window, and RowCopy scaling rules
   recorded by Decision Gate 8.
+- Derive bank-scoped ownership and atomicity from the retained active PuD
+  request from its first activation through final `PREpb`, while permitting
+  timing-legal work to non-owned banks, as recorded by Decision Gate 9.
+- Use the Gate 9 pre-prerequisite eligibility rule as the sole protection from
+  conflicting refresh, row-policy, priority-maintenance, and plugin-generated
+  work, as recorded by Decision Gate 10.
 
 ## Out of scope
 
@@ -281,8 +287,8 @@ sensing through `A_S` or `A_S*` enters `PuDSensed`; RowCopy destination `A`
 commands and `N` may remain in `PuDSensed`.
 
 Do not add a finalized or primitive-specific device state. Primitive identity,
-operand identities and ordering, activation and destination counts, exact
-sequence progress, and the next expected command remain controller
+operand identities and role assignment, activation and destination counts,
+exact sequence progress, and the next expected command remain controller
 responsibilities.
 
 This decision does not define precharge or conventional-command legality,
@@ -296,8 +302,8 @@ interleaving, timing, resource occupancy, interruption, or scheduling.
 
 - Specify device-level tests for every accepted simulator-visible state and
   command transition before controller sequencing begins.
-- Keep request-specific operand ordering and operation ownership tests at the
-  controller layer.
+- Keep request-specific operand role, deterministic traversal, and operation
+  ownership tests at the controller layer.
 
 ### Completion criteria
 
@@ -341,8 +347,9 @@ and state abstractions.
 - Implement the accepted interaction with conventional ACT, RD, WR, and PRE
   during PuD intermediate states.
 
-Request-specific operand ordering and sequence ownership are controller
-responsibilities and are implemented and tested at the controller layer.
+Request-specific operand roles, deterministic traversal, and sequence
+ownership are controller responsibilities and are implemented and tested at
+the controller layer.
 
 ### Decision Gate 7 — Precharge and legality semantics
 
@@ -377,8 +384,8 @@ accepted gates:
 - Conventional DDR4_PuD accesses retain ordinary behavior outside a PuD
   operation.
 
-Request-specific operand order, operand identity, and sequence ownership are
-validated later at the controller layer.
+Request-specific operand roles, operand identity, deterministic traversal, and
+sequence ownership are validated later at the controller layer.
 
 ### Completion criteria
 
@@ -460,7 +467,8 @@ timing or interruption behavior for it in Phase 5.
 
 ### Objective
 
-Translate each PuD request into its ordered, operand-specific command sequence.
+Translate each PuD request into its role-ordered, operand-specific command
+sequence.
 
 ### Relevant existing components
 
@@ -474,10 +482,15 @@ Translate each PuD request into its ordered, operand-specific command sequence.
 
 ### Expected code changes
 
-- Add request-owned sequence progress if selected by Decision Gate 9.
+- Add the minimum monotonic per-request phase/operand cursor selected by
+  Decision Gate 9.
 - Select the correct operand address for every phase.
 - Iterate through all RowCopy destinations without a fixed
   primitive-specific limit.
+- Retain a PuD request in the active buffer after its first activation and
+  advance it in place rather than re-promoting later PuD activations.
+- Before prerequisite resolution, exclude non-owner candidates whose command
+  scope intersects a bank containing an active PuD request.
 - Execute `N` using its accepted abstraction.
 - Keep the request alive until final precharge.
 - Consult device prerequisites and timing before every issued command.
@@ -495,67 +508,96 @@ NOT:     A_S*(X) -> N -> P
 `N` appears exactly once as an explicit command in the NOT sequence; its
 internal circuit phases are not exposed in that sequence.
 
+The sequence fixes command roles. RowCopy visits every destination exactly
+once after sensing the source, but destination order is not a physical
+correctness requirement in the accepted model. Likewise, the order among
+equivalent intermediate `A` operands in MAJ3/MAJ5 has no simulator-visible
+physical significance. Submitted operand order remains the deterministic
+traversal and role-assignment convention for implementation and testing.
+
 ### Decision Gate 9 — Controller sequencing and scheduling atomicity
 
-Define:
+Status: Accepted. See
+`docs/pud/decisions/pud-controller-sequencing-and-atomicity.md`.
 
-- How the controller tracks request-specific operand ordering and sequence
-  progress.
-- How the controller tracks operation ownership.
-- Whether same-bank commands may interleave.
-- Whether other-bank, rank, or channel commands may interleave.
-- Whether sequence arrows require contiguous issue.
-- Whether a PuD request reserves a bank or another resource.
-- Whether `N` is indivisible at the scheduler level.
-- Whether RowCopy may be interrupted between destination activations.
-- Fairness expectations for variable-length RowCopy operations.
+Use the retained active PuD request as the authoritative continuation request
+and derive bank-scoped ownership and eligibility from it; do not add a
+bank-to-owner table. Track only a monotonic phase/operand cursor, advance the
+active request in place, and exclude intersecting non-owner candidates before
+prerequisite resolution. Preserve the accepted command-role order and the
+submitted-order deterministic traversal convention without treating
+equivalent destination or intermediate ordering as a physical requirement.
+Allow timing-legal work to non-owned banks between PuD commands; sequence
+arrows are role-ordered but not contiguous channel issue.
+
+RowCopy retains ownership across its entire destination list without a
+destination quantum or preemption mechanism. `N` remains one issued
+lower-level command. This is an explicit simulator modeling decision, not a
+verified physical requirement. Refresh, row-policy, priority-maintenance, and
+plugin interaction follow the accepted Decision Gate 10 policy.
 
 ### Decision Gate 10 — Refresh and row-policy interaction
 
-Define interaction with:
+Status: Accepted. See
+`docs/pud/decisions/pud-refresh-row-policy-and-maintenance-interaction.md`.
 
-- Refresh requests.
-- Open and ClosedCAP row policies.
-- Priority maintenance commands.
-- Controller plugins.
-- Intermediate NOT state.
-- Long-running RowCopy requests.
+Apply the Gate 9 eligibility rule before prerequisite resolution to every
+candidate source. Conflicting refresh, row-policy, priority-maintenance, and
+plugin-generated work remains queued until the retained active PuD request
+issues final `PREpb`. Do not preempt PuD, add refresh-aware admission, or
+bypass a blocked FIFO priority head. Preserve existing active-buffer priority,
+priority-buffer behavior, and hook ordering. Already-active nonintersecting
+requests retain existing scheduling behavior.
+
+`ClosedCAP` may not precharge an active PuD sequence. Observational plugin
+hooks remain unchanged, but behavior that depends on conventional activation
+or maintenance semantics is not physically validated. Adding the
+`DDR4_PuD` standard name to `AllBankRefresh` is a Phase 6 implementation
+detail.
 
 ### Missing reference information
 
-The available material does not specify:
-
-- Atomicity or interleaving requirements.
-- Reservation scope.
-- Whether the `N` command or surrounding NOT sequence is interruptible.
-- Whether RowCopy may be interrupted between destination activations.
+The accepted Gate 10 policy may postpone refresh for an arbitrarily long
+RowCopy. No postponement limit, credit model, retention guarantee, or
+queue-overflow policy is modeled, and physical DDR4 support for unbounded
+postponement is not claimed. PuD interaction with RowHammer-sensitive or other
+behavior-changing plugins is also not physically validated. These are explicit
+limitations rather than blockers for the accepted simulator policy.
 
 ### Prerequisite decisions
 
-- Resolve Decision Gates 9 and 10.
-- Supply the atomicity, interleaving, and resource references required by those
-  gates.
+- Decision Gate 9 is satisfied by the accepted controller sequencing and
+  bank-scoped atomicity decision.
+- Decision Gate 10 is satisfied by the accepted refresh, row-policy,
+  priority-maintenance, and plugin-interaction decision.
 
 ### Validation before proceeding
 
 At the controller layer:
 
 - Every issued command uses the correct request operand row.
-- RowCopy visits each destination exactly once and in submitted order.
+- RowCopy visits each destination exactly once using submitted order as the
+  deterministic traversal convention rather than a physical requirement.
 - RowCopy works with one destination and longer destination lists.
-- MAJ3 and MAJ5 issue the accepted variants for the correct operands and order.
+- MAJ3 and MAJ5 issue the accepted first, intermediate, final-sensing, and
+  precharge roles, using submitted order as the deterministic role/traversal
+  convention.
 - NOT issues the accepted `N` representation exactly once.
 - The request does not retire before final precharge.
 - Timing stalls do not lose, duplicate, or skip phases.
 - Accepted contention and interleaving behavior is tested.
 - Competing requests cannot corrupt PuD sequence progress or ownership.
+- Conflicting row-policy, refresh, and plugin-generated priority work cannot
+  interrupt an active PuD request and remains queued through final `PREpb`.
+- A blocked priority-buffer head retains existing FIFO blocking behavior.
+- Already-active nonintersecting requests retain existing scheduling behavior.
 
 ### Completion criteria
 
 - Valid requests for all four primitives deterministically produce their
   complete accepted sequences.
-- Request-specific operand ordering and sequence ownership are enforced at the
-  controller layer.
+- Request-specific operand roles, deterministic traversal, sequence progress,
+  and active-request-derived ownership are enforced at the controller layer.
 - RowCopy sequence length is determined by its destination list rather than a
   hard-coded maximum.
 
@@ -640,8 +682,9 @@ For RowCopy:
 
 - Test one source with one destination.
 - Test one source with multiple destination-list lengths.
-- Verify preservation of destination order at the layer selected by Decision
-  Gate 9.
+- Verify submitted-order destination traversal as the deterministic
+  implementation convention selected by Decision Gate 9, without treating it
+  as a physical correctness requirement.
 - Reject zero destinations.
 - Do not impose an arbitrary primitive-specific maximum.
 - Verify the exact accepted command/address sequence and final completion.
@@ -683,17 +726,15 @@ data-value tracking is out of scope.
 - RowCopy supports one or more destinations without an arbitrary fixed maximum.
 - Repeated RowCopy destination activations follow the accepted state semantics.
 - `N` uses the minimum abstraction accepted at Decision Gate 5.
-- Request-specific operand ordering and sequence ownership are handled at the
-  controller layer.
+- Request-specific operand roles, deterministic traversal, and
+  active-request-derived sequence ownership are handled at the controller
+  layer.
 - Every accepted modeling decision is covered by tests.
 - Missing references are never replaced with undocumented assumptions.
 - Existing standard DDR4 behavior remains unchanged.
 
 ## Decisions still requiring user approval
 
-- Atomicity and interleaving policy, including interruption between RowCopy
-  destinations.
-- Refresh, row-policy, and plugin interaction.
 - Queueing, callback, completion, and statistics behavior.
 
 ## Missing reference information blocking implementation
@@ -702,9 +743,5 @@ data-value tracking is out of scope.
 - Timing relationships with ordinary commands and refresh.
 - Command-bus and internal-resource occupancy.
 - Aggregate timing and resource occupancy of `N`.
-- Whether the `N` command or surrounding NOT sequence can be interrupted or
-  interleaved.
-- Atomicity and interleaving requirements for all primitives.
-- Whether RowCopy may be interrupted between destination activations.
 - Whether RowCopy timing or legality depends on destination count beyond the
   accepted repeated destination activation relationships.

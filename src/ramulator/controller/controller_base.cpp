@@ -277,11 +277,10 @@ void ControllerBase::promote_to_active(ReqBuffer::iterator& req_it, ReqBuffer& b
 
 ControllerBase::Candidate ControllerBase::pick_best_ready_from(
     ReqBuffer& buffer,
-    RequestFilterRef filter) {
+    RequestFilterRef command_filter,
+    RequestFilterRef eligibility_filter) {
   Candidate c;
-  // Scheduler contract: get_best_request() derives req.command before applying
-  // filter, so predicates can inspect the current command directly.
-  auto it = m_scheduler->get_best_request(buffer, filter);
+  auto it = m_scheduler->get_best_request(buffer, eligibility_filter, command_filter);
   if (it == buffer.end()) {
     return c;
   }
@@ -294,13 +293,18 @@ ControllerBase::Candidate ControllerBase::pick_best_ready_from(
   return c;
 }
 
-ControllerBase::Candidate ControllerBase::pick_priority_if(RequestFilterRef filter) {
+ControllerBase::Candidate ControllerBase::pick_priority_if(
+    RequestFilterRef command_filter,
+    RequestFilterRef eligibility_filter) {
   Candidate c;
   if (m_priority_buffer.size() == 0) {
     return c;
   }
 
   auto it = m_priority_buffer.begin();
+  if (eligibility_filter && !eligibility_filter(*it)) {
+    return c;
+  }
   it->command = get_preq_command(it->final_command, it->addr_vec);
   if (!check_timing(it->command, it->addr_vec)) {
     return c;
@@ -308,7 +312,7 @@ ControllerBase::Candidate ControllerBase::pick_priority_if(RequestFilterRef filt
   if (would_close_active(*it)) {
     return c;
   }
-  if (filter && !filter(*it)) {
+  if (command_filter && !command_filter(*it)) {
     return c;
   }
 
@@ -318,15 +322,17 @@ ControllerBase::Candidate ControllerBase::pick_priority_if(RequestFilterRef filt
   return c;
 }
 
-ControllerBase::Candidate ControllerBase::pick_rw_if(RequestFilterRef filter) {
+ControllerBase::Candidate ControllerBase::pick_rw_if(
+    RequestFilterRef command_filter,
+    RequestFilterRef eligibility_filter) {
   set_write_mode();
   auto& buffer = m_is_write_mode ? m_write_buffer : m_read_buffer;
   return pick_best_ready_from(buffer, [&](const Request& req) {
     if (would_close_active(req)) {
       return false;
     }
-    return !filter || filter(req);
-  });
+    return !command_filter || command_filter(req);
+  }, eligibility_filter);
 }
 
 bool ControllerBase::would_close_active(const Request& req) const {

@@ -17,10 +17,14 @@ struct ACT_PUD_OC {
   }
 
   static int preq(DRAMNode* bank, int cmd, const AddrVec_t& addr_vec, Clk_t clk) {
-    if (bank->m_state == T::State::Closed) {
-      return T::Command::ACT_PUD_OC;
+    switch (bank->m_state) {
+      case T::State::Closed:
+        return T::Command::ACT_PUD_OC;
+      case T::State::Opened:
+        return T::Command::PREpb;
+      default:
+        throw std::runtime_error("[ACT_PUD_OC] Invalid bank state!");
     }
-    throw std::runtime_error("[ACT_PUD_OC] Invalid bank state!");
   }
 };
 

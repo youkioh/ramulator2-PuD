@@ -423,6 +423,7 @@ class ControllerUnderTestCpp {
       throw std::runtime_error("ControllerUnderTest PuD request was not preserved by the controller");
     }
     const Request& stored = pending.buffer.back();
+    m_command_outstanding++;
 
     nb::dict out;
     out["type_id"] = stored.type_id;
@@ -449,8 +450,13 @@ class ControllerUnderTestCpp {
 
     nb::list issued;
     for (const auto& rec : m_validation_hook->take_issued_commands_this_tick()) {
-      bool tracked_final = rec.command == rec.final_command &&
-                           (rec.type_id != -1 || rec.source_id == kHarnessInternalSourceId);
+      bool pud_final = is_pud_request_type(rec.type_id) &&
+                       rec.command == rec.final_command &&
+                       spec().command_names[rec.command] == "PREpb";
+      bool tracked_final = pud_final ||
+                           (!is_pud_request_type(rec.type_id) &&
+                            rec.command == rec.final_command &&
+                            (rec.type_id != -1 || rec.source_id == kHarnessInternalSourceId));
       if (tracked_final) {
         if (m_command_outstanding == 0) {
           throw std::runtime_error("ControllerUnderTest command accounting underflow");

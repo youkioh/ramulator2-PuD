@@ -129,13 +129,15 @@ def test_columns_are_preserved_but_do_not_affect_placement():
     assert stored["operands"] == operands
 
 
-def test_pud_ingress_does_not_generate_dram_commands():
+def test_pud_ingress_starts_controller_sequence():
     dut = make_dut()
     operands = [operand(dut, row=1), operand(dut, row=2)]
 
     dut.send_pud_request("RowCopy", operands)
 
-    assert dut.tick() == []
+    issued = dut.tick()
+    assert [item.command for item in issued] == ["ACT_PUD_S_OC"]
+    assert issued[0].addr_vec == operands[0]
 
 
 def test_controller_rejects_bad_shape_and_bounds():

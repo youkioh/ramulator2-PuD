@@ -14,7 +14,10 @@ class FRFCFSScheduler : public IScheduler, public Implementation {
     m_ctrl = cast_parent<ControllerBase>();
   }
 
-  ReqBuffer::iterator get_best_request(ReqBuffer& buffer, RequestFilterRef filter) override {
+  ReqBuffer::iterator get_best_request(
+      ReqBuffer& buffer,
+      RequestFilterRef eligibility_filter,
+      RequestFilterRef command_filter) override {
     if (buffer.size() == 0) {
       return buffer.end();
     }
@@ -23,11 +26,14 @@ class FRFCFSScheduler : public IScheduler, public Implementation {
     bool cand_timing_ok = false;
 
     for (auto it = buffer.begin(); it != buffer.end(); it++) {
+      if (eligibility_filter && !eligibility_filter(*it)) {
+        continue;
+      }
+
       // Derive the current command (prerequisite resolution)
       it->command = m_ctrl->get_preq_command(it->final_command, it->addr_vec);
 
-      // Apply eligibility filter
-      if (filter && !filter(*it)) {
+      if (command_filter && !command_filter(*it)) {
         continue;
       }
 

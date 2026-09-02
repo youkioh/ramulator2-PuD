@@ -14,13 +14,16 @@ class IScheduler {
   RAMULATOR_REGISTER_INTERFACE(IScheduler, "scheduler")
  public:
   // Contract:
-  //   - The scheduler derives req.command from req.final_command before
-  //     invoking filter, so controller predicates can reason about the current
-  //     command without mutating the request.
-  //   - The filter is eligibility-only. It must not mutate controller state.
+  //   - eligibility_filter runs before prerequisite resolution. It must reason
+  //     from the request's intended final_command and address.
+  //   - The scheduler then derives req.command from req.final_command before
+  //     invoking command_filter, so command-aware predicates retain the
+  //     existing behavior.
+  //   - Filters must not mutate controller state.
   virtual ReqBuffer::iterator get_best_request(
       ReqBuffer& buffer,
-      RequestFilterRef filter) = 0;
+      RequestFilterRef eligibility_filter,
+      RequestFilterRef command_filter) = 0;
 };
 
 }  // namespace Ramulator

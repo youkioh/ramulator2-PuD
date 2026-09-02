@@ -158,9 +158,16 @@ class ControllerBase : public IController, public Implementation {
     ReqBuffer* buffer = nullptr;
   };
 
-  Candidate pick_best_ready_from(ReqBuffer& buffer, RequestFilterRef filter);
-  Candidate pick_priority_if(RequestFilterRef filter = {});
-  Candidate pick_rw_if(RequestFilterRef filter = {});
+  Candidate pick_best_ready_from(
+      ReqBuffer& buffer,
+      RequestFilterRef command_filter = {},
+      RequestFilterRef eligibility_filter = {});
+  Candidate pick_priority_if(
+      RequestFilterRef command_filter = {},
+      RequestFilterRef eligibility_filter = {});
+  Candidate pick_rw_if(
+      RequestFilterRef command_filter = {},
+      RequestFilterRef eligibility_filter = {});
 
   // Scheduling helpers
   bool would_close_active(const Request& req) const;
