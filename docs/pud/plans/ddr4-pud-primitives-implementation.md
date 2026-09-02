@@ -1,6 +1,6 @@
 # DDR4_PuD Basic Primitives Implementation Plan
 
-Status: Phases 1 through 7 complete; Phase 8 not started
+Status: Complete
 
 ## Scope
 
@@ -673,6 +673,8 @@ API.
 
 ## Phase 8 — End-to-end validation
 
+Status: Complete
+
 ### Objective
 
 Validate the complete modeled execution path without claiming functional DRAM
@@ -751,10 +753,10 @@ data-value tracking is out of scope.
 
 ## Decisions still requiring user approval
 
-- None before Phase 7 implementation.
+- None.
 
 ## Missing reference information blocking implementation
 
-- None for Phase 7. Remaining physical-validation limitations are recorded in
+- None. Remaining physical-validation limitations are recorded in
   the accepted decision documents and are not replaced by undocumented
   assumptions.
