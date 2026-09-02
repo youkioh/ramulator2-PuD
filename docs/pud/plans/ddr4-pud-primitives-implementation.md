@@ -1,6 +1,6 @@
 # DDR4_PuD Basic Primitives Implementation Plan
 
-Status: Complete
+Status: Complete (Phases 1–9 complete)
 
 ## Scope
 
@@ -9,17 +9,17 @@ DDR4_PuD, that accepts PuD memory requests with row operands and executes the
 modeled DRAM command sequences for:
 
 - RowCopy: one source row and one or more destination rows
-- TRA / MAJ3
-- 5RA / MAJ5
+- TRA (triple-row activation), exposed through request identifier `MAJ3`
+- 5RA (five-row activation), exposed through request identifier `MAJ5`
 - NOT
 
 The reference sequences are:
 
 ```text
-RowCopy: A_S*(src) -> A(dst0) -> ... -> A(dstN) -> P
-MAJ3:    A*(X) -> A(Y) -> A_S(Z) -> P
-MAJ5:    A*(V) -> A(W) -> A(X) -> A(Y) -> A_S(Z) -> P
-NOT:     A_S*(X) -> N -> P
+RowCopy:     A_S*(src) -> A(dst0) -> ... -> A(dstN) -> P
+TRA (MAJ3): A*(X) -> A(Y) -> A_S(Z) -> P
+5RA (MAJ5): A*(V) -> A(W) -> A(X) -> A(Y) -> A_S(Z) -> P
+NOT:         A_S*(X) -> N -> P
 ```
 
 ## Accepted project decisions
@@ -27,6 +27,12 @@ NOT:     A_S*(X) -> N -> P
 - Preserve the existing standard DDR4 model.
 - Implement PuD support through a separate DDR4-based substrate.
 - Limit this task to RowCopy, MAJ3, MAJ5, and NOT.
+- Retain `MAJ3` and `MAJ5` as a consistent pair of request-level identifiers.
+  `MAJ3` represents the TRA PuD primitive, which realizes 3-input majority;
+  `MAJ5` represents the 5RA PuD primitive, which realizes 5-input majority.
+  `5RA` cannot itself be a C++ identifier because it begins with a digit;
+  `MAJ3` is retained as the paired naming choice, not as a C++ language
+  requirement.
 - RowCopy has one source and one or more destinations.
 - Do not impose an arbitrary maximum RowCopy destination count.
 - Model NOT from `A_S*(X) -> N -> P`.
@@ -57,6 +63,13 @@ NOT:     A_S*(X) -> N -> P
 - Use a configurable, entry-counted pending-PuD buffer; oldest-ready
   PuD-versus-Read/Write arbitration; completion after final `PREpb` plus
   `nRP`; and operation-based PuD statistics, as recorded by Decision Gate 11.
+- Use the existing C++ `IMemorySystem::send(Request&)` interface as the
+  supported PuD submission surface for Phase 9. Do not add a public Python or
+  multi-operand frontend API in that phase.
+- Use the existing command-trace, callback, and statistics facilities for
+  Phase 9 latency observability; do not add production instrumentation.
+- Add one focused DDR4_PuD user guide under `docs/pud/` and link it from the
+  main README.
 
 ## Out of scope
 
@@ -750,6 +763,159 @@ data-value tracking is out of scope.
 - Every accepted modeling decision is covered by tests.
 - Missing references are never replaced with undocumented assumptions.
 - Existing standard DDR4 behavior remains unchanged.
+
+## Phase 9 — Add usability and observability guidance
+
+Status: Complete
+
+### Objective
+
+Make the completed DDR4_PuD primitive model understandable, configurable,
+runnable, and measurable through focused documentation and a small
+reproducible example, without changing any accepted simulator semantics.
+
+### Relevant existing components
+
+- `README.md`
+- `docs/pud/decisions/`
+- `docs/pud/references/`
+- `python/ramulator/dram/ddr4_pud.py`
+- `python/ramulator/controller/generic_ddr.py`
+- `src/ramulator/base/request.h`
+- `src/ramulator/memory_system/i_memory_system.h`
+- `src/ramulator/controller/plugin/impl/cmd_trace_recorder.cpp`
+- Controller callback and statistics interfaces
+- Existing DDR4_PuD device-timing, controller-sequencing, lifecycle, and
+  statistics tests
+
+### Expected documentation and example work
+
+- Add one focused DDR4_PuD user guide under `docs/pud/` and link it from the
+  main README.
+- Summarize the separate DDR4_PuD substrate, the four request-level
+  operations, their lower-level command sequences, and the division of
+  responsibility between requests, the controller, and the DRAM device.
+- Keep `MAJ3` and `MAJ5` as the request identifiers. When discussing the
+  physical primitives, prefer TRA and 5RA, and state explicitly that TRA and
+  5RA realize 3-input and 5-input majority, respectively. Explain the
+  consistent request-identifier naming without claiming that both names are
+  required by C++ identifier rules.
+- Document a complete DDR4_PuD configuration using the supported
+  `DDR4_2400R` timing preset, `GenericDDR`, the configurable
+  `pud_buffer_size`, and appropriate address/channel mappers, row policy,
+  refresh manager, and optional command trace.
+- Document C++ request construction and submission through
+  `Request(std::vector<AddrVec_t>, type)` and
+  `IMemorySystem::send(Request&)`, including `size_bytes`, callbacks,
+  backpressure, and retry behavior. Do not use the test-only Python controller
+  harness as a supported user interface.
+- Document the ordered operand roles and counts for RowCopy, MAJ3, MAJ5, and
+  NOT. Explain that RowCopy has one source followed by one or more
+  destinations and no arbitrary primitive-specific destination limit.
+- Document that operands are full final device-visible address vectors. State
+  the common channel, rank, bank-group, bank, and logical-subarray placement
+  requirements; the `row / 1024` logical-subarray mapping; hierarchy bounds;
+  and the fact that columns are preserved without PuD operation semantics.
+- Document final-`PREpb` ownership release, completion after final `PREpb`
+  plus `nRP`, callback behavior, and the meanings of `arrive` and `depart`.
+- Document all existing per-operation accepted/completed counts, total and
+  average end-to-end latency statistics, pending-PuD queue occupancy
+  statistics, and memory-system accepted-operation counts. Explain why PuD
+  requests are excluded from Read/Write throughput, forwarding, coalescing,
+  and row-buffer statistics.
+- Add a small reproducible C++ example or microbenchmark under `examples/`
+  with an exportable Python configuration. It must submit valid RowCopy,
+  MAJ3, MAJ5, and NOT requests through `IMemorySystem::send(Request&)`, handle
+  retryable backpressure, receive callbacks, emit an existing command trace,
+  and expose the relevant statistics.
+- Keep the isolated-latency run free of unrelated traffic and refresh, use
+  initially closed banks, and use unique request source identifiers so that
+  trace commands and callbacks can be associated with each request.
+- Add only the smallest validation needed to keep the documented example
+  reproducible. Reuse the existing DDR4_PuD timing, sequence, lifecycle, and
+  statistics tests rather than duplicating their model validation.
+
+### Latency observability
+
+Use the existing command trace to obtain the first PuD command issue cycle,
+the callback to obtain `arrive` and `depart`, and the existing statistics for
+aggregate end-to-end measurements. Document or report:
+
+```text
+isolated modeled primitive latency = depart - first PuD command issue
+pre-start delay                    = first PuD command issue - arrive
+end-to-end request latency         = depart - arrive
+```
+
+The pre-start delay includes queueing, arbitration, and any prerequisite work
+before the primitive begins. The end-to-end latency statistics therefore may
+exceed the isolated modeled primitive latency.
+
+For the accepted DDR4_2400R model, document the existing isolated timing
+results, including final `PREpb` recovery:
+
+```text
+RowCopy with D destinations = 40 + 5*D + 16 CK
+TRA (MAJ3 request)          = 66 CK
+5RA (MAJ5 request)          = 76 CK
+NOT                         = 99 CK
+```
+
+Do not add a new production timestamp, trace field, latency counter, or other
+instrumentation for these measurements.
+
+### Current limitations to document
+
+- No DRAM data-value tracking or functional result validation.
+- No energy model, inter-column movement, or higher-level PuD operations.
+- Logical subarray placement is a simulator assumption; physical mat identity
+  and interleaving remain undefined.
+- The completion boundary is a simulator lifecycle definition, not a claim
+  about earliest physical data availability.
+- No PuD preemption, abort, resume, refresh-postponement bound, retention
+  guarantee, or variable-operand metadata-cost model.
+- Physical validation remains unavailable for the accepted atomicity,
+  reservation, command-encoding, shared-resource, activation-window,
+  cross-bank, refresh, and behavior-changing-plugin assumptions identified in
+  the existing decision documents.
+- Future real-workload or external-simulator integration must provide a
+  multi-operand PuD ingress path to the existing Request-level
+  `IMemorySystem::send(Request&)` interface.
+
+### Explicitly out of scope
+
+- Changes to accepted DRAM commands, states, timing, placement, scheduling,
+  arbitration, ownership, refresh, completion, or statistics semantics.
+- Renaming the `MAJ3` or `MAJ5` request identifiers.
+- New production latency instrumentation, trace formats, visualization
+  features, or performance-sweep tooling.
+- A public Python or multi-operand frontend API.
+- Functional result checking, energy modeling, physical mat placement,
+  inter-column movement, and higher-level PuD operations.
+- Unrelated implementation or test-harness cleanup.
+
+### Validation before completion
+
+- The documented configuration exports and constructs DDR4_PuD successfully.
+- The example builds and submits all four request types through the public C++
+  request-level memory-system interface.
+- The example's trace, callback timestamps, and statistics reproduce the
+  documented distinction between isolated, pre-start, and end-to-end
+  latency.
+- The documented isolated timing results agree with the existing device and
+  controller tests.
+- No standard DDR4 behavior or accepted DDR4_PuD behavior changes.
+
+### Completion criteria
+
+- A user can understand, configure, submit, observe, and reproduce every
+  completed DDR4_PuD primitive using the documented supported interface.
+- TRA/MAJ3 and 5RA/MAJ5 terminology is explicit and consistent.
+- Isolated modeled latency is clearly distinguished from end-to-end request
+  latency.
+- Completion, callback, statistics, placement requirements, and current
+  modeling limitations are documented.
+- Phase 9 introduces no new modeling semantics or production instrumentation.
 
 ## Decisions still requiring user approval
 

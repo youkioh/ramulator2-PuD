@@ -103,6 +103,9 @@ python3 examples/example_config.py
 
 You should see some example statistics being printed. You can head to Section 3 directly for detailed explanations and instructions on how to use and configure Ramulator 2.1 if you do not need to build Ramulator 2.1 in your custom environment.
 
+For the separate DDR4_PuD substrate and its reproducible C++ primitive
+microbenchmark, see the [DDR4_PuD user guide](docs/pud/ddr4-pud-user-guide.md).
+
 ### 2.3 Build Requirements
 
 **Required:**

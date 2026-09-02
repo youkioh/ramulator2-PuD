@@ -84,6 +84,11 @@ target_link_libraries(
 
 add_subdirectory(src/ramulator)
 
+add_executable(ddr4_pud_microbenchmark EXCLUDE_FROM_ALL
+  examples/ddr4_pud_microbenchmark.cpp
+)
+target_link_libraries(ddr4_pud_microbenchmark PRIVATE ramulator)
+
 if(RAMULATOR_PYTHON_BINDINGS)
   # Run codegen before building — generates C++ headers from DRAM DSL
   # and Python wrappers from C++ source. Only writes changed files.
