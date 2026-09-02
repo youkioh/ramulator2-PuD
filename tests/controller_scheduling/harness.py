@@ -118,6 +118,17 @@ class ControllerUnderTest:
             raise ValueError(f"Unknown request type: {type_name}")
         self._cpp.send_request(self._request_type_ids[type_name], addr_vec, source_id)
 
+    def send_read_with_reentrant_forwarded_read(
+        self,
+        addr_vec: list[int],
+        source_id: int,
+        forwarded_addr_vec: list[int],
+        forwarded_source_id: int,
+    ) -> None:
+        self._cpp.send_read_with_reentrant_forwarded_read(
+            addr_vec, source_id, forwarded_addr_vec, forwarded_source_id
+        )
+
     def send_pud_request(
         self, type_name: str, operands: list[list[int]], source_id: int = 0
     ) -> dict:
@@ -131,7 +142,28 @@ class ControllerUnderTest:
             "operands": [list(operand) for operand in item["operands"]],
             "addr_vec": list(item["addr_vec"]),
             "source_id": item["source_id"],
+            "arrive": item["arrive"],
         }
+
+    def try_send_pud_request(
+        self, type_name: str, operands: list[list[int]], source_id: int = 0
+    ) -> dict:
+        if type_name not in self._request_type_ids:
+            raise ValueError(f"Unknown request type: {type_name}")
+        item = self._cpp.try_send_pud_request(
+            self._request_type_ids[type_name], operands, source_id
+        )
+        return {
+            "accepted": item["accepted"],
+            "type_id": item["type_id"],
+            "operands": [list(operand) for operand in item["operands"]],
+            "addr_vec": list(item["addr_vec"]),
+            "source_id": item["source_id"],
+            "arrive": item["arrive"],
+        }
+
+    def completions(self):
+        return [dict(item) for item in self._cpp.completions()]
 
     def validate_pud_routing(
         self, type_name: str, operands: list[list[int]], num_channels: int

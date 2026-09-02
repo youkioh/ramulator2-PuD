@@ -1,6 +1,6 @@
 # DDR4_PuD Basic Primitives Implementation Plan
 
-Status: Phases 1 through 4 complete; Phase 5 not started
+Status: Phases 1 through 7 complete; Phase 8 not started
 
 ## Scope
 
@@ -54,6 +54,9 @@ NOT:     A_S*(X) -> N -> P
 - Use the Gate 9 pre-prerequisite eligibility rule as the sole protection from
   conflicting refresh, row-policy, priority-maintenance, and plugin-generated
   work, as recorded by Decision Gate 10.
+- Use a configurable, entry-counted pending-PuD buffer; oldest-ready
+  PuD-versus-Read/Write arbitration; completion after final `PREpb` plus
+  `nRP`; and operation-based PuD statistics, as recorded by Decision Gate 11.
 
 ## Out of scope
 
@@ -603,6 +606,8 @@ At the controller layer:
 
 ## Phase 7 — Complete request lifecycle integration
 
+Status: Complete
+
 ### Objective
 
 Give PuD requests complete external ingress, backpressure, completion, and
@@ -621,33 +626,44 @@ statistics behavior.
 
 - Define PuD queue admission and backpressure.
 - Account for variable-size RowCopy request metadata safely.
-- Invoke completion after final precharge.
+- Release ownership at final `PREpb` issue and invoke external completion after
+  its accepted `nRP` recovery through the shared completion infrastructure.
 - Add minimal approved PuD statistics.
 - Prevent Read forwarding and Write coalescing from applying to PuD requests.
 
 ### Decision Gate 11 — Completion, queueing, and statistics semantics
 
-Choose:
+Status: Accepted. See
+`docs/pud/decisions/pud-request-lifecycle-queueing-and-statistics.md`.
 
-- Which buffer holds PuD requests.
-- Whether PuD has a dedicated buffer.
-- Whether variable-length RowCopy affects queue-capacity accounting.
-- Callback timing.
-- Required per-operation statistics.
-- Whether latency is measured across the complete sequence.
-- Whether PuD contributes to existing throughput counters.
+Use a configurable dedicated pending-PuD buffer with a default capacity of 32
+entries and count one request per entry regardless of operand count. Preserve
+active-buffer and FIFO priority-buffer behavior. When priority work does not
+block new work, arbitrate oldest-ready between the pending-PuD candidate and
+the existing Read/Write candidate. This supersedes the Phase 6 strict
+pending-PuD-over-Read/Write scaffolding.
+
+Final `PREpb` issue ends the sequence and releases ownership. Retain the now
+unschedulable request through a minimally generalized shared completion path
+until `PREpb` issue plus `nRP`, then set `depart` and invoke its callback once.
+Measure end-to-end latency as `depart - arrive`. Record the accepted
+per-operation, queue-occupancy, and memory-system counts without adding PuD to
+Read/Write byte-throughput or row-buffer statistics. Phase 7 uses the existing
+Request-level memory-system ingress and does not add a multi-operand frontend
+API.
 
 ### Prerequisite decisions
 
-- Resolve Decision Gate 11.
+- Satisfied by the accepted Decision Gate 11 decision.
 
 ### Validation before proceeding
 
 - Admission failure leaves the request retryable and its operand list intact.
-- Completion occurs exactly once after final precharge.
+- Completion occurs exactly once after final `PREpb` recovery at its issue
+  cycle plus `nRP`; ownership ends when `PREpb` issues.
 - RowCopy completion is independent of destination count except for modeled
   execution latency.
-- NOT completes only after `N` and final precharge.
+- NOT completes only after `N` and the final-`PREpb` recovery completion.
 - Existing Read/Write completion and statistics remain unchanged.
 
 ### Completion criteria
@@ -714,7 +730,7 @@ Across all primitives:
 - Verify the accepted scheduling and interleaving policy.
 - Verify refresh and row-policy behavior.
 - Verify mixed ordinary/PuD traffic.
-- Verify completion after final precharge.
+- Verify completion after the accepted final-`PREpb` recovery boundary.
 - Run standard DDR4 regression tests unchanged.
 
 Physical copy, majority, and inversion results are not validated because DRAM
@@ -735,13 +751,10 @@ data-value tracking is out of scope.
 
 ## Decisions still requiring user approval
 
-- Queueing, callback, completion, and statistics behavior.
+- None before Phase 7 implementation.
 
 ## Missing reference information blocking implementation
 
-- Numeric timings for PuD activation variants, `N`, and precharge.
-- Timing relationships with ordinary commands and refresh.
-- Command-bus and internal-resource occupancy.
-- Aggregate timing and resource occupancy of `N`.
-- Whether RowCopy timing or legality depends on destination count beyond the
-  accepted repeated destination activation relationships.
+- None for Phase 7. Remaining physical-validation limitations are recorded in
+  the accepted decision documents and are not replaced by undocumented
+  assumptions.

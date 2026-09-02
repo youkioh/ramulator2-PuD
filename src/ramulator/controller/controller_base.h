@@ -1,6 +1,7 @@
 #ifndef RAMULATOR_CONTROLLER_CONTROLLER_BASE_H
 #define RAMULATOR_CONTROLLER_CONTROLLER_BASE_H
 
+#include <array>
 #include <deque>
 #include <optional>
 #include <string>
@@ -84,6 +85,7 @@ class ControllerBase : public IController, public Implementation {
   int m_read_buffer_size;
   int m_write_buffer_size;
   int m_priority_buffer_size;
+  int m_pud_buffer_size = 32;
   float m_wr_low_watermark;
   float m_wr_high_watermark;
   bool m_is_write_mode = false;
@@ -126,23 +128,31 @@ class ControllerBase : public IController, public Implementation {
   size_t s_read_queue_len = 0;
   size_t s_write_queue_len = 0;
   size_t s_priority_queue_len = 0;
+  size_t s_pud_queue_len = 0;
   float s_queue_len_avg = 0;
   float s_read_queue_len_avg = 0;
   float s_write_queue_len_avg = 0;
   float s_priority_queue_len_avg = 0;
+  float s_pud_queue_len_avg = 0;
 
   size_t s_read_latency = 0;
   float s_avg_read_latency = 0;
+
+  static constexpr size_t kNumPuDOperations = 4;
+  std::array<size_t, kNumPuDOperations> s_num_pud_reqs{};
+  std::array<size_t, kNumPuDOperations> s_num_pud_reqs_completed{};
+  std::array<size_t, kNumPuDOperations> s_pud_latency{};
+  std::array<float, kNumPuDOperations> s_avg_pud_latency{};
 
   float s_read_throughput_MBps = 0;
   float s_write_throughput_MBps = 0;
   float s_total_throughput_MBps = 0;
 
   // Common tick preamble: advance clock, accumulate queue stats,
-  // drain completed reads.
+  // drain completed requests.
   void tick_prologue();
 
-  // Final command done — move to pending (reads) or remove (writes/maintenance).
+  // Final command done — move delayed completions to pending or remove immediately.
   void retire_request(ReqBuffer::iterator& req_it, ReqBuffer& buffer);
 
   // Opening command done — move request from source buffer to active buffer.
@@ -172,8 +182,9 @@ class ControllerBase : public IController, public Implementation {
   // Scheduling helpers
   bool would_close_active(const Request& req) const;
   void update_request_stats(ReqBuffer::iterator& req);
-  void serve_completed_reads();
+  void serve_completed_requests();
   void set_write_mode();
+  static size_t pud_operation_index(int type_id);
 };
 
 }  // namespace Ramulator

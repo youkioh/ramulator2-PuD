@@ -302,6 +302,10 @@ class PuDRoutingSystemUnderTestCpp {
     return out;
   }
 
+  nb::dict stats() const {
+    return nb::cast<nb::dict>(confignode_to_py(m_memory_system_impl->collect_stats()));
+  }
+
  private:
   std::unique_ptr<HarnessFrontEnd> m_frontend;
   std::unique_ptr<Implementation> m_memory_system_impl;
@@ -388,11 +392,12 @@ class ControllerUnderTestCpp {
     bool read_like = is_read_like_request(type_id);
     if (read_like) {
       m_read_completions_pending++;
-      req.callback = [this](Request&) {
+      req.callback = [this](Request& completed) {
         if (m_read_completions_pending == 0) {
           throw std::runtime_error("ControllerUnderTest read completion accounting underflow");
         }
         m_read_completions_pending--;
+        record_completion(completed);
       };
     }
 
@@ -409,14 +414,90 @@ class ControllerUnderTestCpp {
     }
   }
 
+  void send_read_with_reentrant_forwarded_read(
+      const AddrVec_t& addr_vec,
+      int source_id,
+      const AddrVec_t& forwarded_addr_vec,
+      int forwarded_source_id) {
+    validate_concrete_addr_vec(addr_vec);
+    validate_concrete_addr_vec(forwarded_addr_vec);
+
+    Request req(addr_vec, Request::Type::Read);
+    req.addr = synthesize_addr(addr_vec);
+    req.intra_channel_addr = req.addr;
+    req.source_id = source_id;
+    m_read_completions_pending++;
+    req.callback = [this, forwarded_addr_vec, forwarded_source_id](Request& completed) {
+      if (m_read_completions_pending == 0) {
+        throw std::runtime_error("ControllerUnderTest read completion accounting underflow");
+      }
+      m_read_completions_pending--;
+      record_completion(completed);
+
+      Request forwarded(forwarded_addr_vec, Request::Type::Read);
+      forwarded.addr = synthesize_addr(forwarded_addr_vec);
+      forwarded.intra_channel_addr = forwarded.addr;
+      forwarded.source_id = forwarded_source_id;
+      m_read_completions_pending++;
+      forwarded.callback = [this](Request& forwarded_completed) {
+        if (m_read_completions_pending == 0) {
+          throw std::runtime_error("ControllerUnderTest read completion accounting underflow");
+        }
+        m_read_completions_pending--;
+        record_completion(forwarded_completed);
+      };
+
+      if (!m_memory_system->send(forwarded)) {
+        m_read_completions_pending--;
+        throw std::runtime_error("ControllerUnderTest failed to enqueue reentrant forwarded read");
+      }
+      if (forwarded.depart == -1) {
+        throw std::runtime_error("ControllerUnderTest reentrant read was not write-forwarded");
+      }
+    };
+
+    if (!m_controller->send(req)) {
+      m_read_completions_pending--;
+      throw std::runtime_error("ControllerUnderTest failed to enqueue reentrant-callback read");
+    }
+    if (req.depart == -1) {
+      m_command_outstanding++;
+    }
+  }
+
   nb::dict send_pud_request(int type_id, const std::vector<AddrVec_t>& operands, int source_id) {
+    nb::dict out = try_send_pud_request(type_id, operands, source_id);
+    if (!nb::cast<bool>(out["accepted"])) {
+      throw std::runtime_error("ControllerUnderTest failed to enqueue PuD request");
+    }
+    return out;
+  }
+
+  nb::dict try_send_pud_request(
+      int type_id, const std::vector<AddrVec_t>& operands, int source_id) {
     Request req(operands, type_id);
     req.size_bytes = m_controller->get_tx_bytes();
     req.source_id = source_id;
+    m_pud_completions_pending++;
+    req.callback = [this](Request& completed) {
+      if (m_pud_completions_pending == 0) {
+        throw std::runtime_error("ControllerUnderTest PuD completion accounting underflow");
+      }
+      m_pud_completions_pending--;
+      record_completion(completed);
+    };
 
     size_t before = m_controller_base->pending_pud_requests().size();
     if (!m_memory_system->send(req)) {
-      throw std::runtime_error("ControllerUnderTest failed to enqueue PuD request");
+      m_pud_completions_pending--;
+      nb::dict out;
+      out["accepted"] = false;
+      out["type_id"] = req.type_id;
+      out["operands"] = req.operands;
+      out["addr_vec"] = req.addr_vec;
+      out["source_id"] = req.source_id;
+      out["arrive"] = req.arrive;
+      return out;
     }
     const auto& pending = m_controller_base->pending_pud_requests();
     if (pending.size() != before + 1) {
@@ -426,10 +507,25 @@ class ControllerUnderTestCpp {
     m_command_outstanding++;
 
     nb::dict out;
+    out["accepted"] = true;
     out["type_id"] = stored.type_id;
     out["operands"] = stored.operands;
     out["addr_vec"] = stored.addr_vec;
     out["source_id"] = stored.source_id;
+    out["arrive"] = stored.arrive;
+    return out;
+  }
+
+  nb::list completions() const {
+    nb::list out;
+    for (const auto& completed : m_completions) {
+      nb::dict item;
+      item["type_id"] = completed.type_id;
+      item["source_id"] = completed.source_id;
+      item["arrive"] = completed.arrive;
+      item["depart"] = completed.depart;
+      out.append(item);
+    }
     return out;
   }
 
@@ -477,7 +573,9 @@ class ControllerUnderTestCpp {
   }
 
   bool is_idle() const {
-    return m_command_outstanding == 0 && m_read_completions_pending == 0;
+    return m_command_outstanding == 0 &&
+           m_read_completions_pending == 0 &&
+           m_pud_completions_pending == 0;
   }
 
   nb::dict stats() {
@@ -496,7 +594,20 @@ class ControllerUnderTestCpp {
   IControllerValidationHook* m_validation_hook = nullptr;
   size_t m_command_outstanding = 0;
   size_t m_read_completions_pending = 0;
+  size_t m_pud_completions_pending = 0;
   bool m_stats_finalized = false;
+
+  struct CompletionRecord {
+    int type_id;
+    int source_id;
+    Clk_t arrive;
+    Clk_t depart;
+  };
+  std::vector<CompletionRecord> m_completions;
+
+  void record_completion(const Request& req) {
+    m_completions.push_back({req.type_id, req.source_id, req.arrive, req.depart});
+  }
 
   const DRAMSpec& spec() const {
     return *m_controller_base->m_device.m_spec;
@@ -564,17 +675,27 @@ NB_MODULE(_ramulator_test, m) {
       .def("timing", &ControllerUnderTestCpp::timing, nb::arg("name"))
       .def("send_request", &ControllerUnderTestCpp::send_request,
            nb::arg("type_id"), nb::arg("addr_vec"), nb::arg("source_id") = 0)
+      .def("send_read_with_reentrant_forwarded_read",
+           &ControllerUnderTestCpp::send_read_with_reentrant_forwarded_read,
+           nb::arg("addr_vec"),
+           nb::arg("source_id"),
+           nb::arg("forwarded_addr_vec"),
+           nb::arg("forwarded_source_id"))
       .def("send_pud_request", &ControllerUnderTestCpp::send_pud_request,
+           nb::arg("type_id"), nb::arg("operands"), nb::arg("source_id") = 0)
+      .def("try_send_pud_request", &ControllerUnderTestCpp::try_send_pud_request,
            nb::arg("type_id"), nb::arg("operands"), nb::arg("source_id") = 0)
       .def("priority_send", &ControllerUnderTestCpp::priority_send, nb::arg("command"), nb::arg("addr_vec"))
       .def("tick", &ControllerUnderTestCpp::tick)
       .def("is_idle", &ControllerUnderTestCpp::is_idle)
+      .def("completions", &ControllerUnderTestCpp::completions)
       .def("stats", &ControllerUnderTestCpp::stats);
 
   nb::class_<PuDRoutingSystemUnderTestCpp>(m, "_PuDRoutingSystemUnderTest")
       .def(nb::init<int>(), nb::arg("num_channels"))
       .def("send_pud_request", &PuDRoutingSystemUnderTestCpp::send_pud_request,
-           nb::arg("type_id"), nb::arg("operands"));
+           nb::arg("type_id"), nb::arg("operands"))
+      .def("stats", &PuDRoutingSystemUnderTestCpp::stats);
 
   m.def("_validate_pud_routing",
         [](int type_id, const std::vector<AddrVec_t>& operands, int num_channels) {

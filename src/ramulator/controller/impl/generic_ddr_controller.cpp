@@ -15,6 +15,8 @@ class GenericDDRController : public ControllerBase {
  public:
   void init() override {
     init_base();
+    RAMULATOR_PARSE_PARAM(m_pud_buffer_size, int, "pud_buffer_size").default_val(32);
+    m_pud_buffer.max_size = m_pud_buffer_size;
     if (m_device.m_spec->geometry.has_subarrays()) {
       const auto& spec = *m_device.m_spec;
       m_pud_rank_level = spec.get_level_id("Rank");
@@ -71,6 +73,7 @@ std::optional<bool> GenericDDRController::try_send_special_request(Request& req)
     req.arrive = -1;
     return false;
   }
+  s_num_pud_reqs[pud_operation_index(req.type_id)]++;
   return true;
 }
 
@@ -213,7 +216,7 @@ void GenericDDRController::tick() {
   }
 
   // Try to find a candidate request to schedule
-  // Phase 6 priority: active > priority > temporary PuD > read/write
+  // Gate 11 priority: active > priority > oldest-ready pending PuD/read-write
   // 1. Try to schedule from active
   auto pud_eligibility = [&](const Request& req) {
     return is_pud_eligible_before_prerequisite(req);
@@ -225,15 +228,17 @@ void GenericDDRController::tick() {
     cand = pick_priority_if({}, pud_eligibility);
   }
 
-  // 3. Phase 6 scaffolding: let the existing temporary PuD buffer start work.
-  // Gate 11 will decide final queue placement and mixed-traffic policy.
+  // 3. Arbitrate the independently selected PuD and Read/Write candidates by age.
   if (!cand.valid && m_priority_buffer.size() == 0) {
-    cand = pick_best_ready_from(m_pud_buffer, {}, pud_eligibility);
-  }
-
-  // 4. If no candidate found, try to schedule from read/write (with write mode check)
-  if (!cand.valid && m_priority_buffer.size() == 0) {
-    cand = pick_rw_if({}, pud_eligibility);
+    Candidate pud_cand = pick_best_ready_from(m_pud_buffer, {}, pud_eligibility);
+    Candidate rw_cand = pick_rw_if({}, pud_eligibility);
+    if (!pud_cand.valid) {
+      cand = rw_cand;
+    } else if (!rw_cand.valid || pud_cand.it->arrive <= rw_cand.it->arrive) {
+      cand = pud_cand;
+    } else {
+      cand = rw_cand;
+    }
   }
 
   // We have a valid request to serve this cycle

@@ -13,6 +13,20 @@
 
 namespace Ramulator {
 
+namespace {
+
+constexpr std::array<const char*, 4> kPuDStatNames = {
+    "rowcopy", "maj3", "maj5", "not"};
+
+}  // namespace
+
+size_t ControllerBase::pud_operation_index(int type_id) {
+  if (!is_pud_request_type(type_id)) {
+    throw std::logic_error(fmt::format("Request type {} is not a PuD operation", type_id));
+  }
+  return static_cast<size_t>(type_id - Request::Type::RowCopy);
+}
+
 // ── Forwarding methods ──────────────────────────────────────────────────
 
 void ControllerBase::set_channel_id(int channel_id) {
@@ -120,9 +134,27 @@ void ControllerBase::setup_base(IFrontEnd* frontend, IMemorySystem* memory_syste
   m_stats.add("read_queue_len_avg", s_read_queue_len_avg);
   m_stats.add("write_queue_len_avg", s_write_queue_len_avg);
   m_stats.add("priority_queue_len_avg", s_priority_queue_len_avg);
-
   m_stats.add("read_latency", s_read_latency);
   m_stats.add("avg_read_latency", s_avg_read_latency);
+
+  const auto& supported = m_device.m_spec->supported_requests;
+  const bool supports_pud = supported.size() > Request::Type::NOT &&
+      supported[Request::Type::RowCopy] == DRAMSpec::CONTROLLER_SEQUENCED &&
+      supported[Request::Type::MAJ3] == DRAMSpec::CONTROLLER_SEQUENCED &&
+      supported[Request::Type::MAJ5] == DRAMSpec::CONTROLLER_SEQUENCED &&
+      supported[Request::Type::NOT] == DRAMSpec::CONTROLLER_SEQUENCED;
+  if (supports_pud) {
+    m_stats.add("pud_queue_len", s_pud_queue_len);
+    m_stats.add("pud_queue_len_avg", s_pud_queue_len_avg);
+    for (size_t i = 0; i < kNumPuDOperations; i++) {
+      m_stats.add(fmt::format("num_pud_{}_reqs", kPuDStatNames[i]), s_num_pud_reqs[i]);
+      m_stats.add(
+          fmt::format("num_pud_{}_reqs_completed", kPuDStatNames[i]),
+          s_num_pud_reqs_completed[i]);
+      m_stats.add(fmt::format("pud_{}_latency", kPuDStatNames[i]), s_pud_latency[i]);
+      m_stats.add(fmt::format("avg_pud_{}_latency", kPuDStatNames[i]), s_avg_pud_latency[i]);
+    }
+  }
 
   m_stats.add("read_throughput_MBps", s_read_throughput_MBps);
   m_stats.add("write_throughput_MBps", s_write_throughput_MBps);
@@ -225,12 +257,14 @@ void ControllerBase::tick_prologue() {
   m_clk++;
   m_measured_clk++;
 
-  s_queue_len += m_read_buffer.size() + m_write_buffer.size() + m_priority_buffer.size();
+  s_queue_len +=
+      m_read_buffer.size() + m_write_buffer.size() + m_priority_buffer.size() + m_pud_buffer.size();
   s_read_queue_len += m_read_buffer.size();
   s_write_queue_len += m_write_buffer.size();
   s_priority_queue_len += m_priority_buffer.size();
+  s_pud_queue_len += m_pud_buffer.size();
 
-  serve_completed_reads();
+  serve_completed_requests();
 }
 
 // ── Request lifecycle ────────────────────────────────────────────────────
@@ -256,6 +290,9 @@ void ControllerBase::retire_request(ReqBuffer::iterator& req_it, ReqBuffer& buff
       req_it->callback(*req_it);
     }
     s_num_write_reqs_served++;
+  } else if (is_pud_request_type(req_it->type_id)) {
+    req_it->depart = m_clk + m_device.m_spec->get_timing_value("nRP");
+    m_pending.push_back(*req_it);
   } else if (req_it->type_id == -1) {
     s_num_maintenance_reqs_served++;
   }
@@ -404,21 +441,32 @@ void ControllerBase::update_request_stats(ReqBuffer::iterator& req) {
   }
 }
 
-void ControllerBase::serve_completed_reads() {
-  // Drain all pending requests whose depart time has been reached.
-  // The deque is sorted by depart time (m_clk is monotonic, send() runs
-  // before tick(), and read_latency > 1), so we can stop at the first
-  // request that isn't ready yet.
-  while (m_pending.size()) {
-    auto& req = m_pending.front();
-    if (req.depart > m_clk) {
+void ControllerBase::serve_completed_requests() {
+  // Read and PuD recovery latencies can differ, so pending requests are not
+  // necessarily ordered by depart. Re-scan after each callback because the
+  // callback may append to m_pending and invalidate all deque iterators.
+  while (true) {
+    auto it = std::find_if(
+        m_pending.begin(), m_pending.end(),
+        [&](const Request& req) { return req.depart <= m_clk; });
+    if (it == m_pending.end()) {
       break;
     }
-    s_read_latency += req.depart - req.arrive;
-    if (req.callback) {
-      req.callback(req);
+
+    Request completed = std::move(*it);
+    m_pending.erase(it);
+
+    const size_t latency = static_cast<size_t>(completed.depart - completed.arrive);
+    if (completed.type_id == Request::Type::Read) {
+      s_read_latency += latency;
+    } else if (is_pud_request_type(completed.type_id)) {
+      const size_t op = pud_operation_index(completed.type_id);
+      s_num_pud_reqs_completed[op]++;
+      s_pud_latency[op] += latency;
     }
-    m_pending.pop_front();
+    if (completed.callback) {
+      completed.callback(completed);
+    }
   }
 }
 
@@ -436,11 +484,17 @@ void ControllerBase::set_write_mode() {
 
 void ControllerBase::update_stats() {
   s_avg_read_latency = (s_num_read_reqs_served > 0) ? (float)s_read_latency / (float)s_num_read_reqs_served : 0;
+  for (size_t i = 0; i < kNumPuDOperations; i++) {
+    s_avg_pud_latency[i] = s_num_pud_reqs_completed[i] > 0
+        ? static_cast<float>(s_pud_latency[i]) / static_cast<float>(s_num_pud_reqs_completed[i])
+        : 0;
+  }
 
   s_queue_len_avg = (m_measured_clk > 0) ? (float)s_queue_len / (float)m_measured_clk : 0;
   s_read_queue_len_avg = (m_measured_clk > 0) ? (float)s_read_queue_len / (float)m_measured_clk : 0;
   s_write_queue_len_avg = (m_measured_clk > 0) ? (float)s_write_queue_len / (float)m_measured_clk : 0;
   s_priority_queue_len_avg = (m_measured_clk > 0) ? (float)s_priority_queue_len / (float)m_measured_clk : 0;
+  s_pud_queue_len_avg = (m_measured_clk > 0) ? (float)s_pud_queue_len / (float)m_measured_clk : 0;
 
   int tx_bytes = m_device.m_spec->get_tx_bytes();
   float time_ps = static_cast<float>(m_measured_clk) * m_tCK_ps;
@@ -483,13 +537,19 @@ void ControllerBase::reset_stats() {
   s_read_queue_len = 0;
   s_write_queue_len = 0;
   s_priority_queue_len = 0;
+  s_pud_queue_len = 0;
   s_queue_len_avg = 0;
   s_read_queue_len_avg = 0;
   s_write_queue_len_avg = 0;
   s_priority_queue_len_avg = 0;
+  s_pud_queue_len_avg = 0;
 
   s_read_latency = 0;
   s_avg_read_latency = 0;
+  s_num_pud_reqs.fill(0);
+  s_num_pud_reqs_completed.fill(0);
+  s_pud_latency.fill(0);
+  s_avg_pud_latency.fill(0);
   s_read_throughput_MBps = 0;
   s_write_throughput_MBps = 0;
   s_total_throughput_MBps = 0;
