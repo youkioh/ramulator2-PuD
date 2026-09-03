@@ -180,7 +180,6 @@ def test_different_bank_read_progresses_while_owner_is_timing_blocked():
     dut = make_dut()
     send_lc(dut, bank=0, source_row=40, destination_row=41)
     assert [item.command for item in dut.tick()] == ["ACT_MOV"]
-    assert [item.command for item in dut.tick()] == ["RD_MOV"]
 
     dut.send_request("Read", operand(dut, bank=1, row=42), source_id=2)
     other_read = tick_until(
@@ -198,7 +197,7 @@ def test_different_banks_can_hold_independent_movement_owners():
     send_lc(dut, bank=0, source_row=50, destination_row=51, source_id=1)
     send_lc(dut, bank=1, source_row=52, destination_row=53, source_id=2)
 
-    for _ in range(8):
+    for _ in range(18):
         dut.tick()
 
     assert [
@@ -207,8 +206,8 @@ def test_different_banks_can_hold_independent_movement_owners():
         if item.command in ("ACT_MOV", "RD_MOV")
     ] == [
         ("ACT_MOV", 1),
-        ("RD_MOV", 1),
         ("ACT_MOV", 2),
+        ("RD_MOV", 1),
         ("RD_MOV", 2),
     ]
 
@@ -217,7 +216,6 @@ def test_rowhit_scheduler_applies_ownership_before_prerequisite_resolution():
     dut = make_dut(scheduler=ramulator.scheduler.FRFCFSRowHit())
     send_lc(dut, bank=0, source_row=54, destination_row=55)
     assert [item.command for item in dut.tick()] == ["ACT_MOV"]
-    assert [item.command for item in dut.tick()] == ["RD_MOV"]
 
     dut.send_request("Read", operand(dut, bank=0, row=56), source_id=2)
     dut.send_request("Read", operand(dut, bank=1, row=57), source_id=3)
@@ -234,7 +232,6 @@ def test_blocked_all_bank_priority_head_prevents_different_bank_bypass():
     dut = make_dut()
     send_lc(dut, bank=0, source_row=60, destination_row=61)
     assert [item.command for item in dut.tick()] == ["ACT_MOV"]
-    assert [item.command for item in dut.tick()] == ["RD_MOV"]
 
     dut.priority_send("PREab", operand(dut, bank=0, row=62))
     dut.send_request("Read", operand(dut, bank=1, row=63), source_id=2)

@@ -16,8 +16,11 @@ Phase.
 | Phase 4.A | Complete |
 | Phase 4.B | Complete |
 | Phase 4.C | Complete |
-| Phase 4 | Complete; ready for commit |
-| Phases 5–6 | Not started |
+| Phase 4 | Complete and committed |
+| Phase 5.A | Complete |
+| Phase 5.B | Complete |
+| Phase 5 | Complete; independent-audit finding resolved; ready for commit |
+| Phase 6 | Not started |
 
 ## Goal
 

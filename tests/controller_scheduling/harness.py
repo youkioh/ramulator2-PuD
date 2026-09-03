@@ -111,6 +111,48 @@ class ControllerUnderTest:
     def timing(self, name: str) -> int:
         return self.timings[name]
 
+    def probe_command_timing(
+        self, type_name: str, command: str, addr_vec: list[int]
+    ) -> dict:
+        return dict(
+            self._cpp.probe_command_timing(
+                self._request_type_ids[type_name], command, addr_vec
+            )
+        )
+
+    def probe_movement_timing(
+        self,
+        type_name: str,
+        operands: list[list[int]],
+        occurrence_index: int,
+        occurrence_issue_history: list[int],
+    ) -> dict:
+        result = dict(
+            self._cpp.probe_movement_timing(
+                self._request_type_ids[type_name],
+                operands,
+                occurrence_index,
+                occurrence_issue_history,
+            )
+        )
+        result["history_before"] = list(result["history_before"])
+        result["history_after"] = list(result["history_after"])
+        return result
+
+    def probe_final_issue_validation(
+        self,
+        type_name: str,
+        command: str,
+        final_command: str,
+        addr_vec: list[int],
+    ) -> bool:
+        return self._cpp.probe_final_issue_validation(
+            self._request_type_ids[type_name],
+            command,
+            final_command,
+            addr_vec,
+        )
+
     def addr_vec(self, **levels) -> list[int]:
         return build_addr_vec(self.level_names, wildcard=self.ALL, **levels)
 

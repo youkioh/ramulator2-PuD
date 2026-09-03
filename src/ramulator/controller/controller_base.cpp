@@ -24,6 +24,17 @@ bool ControllerBase::check_timing(int command, const AddrVec_t& addr_vec) {
   return m_device.check_timing(command, addr_vec, m_clk);
 }
 
+bool ControllerBase::check_request_timing(const Request& req) {
+  return check_timing(req.command, req.addr_vec);
+}
+
+bool ControllerBase::validate_request_for_issue(const Request& req) {
+  const bool prerequisite_compatible =
+      req.command == get_preq_command(req.final_command, req.addr_vec);
+  const bool timing_ready = check_request_timing(req);
+  return prerequisite_compatible && timing_ready;
+}
+
 int ControllerBase::get_preq_command(int command, const AddrVec_t& addr_vec) {
   return m_device.get_preq_command(command, addr_vec, m_clk);
 }
@@ -306,7 +317,7 @@ ControllerBase::Candidate ControllerBase::pick_best_ready_from(
   if (it == buffer.end()) {
     return c;
   }
-  if (!check_timing(it->command, it->addr_vec)) {
+  if (!check_request_timing(*it)) {
     return c;
   }
   c.valid = true;
@@ -328,7 +339,7 @@ ControllerBase::Candidate ControllerBase::pick_priority_if(
     return c;
   }
   it->command = get_preq_command(it->final_command, it->addr_vec);
-  if (!check_timing(it->command, it->addr_vec)) {
+  if (!check_request_timing(*it)) {
     return c;
   }
   if (would_close_active(*it)) {

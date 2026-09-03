@@ -31,6 +31,8 @@ class ControllerBase : public IController, public Implementation {
 
   // Forwarding methods — bind m_clk for sub-components
   bool check_timing(int command, const AddrVec_t& addr_vec);
+  virtual bool check_request_timing(const Request& req);
+  bool validate_request_for_issue(const Request& req);
   int get_preq_command(int command, const AddrVec_t& addr_vec);
 
   // IController overrides

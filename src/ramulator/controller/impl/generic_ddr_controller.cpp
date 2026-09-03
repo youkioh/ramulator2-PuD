@@ -23,19 +23,32 @@ class GenericDDRController : public ControllerBase {
       const auto& spec = *m_device.m_spec;
       m_pud_placement_levels = get_pud_placement_levels(spec);
     }
+    if (m_device.m_spec->supports_movement_requests()) {
+      m_movement_timing = make_movement_timing_constraints(*m_device.m_spec);
+    }
   }
   void setup(IFrontEnd* frontend, IMemorySystem* memory_system) override {
     setup_base(frontend, memory_system);
   }
   void tick() override;
+  bool check_request_timing(const Request& req) override;
 
  protected:
   PuDPlacementLevels m_pud_placement_levels{};
+  PuDMovementTimingConstraints m_movement_timing{};
 
   std::optional<bool> try_send_special_request(Request& req) override;
   bool is_pud_eligible_before_prerequisite(const Request& candidate) const;
   bool is_retained_movement_owner(const Request& req) const;
 };
+
+bool GenericDDRController::check_request_timing(const Request& req) {
+  if (!is_movement_request_type(req.type_id)) {
+    return ControllerBase::check_request_timing(req);
+  }
+  return check_pud_occurrence_timing(req, m_clk, m_movement_timing) &&
+         ControllerBase::check_request_timing(req);
+}
 
 std::optional<bool> GenericDDRController::try_send_special_request(Request& req) {
   if (!is_pud_request_type(req.type_id)) {
@@ -152,35 +165,62 @@ void GenericDDRController::tick() {
     // Rowpolicy *may* upgrade the command to AutoPrecharge version
     m_rowpolicy->try_upgrade_command(*cand.it);
 
-    if (!cand.it->is_stat_updated) {
+    // Candidate state may have changed after scheduler selection. Revalidate
+    // ownership eligibility and any active-close protection used by its
+    // selection path, then require the selected command to remain the current
+    // prerequisite and timing-ready.
+    bool still_eligible = pud_eligibility(*cand.it);
+    const bool selected_with_active_close_protection =
+        cand.buffer == &m_priority_buffer || cand.buffer == &m_read_buffer ||
+        cand.buffer == &m_write_buffer;
+    if (still_eligible && selected_with_active_close_protection &&
+        would_close_active(*cand.it)) {
+      still_eligible = false;
+    }
+    bool ready_to_issue = false;
+    if (still_eligible) {
+      if (is_retained_movement_owner(*cand.it) &&
+          cand.it->command != cand.it->final_command) {
+        throw std::logic_error(fmt::format(
+            "Active {} occurrence {} became incompatible before issue: {} instead of {}",
+            request_type_name(cand.it->type_id), cand.it->occurrence_index,
+            m_device.m_spec->command_names[cand.it->command],
+            m_device.m_spec->command_names[cand.it->final_command]));
+      }
+      ready_to_issue = validate_request_for_issue(*cand.it);
+    }
+
+    if (still_eligible && ready_to_issue && !cand.it->is_stat_updated) {
       update_request_stats(cand.it);
     }
 
-    // Issue command to DRAM device
-    m_device.issue_command(cand.it->command, cand.it->addr_vec, m_clk);
+    if (still_eligible && ready_to_issue) {
+      // Issue command to DRAM device
+      m_device.issue_command(cand.it->command, cand.it->addr_vec, m_clk);
 
-    // Notify row policy and plugins of the issued command
-    m_rowpolicy->on_issue(*cand.it);
-    for (auto* p : m_plugins) {
-      p->on_issue(*cand.it);
-    }
+      // Notify row policy and plugins of the issued command
+      m_rowpolicy->on_issue(*cand.it);
+      for (auto* p : m_plugins) {
+        p->on_issue(*cand.it);
+      }
 
-    // Advance request
-    if (is_pud_request_type(cand.it->type_id)) {
-      const auto progress = observe_pud_command_issue(
-          *cand.it, cand.it->command, m_clk, *m_device.m_spec);
-      if (progress == PuDOccurrenceAdvance::Complete) {
-        // Terminal PREpb ends ownership and schedulable state at issue. PuD
-        // callbacks remain delayed through the accepted nRP recovery.
+      // Advance request
+      if (is_pud_request_type(cand.it->type_id)) {
+        const auto progress = observe_pud_command_issue(
+            *cand.it, cand.it->command, m_clk, *m_device.m_spec);
+        if (progress == PuDOccurrenceAdvance::Complete) {
+          // Terminal PREpb ends ownership and schedulable state at issue. PuD
+          // callbacks remain delayed through the accepted nRP recovery.
+          retire_request(cand.it, *cand.buffer);
+        } else if (progress == PuDOccurrenceAdvance::Advanced &&
+                   cand.buffer != &m_active_buffer) {
+          promote_to_active(cand.it, *cand.buffer);
+        }
+      } else if (cand.it->command == cand.it->final_command) {
         retire_request(cand.it, *cand.buffer);
-      } else if (progress == PuDOccurrenceAdvance::Advanced &&
-                 cand.buffer != &m_active_buffer) {
+      } else if (m_device.m_spec->command_meta[cand.it->command].is_opening) {
         promote_to_active(cand.it, *cand.buffer);
       }
-    } else if (cand.it->command == cand.it->final_command) {
-      retire_request(cand.it, *cand.buffer);
-    } else if (m_device.m_spec->command_meta[cand.it->command].is_opening) {
-      promote_to_active(cand.it, *cand.buffer);
     }
   }
 

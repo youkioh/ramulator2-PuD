@@ -142,6 +142,56 @@ PuDOccurrenceAdvance observe_pud_command_issue(Request& req, int issued_command,
   return PuDOccurrenceAdvance::Advanced;
 }
 
+PuDMovementTimingConstraints make_movement_timing_constraints(
+    const DRAMSpec& spec) {
+  return {{
+      {Request::Type::LCMOV, 0, 1, spec.get_timing_value("nRCD")},
+      {Request::Type::LCMOV, 1, 2, spec.get_timing_value("nRTP")},
+      {Request::Type::LCMOV, 4, 5,
+       spec.get_timing_value("nRELOC") + spec.get_timing_value("nWR")},
+      {Request::Type::GBMOV, 0, 2, spec.get_timing_value("nRAS")},
+      {Request::Type::GBMOV, 2, 3, spec.get_timing_value("nRELOC")},
+      {Request::Type::GBMOV, 3, 4, spec.get_timing_value("nWR")},
+  }};
+}
+
+bool check_pud_occurrence_timing(
+    const Request& req, Clk_t clk,
+    const PuDMovementTimingConstraints& constraints) {
+  if (!is_movement_request_type(req.type_id)) {
+    return true;
+  }
+
+  const size_t sequence_length = get_pud_sequence_length(req);
+  if (req.occurrence_index >= sequence_length ||
+      req.occurrence_issue_history.size() != sequence_length) {
+    throw std::logic_error(fmt::format(
+        "{} has inconsistent timing context: cursor {}, history {}, sequence {}",
+        request_type_name(req.type_id), req.occurrence_index,
+        req.occurrence_issue_history.size(), sequence_length));
+  }
+
+  for (const auto& constraint : constraints) {
+    if (constraint.request_type != req.type_id ||
+        constraint.following != req.occurrence_index) {
+      continue;
+    }
+
+    const Clk_t predecessor_clk =
+        req.occurrence_issue_history[constraint.predecessor];
+    if (predecessor_clk == Request::kOccurrenceNotIssued) {
+      throw std::logic_error(fmt::format(
+          "{} occurrence {} timing predecessor {} has not issued",
+          request_type_name(req.type_id), req.occurrence_index,
+          constraint.predecessor));
+    }
+
+    return clk >= predecessor_clk + constraint.delay;
+  }
+
+  return true;
+}
+
 const char* pud_occurrence_role_name(PuDOccurrenceRole role) {
   switch (role) {
     case PuDOccurrenceRole::Operand:

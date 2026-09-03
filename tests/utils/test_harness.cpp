@@ -493,6 +493,73 @@ class ControllerUnderTestCpp {
     return spec().get_timing_value(name);
   }
 
+  nb::dict probe_command_timing(
+      int type_id, const std::string& command_name,
+      const AddrVec_t& addr_vec) const {
+    validate_addr_vec_size(spec(), addr_vec);
+    Request req(addr_vec, type_id);
+    req.command = spec().get_command_id(command_name);
+    req.final_command = req.command;
+
+    nb::dict out;
+    out["clk"] = m_controller_base->m_clk;
+    out["device_ready"] = m_controller_base->check_timing(req.command, req.addr_vec);
+    out["request_ready"] = m_controller_base->check_request_timing(req);
+    return out;
+  }
+
+  nb::dict probe_movement_timing(
+      int type_id, const std::vector<AddrVec_t>& operands,
+      size_t occurrence_index,
+      const std::vector<Clk_t>& occurrence_issue_history) const {
+    if (!is_movement_request_type(type_id)) {
+      throw std::runtime_error("Movement timing probe requires LC-MOV or GB-MOV");
+    }
+    for (const auto& operand : operands) {
+      validate_concrete_addr_vec(operand);
+    }
+
+    Request req(operands, type_id);
+    req.occurrence_index = occurrence_index;
+    req.occurrence_issue_history = occurrence_issue_history;
+    const auto occurrence = describe_pud_occurrence(req, occurrence_index, spec());
+    req.addr_vec = req.operands[occurrence.operand_index];
+    req.command = occurrence.command;
+    req.final_command = occurrence.command;
+
+    const size_t cursor_before = req.occurrence_index;
+    const auto history_before = req.occurrence_issue_history;
+    const auto local_constraints = make_movement_timing_constraints(spec());
+    const bool local_ready = check_pud_occurrence_timing(
+        req, m_controller_base->m_clk, local_constraints);
+    const bool device_ready =
+        m_controller_base->check_timing(req.command, req.addr_vec);
+    const bool request_ready = m_controller_base->check_request_timing(req);
+
+    nb::dict out;
+    out["clk"] = m_controller_base->m_clk;
+    out["command"] = spec().command_names[req.command];
+    out["local_ready"] = local_ready;
+    out["device_ready"] = device_ready;
+    out["request_ready"] = request_ready;
+    out["cursor_before"] = cursor_before;
+    out["cursor_after"] = req.occurrence_index;
+    out["history_before"] = history_before;
+    out["history_after"] = req.occurrence_issue_history;
+    return out;
+  }
+
+  bool probe_final_issue_validation(
+      int type_id, const std::string& command_name,
+      const std::string& final_command_name,
+      const AddrVec_t& addr_vec) const {
+    validate_addr_vec_size(spec(), addr_vec);
+    Request req(addr_vec, type_id);
+    req.command = spec().get_command_id(command_name);
+    req.final_command = spec().get_command_id(final_command_name);
+    return m_controller_base->validate_request_for_issue(req);
+  }
+
   void send_request(int type_id, const AddrVec_t& addr_vec, int source_id) {
     validate_concrete_addr_vec(addr_vec);
     Request req(addr_vec, type_id);
@@ -898,6 +965,15 @@ NB_MODULE(_ramulator_test, m) {
       .def_prop_ro("command_names", &ControllerUnderTestCpp::command_names)
       .def_prop_ro("timings", &ControllerUnderTestCpp::timings)
       .def("timing", &ControllerUnderTestCpp::timing, nb::arg("name"))
+      .def("probe_command_timing", &ControllerUnderTestCpp::probe_command_timing,
+           nb::arg("type_id"), nb::arg("command"), nb::arg("addr_vec"))
+      .def("probe_movement_timing", &ControllerUnderTestCpp::probe_movement_timing,
+           nb::arg("type_id"), nb::arg("operands"), nb::arg("occurrence_index"),
+           nb::arg("occurrence_issue_history"))
+      .def("probe_final_issue_validation",
+           &ControllerUnderTestCpp::probe_final_issue_validation,
+           nb::arg("type_id"), nb::arg("command"),
+           nb::arg("final_command"), nb::arg("addr_vec"))
       .def("send_request", &ControllerUnderTestCpp::send_request,
            nb::arg("type_id"), nb::arg("addr_vec"), nb::arg("source_id") = 0)
       .def("send_read_with_reentrant_forwarded_read",
