@@ -118,11 +118,19 @@ source fact about MIMDRAM's general mat-information transport mechanism. The
 LC-MOV and GB-MOV walkthroughs do not separately spell out how each internal
 activation uses these queueing variants.
 
+MIMDRAM §4.2 describes its control unit as orchestrating independent PUD
+operations concurrently across the mats of a DRAM subarray. Its mat scoreboard
+tracks whether mats targeted by a PUD operation are available. MIMDRAM's §8.5
+area analysis states that this scoreboard requires 128 bits, one bit per DRAM
+mat per subarray. Separately, §8.4 evaluates MIMDRAM while varying the number of
+DRAM subarrays used for PUD computation from 1 to 64 per bank.
+
 These statements describe physical/control behavior in MIMDRAM. They do not
 determine the simulator state or command representation.
 
 **Sources:** MIMDRAM §4.1, "Fine-Grained PUD Execution", Fig. 4; MIMDRAM §4.2,
-"Communicating MAT Information" and "Timing of MAT Information".
+"Communicating MAT Information", "Timing of MAT Information", and control-unit
+description; MIMDRAM §8.4; MIMDRAM §8.5.
 
 ### 1.3 High-level data-movement instruction
 
@@ -545,6 +553,21 @@ made observable to other operations. They do not, by themselves, establish
 the state granularity of a simulator that may instead treat a movement as a
 compound operation.
 
+### 3.5 The 128-entry control/scheduling mat set is better supported as subarray-scoped
+
+MIMDRAM describes independent PUD operations as executing across mats within a
+DRAM subarray, sizes the mat scoreboard as 128 bits with one bit per DRAM mat
+per subarray, and separately evaluates multiple subarrays per bank.
+
+Taken together, these source facts make a subarray-scoped interpretation of the
+128-entry control/scheduling mat set better supported than one bank-wide
+128-entry interpretation. This is an architectural inference, not a direct
+source statement that the 7-bit logical mat namespace definitively enumerates
+one physical subarray. It does not resolve the exact mapping from logical mat
+IDs to physical mats, the complete relationship between the §2.1 physical
+hierarchy and the logical/evaluated organization, or the physical DDR4
+row-address-to-subarray mapping.
+
 ---
 
 ## 4. Unresolved reference / architecture questions
@@ -562,6 +585,9 @@ sources do not provide enough information to close them.
 
 2. **What physical domain does the 7-bit logical mat namespace enumerate?**
    - The encoding includes chip bits and mat bits.
+   - Subarray-scoped execution and the one-scoreboard-bit-per-mat-per-subarray
+     evidence make a subarray-scoped control/scheduling interpretation better
+     supported than a single bank-wide interpretation.
    - The exact relationship among logical mat ID, bank, subarray, and every
      physical mat in the full device is not completely specified.
 
@@ -726,6 +752,8 @@ Relevant sections used by this reference:
 - §4.1.1 — PUD vector reduction;
 - §4.2 — logical mat encoding/ranges and mat-information communication;
 - §6.1 — `bbop_mov`;
+- §8.4 — evaluation across 1–64 DRAM subarrays per bank;
+- §8.5 — mat-scoreboard storage and area;
 - Table 2 — evaluated DRAM configuration.
 
 ### FIGARO
