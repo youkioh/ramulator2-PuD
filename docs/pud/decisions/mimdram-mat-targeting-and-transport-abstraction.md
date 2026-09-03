@@ -1,4 +1,9 @@
-Status: Accepted
+Status: Superseded
+
+Its addressing and logical-mat-targeting authority is superseded by
+`docs/pud/decisions/mimdram-movement-addressing-geometry-and-payload.md`.
+Its T3 mat-information-transport authority is superseded by
+`docs/pud/decisions/mimdram-movement-timing-and-resource-model.md`.
 
 Question
 

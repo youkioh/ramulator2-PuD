@@ -2,129 +2,88 @@ Status: Accepted
 
 Question
 
-1. Where should MIMDRAM inter-column movement live relative to the completed
-   DDR4_PuD baseline?
-2. What does one externally submitted LC-MOV or GB-MOV request represent?
+Where should MIMDRAM inter-column movement live relative to the completed
+DDR4_PuD baseline, and what does one externally submitted movement request
+represent?
 
 Decision
 
-Introduce MIMDRAM inter-column movement in a distinct combined experimental
-DRAM standard derived at the Python-definition level from the completed
-DDR4_PuD standard. Independently copy all inherited mutable standard
-definitions before extending them. Leave the existing DDR4 and DDR4_PuD
-standards unchanged.
+Introduce MIMDRAM LC-MOV and GB-MOV in a distinct combined experimental DRAM
+standard derived at the Python-definition level from DDR4_PuD. Independently
+copy inherited mutable standard definitions before extending them. Leave the
+existing DDR4 and DDR4_PuD standards unchanged.
 
-The combined standard inherits the existing DDR4_PuD RowCopy, MAJ3, MAJ5,
-and NOT behavior without changing its semantics. Whether the combined
-standard later adds other mat-selective computation mechanisms is not decided
-here.
+The combined standard inherits existing DDR4_PuD RowCopy, MAJ3, MAJ5, and NOT
+behavior without changing their semantics. Movement-specific addressing,
+state, ownership, and timing choices do not retroactively become DDR4_PuD or
+PRADA properties.
 
-Represent LC-MOV and GB-MOV as distinct request-level operations. One
-submitted request represents one architectural LC-MOV or GB-MOV command
-invocation. The exact physical transfer granularity, single-mat versus
-mat-range execution semantics, and source/destination range pairing are not
-decided here.
+Represent LC-MOV and GB-MOV as distinct architectural request types. One
+submitted request is one LC-MOV or one GB-MOV invocation. The controller owns
+the request lifecycle and the sequencing boundary for its visible movement
+occurrences. Detailed operands, placement, payload, execution, Device state,
+and timing are defined by the other canonical movement decisions rather than
+duplicated here.
 
-Later resolution note: `docs/pud/decisions/mimdram-movement-range-and-placement.md`
-accepts range-wide lockstep LC-MOV execution while retaining singleton GB-MOV
-as the initial supported subset.
+The initial request boundary does not include ISA-level `bbop_mov` lowering,
+array placement, a batch of movement invocations, multi-invocation
+orchestration, vector-reduction orchestration, automatic multi-hop routing, a
+software frontend, or the full MIMDRAM control stack. Those mechanisms may
+later construct or coordinate LC-MOV/GB-MOV requests, but are not part of one
+architectural movement request.
 
-The controller owns the movement request lifecycle and any command sequencing
-required by the subsequently accepted command-granularity decision. Whether
-an LC-MOV or GB-MOV invocation maps to an aggregate DRAM command or exposes
-internal phases is not decided here.
+Reuse shared request, controller, scheduler, Device, and completion
+infrastructure only where their abstractions fit. Do not infer movement
+placement, timing/resource, ownership, state, or maintenance semantics from
+the inherited DDR4_PuD implementation.
 
-Reuse shared request, controller, scheduler, device, and completion
-infrastructure only where their abstractions fit. Do not treat DDR4_PuD-specific
-placement, timing/resource, ownership, or state choices as MIMDRAM facts.
+Defer the exact final class and registration name to implementation planning.
+The name must identify a combined experimental substrate without implying
+that it models all of MIMDRAM. Capability detection must include LC-MOV and
+GB-MOV rather than accepting a standard merely because the four inherited
+PuD requests exist. Existing fixed four-PuD request/statistics assumptions
+must be generalized, and the selected name must be accounted for by the
+current AllBankRefresh registration/name coupling. These are implementation
+impacts, not additional architecture decisions.
 
-Larger multi-invocation movements, vector-reduction orchestration, ISA-level
-`bbop_mov` lowering, array placement, and software/frontend integration are
-outside this initial request boundary.
+The current accepted movement architecture is completed by:
 
-Defer the exact class and registration name for the combined experimental
-standard. Its name must not imply that the substrate models all of MIMDRAM.
+- `mimdram-movement-addressing-geometry-and-payload.md`;
+- `mimdram-movement-execution-ownership-and-device.md`; and
+- `mimdram-movement-timing-and-resource-model.md`.
 
 Rationale
 
-Modifying DDR4_PuD directly would make the completed PRADA-only research
-baseline and the combined movement experiment share one standard identity.
-Even if legacy operations initially remained behaviorally unchanged, later
-movement-specific geometry, resource, state, or timing work would be coupled
-to that baseline. A distinct derived standard preserves DDR4_PuD as a
-reproducible PRADA-only baseline while providing an explicit boundary for
-combined PRADA and movement experiments.
+A separate derived standard preserves DDR4_PuD as a reproducible PRADA-only
+baseline while directly supporting the intended combined PRADA-and-movement
+experiment. Deriving instead from plain DDR4 would either duplicate the
+existing DDR4_PuD behavior or require another combined boundary later.
 
-A pure DDR4-derived MIMDRAM sibling would also isolate DDR4_PuD, but it would
-not directly provide the intended combined PRADA and movement substrate. It
-would either duplicate the completed DDR4_PuD behavior or require another
-combined standard later. Deriving the combined standard from DDR4_PuD reuses
-the established substrate-isolation pattern and the proven request/controller
-lifecycle methodology without copying DDR4_PuD's physical modeling choices
-into the MIMDRAM movement model by analogy.
-
-Defining one request as one architectural LC-MOV or GB-MOV invocation keeps
-the initial interface at the movement-command boundary described by MIMDRAM.
-A request spanning multiple physical transfers would prematurely require
-batching, address progression, placement, and routing semantics. Making
-ISA-level `bbop_mov` the initial boundary would additionally require array
-placement and software/control-unit lowering that Ramulator2 does not
-currently provide. Keeping those mechanisms above the initial physical
-movement request abstraction allows later vector reduction and system
-integration to build on LC-MOV and GB-MOV without making them prerequisites
-for modeling the movement substrate.
+One request per architectural movement invocation matches the LC-MOV/GB-MOV
+boundary described by MIMDRAM without prematurely defining batching,
+high-level address progression, arbitrary routing, or software lowering.
+Controller ownership follows from the compound, ordered nature of the
+accepted visible movement sequence.
 
 Evidence
 
-MIMDRAM source facts:
+`docs/pud/references/mimdram-inter-column-data-movement.md` records
+`bbop_mov` as an ISA-level operation that the MIMDRAM control unit lowers and
+records LC-MOV and GB-MOV as distinct architectural movement mechanisms. The
+reference remains the authority for those source facts; it does not by itself
+select the simulator request boundary or combined-standard inheritance.
 
-- `docs/pud/references/mimdram-inter-column-data-movement.md` records
-  `bbop_mov` as an ISA-level operation over arrays, indices, element count,
-  and precision. It records that the MIMDRAM control unit derives placement
-  and translates that operation to LC-MOV or GB-MOV.
-- The same reference records LC-MOV and GB-MOV as distinct architectural
-  movement commands with source and destination location information. It also
-  preserves unresolved physical details, including multi-mat LC behavior,
-  GB range pairing, and non-neighbor reachability.
-  Later resolution: `docs/pud/decisions/mimdram-movement-range-and-placement.md`
-  resolves the multi-mat LC behavior; the listed GB questions remain open.
-
-Repository evidence:
-
-- `python/ramulator/dram/ddr4_pud.py` defines DDR4_PuD separately from DDR4
-  through Python inheritance and independently copies mutable command, state,
-  timing, request, preset, and geometry definitions before extending them.
-  The generator emits a separately registered DRAM standard.
-- `src/ramulator/base/request.h` provides request-owned ordered
-  `std::vector<AddrVec_t>` operand storage that survives request copying and
-  buffering.
-- `src/ramulator/controller/impl/generic_ddr_controller.cpp` retains active
-  PuD requests, advances monotonic request progress, and uses the shared
-  controller lifecycle for admission, arbitration, issue, and retirement.
-- `docs/pud/decisions/ddr4-pud-code-structure.md` accepts the isolated
-  generated-standard pattern for DDR4_PuD.
-- `docs/pud/decisions/pud-request-taxonomy-and-operands.md`,
-  `docs/pud/decisions/pud-controller-sequencing-and-atomicity.md`, and
-  `docs/pud/decisions/pud-request-lifecycle-queueing-and-statistics.md` record
-  the existing DDR4_PuD request ownership, controller sequencing, and
-  lifecycle methodology. Their DDR4_PuD-specific physical and policy choices
-  do not establish MIMDRAM behavior.
+The repository's separate generated DDR4_PuD definition, request-owned
+operand representation, retained controller sequence context, and shared
+lifecycle provide the implementation evidence for this boundary.
+`docs/pud/adding-pud-primitives.md` supplies the reusable methodology while
+explicitly requiring substrate-specific physical and policy decisions.
 
 Open issues
 
-- Logical-mat placement and metadata, placement legality, and movement
-  reachability remain unresolved.
-- Movement command granularity remains unresolved, including whether LC-MOV
-  and GB-MOV are aggregate commands or expose internal phases.
-- Movement timing and resource scope remain unresolved.
-- Movement ownership and atomicity scope remain unresolved.
-- Required movement state visibility remains unresolved.
-- Physical transfer width remains unresolved.
-- Single-mat versus mat-range execution semantics remain unresolved.
-- Source/destination range pairing remains unresolved.
-- Later resolution: `docs/pud/decisions/mimdram-movement-range-and-placement.md`
-  accepts range-wide LC-MOV execution and its inferred aggregate width. GB-MOV
-  wider-range pairing and detailed movement quantization remain unresolved.
-- The exact combined-standard class and registration name remain unresolved.
-- Whether the combined standard later adds mat-selective computation
-  mechanisms remains unresolved.
+- Exact combined-standard class and registration name.
+- Whether a future combined standard also adds other mat-selective compute
+  mechanisms.
+- Future workload/frontend integration, `bbop_mov` lowering, array placement,
+  vector reduction, batching, and routing above the accepted one-invocation
+  request boundary.
