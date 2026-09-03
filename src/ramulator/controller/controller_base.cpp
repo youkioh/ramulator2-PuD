@@ -275,7 +275,7 @@ void ControllerBase::retire_request(ReqBuffer::iterator& req_it, ReqBuffer& buff
       req_it->callback(*req_it);
     }
     s_num_write_reqs_served++;
-  } else if (is_inherited_pud_request_type(req_it->type_id)) {
+  } else if (is_pud_request_type(req_it->type_id)) {
     req_it->depart = m_clk + m_device.m_spec->get_timing_value("nRP");
     m_pending.push_back(*req_it);
   } else if (req_it->type_id == -1) {

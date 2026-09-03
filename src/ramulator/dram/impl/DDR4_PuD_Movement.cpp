@@ -135,6 +135,8 @@ class DDR4_PuD_Movement : public DRAMSpec {
         DRAMSpec::CONTROLLER_SEQUENCED,  // MAJ3 -> controller sequence
         DRAMSpec::CONTROLLER_SEQUENCED,  // MAJ5 -> controller sequence
         DRAMSpec::CONTROLLER_SEQUENCED,  // NOT -> controller sequence
+        DRAMSpec::CONTROLLER_SEQUENCED,  // LC-MOV -> controller sequence
+        DRAMSpec::CONTROLLER_SEQUENCED,  // GB-MOV -> controller sequence
     };
 
     // Runtime config (organization, timing values, timing constraints)

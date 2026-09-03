@@ -67,7 +67,9 @@ struct Request {
 
   int command = -1;        // Current command to issue to progress the request
   int final_command = -1;  // Terminal command, or next controller-sequenced command
-  size_t pud_sequence_index = 0;  // Next PuD sequence step to issue
+  static constexpr Clk_t kOccurrenceNotIssued = -1;
+  size_t occurrence_index = 0;  // Next controller-sequenced occurrence to issue
+  std::vector<Clk_t> occurrence_issue_history{};
   bool is_stat_updated = false;
 
   Clk_t arrive = -1;  // Clock cycle when the request arrives at the memory controller

@@ -50,10 +50,7 @@ def test_combined_skeleton_matches_ddr4_pud_request_behavior(type_name, rows):
     assert combined.stats() == baseline.stats()
 
 
-def test_combined_skeleton_does_not_advertise_movement_requests():
+def test_combined_standard_advertises_both_movement_requests():
     dut = make_dut(ramulator.dram.DDR4_PuD_Movement)
-    operands = [operand(dut, 50), operand(dut, 51)]
 
-    for type_id in (6, 7):
-        with pytest.raises(RuntimeError, match="type_id"):
-            dut._cpp.send_request(type_id, operands[0])
+    assert tuple(type(dut.dram).supported_requests)[-2:] == ("LC-MOV", "GB-MOV")

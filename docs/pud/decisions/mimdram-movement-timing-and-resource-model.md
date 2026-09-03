@@ -228,8 +228,16 @@ first ACT_MOV -> terminal PREpb recovery completion
     published-equation comparison boundary
 
 request depart/callback/statistics completion
-    later lifecycle gate
+    request lifecycle uses terminal recovery; statistics remain a later gate
 ```
+
+When terminal `PREpb` issues at cycle `T`, Device state becomes `Closed`,
+movement ownership ends, and the request leaves active/schedulable controller
+state. Retain the retired request in the shared delayed-completion path with
+`depart = T + nRP`. At cycle `T + nRP`, terminal recovery is complete; extract
+and erase the pending completion before invoking its callback exactly once.
+This lifecycle boundary does not define movement-specific statistics or
+modeled data availability.
 
 Initially add no movement-specific `tRRD`, `tFAW`, activation-current rule,
 ordinary same-Bank `nRC` constraint between the two GB activations, external

@@ -82,3 +82,16 @@ def test_ddr4_pud_supports_only_the_four_inherited_operations():
         assert not dut._cpp.supports_controller_sequenced_request(type_id)
         with pytest.raises(RuntimeError, match="does not support request type_id"):
             controller._cpp.send_request(type_id, addr_vec)
+
+
+def test_combined_standard_requires_all_inherited_and_movement_mappings():
+    dram = ramulator.dram.DDR4_PuD_Movement(
+        org_preset="DDR4_8Gb_x8", timing_preset="DDR4_2400R"
+    )
+    dut = DeviceUnderTest(dram)
+
+    assert tuple(type(dram).supported_requests) == REQUEST_TYPE_NAMES
+    assert dut._cpp.supports_inherited_pud_requests()
+    assert dut._cpp.supports_movement_requests()
+    for type_id in range(REQUEST_TYPE_IDS["RowCopy"], REQUEST_TYPE_IDS["GB-MOV"] + 1):
+        assert dut._cpp.supports_controller_sequenced_request(type_id)

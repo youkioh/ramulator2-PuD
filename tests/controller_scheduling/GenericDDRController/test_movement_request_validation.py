@@ -188,11 +188,3 @@ def test_exact_moved_bits_use_validated_metadata_and_typed_hff_width(
     dram = make_dram(hffs_per_mat=hffs_per_mat)
 
     assert validate(dram, type_name, operands(dram), *mats) == expected_bits
-
-
-def test_movement_remains_non_executable_in_combined_standard():
-    dram = make_dram()
-    dut = ControllerUnderTest.make_generic_ddr(dram)
-
-    with pytest.raises(RuntimeError, match="does not support request type_id"):
-        dut._cpp.send_request(REQUEST_TYPE_IDS["LC-MOV"], operands(dram)[0])

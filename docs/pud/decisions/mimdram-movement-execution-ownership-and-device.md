@@ -199,8 +199,8 @@ priority bypass. The absence of a deadline model is an inherited GenericDDR
 fidelity limitation, not a physical refresh guarantee.
 
 Ownership/state cleanup at terminal `PREpb` issue is distinct from recovery
-completion and from request departure, callback, and statistics completion.
-The latter lifecycle boundary remains a later implementation gate.
+completion. Request retirement, departure, and callback timing are defined by
+`mimdram-movement-timing-and-resource-model.md`.
 
 Implementation impact is limited by this contract: GenericDDR sequence logic
 must become extensible for LC/GB metadata and occurrence history; shared
@@ -255,8 +255,8 @@ Open issues
 
 - Exact physical movement PRE scope below the accepted Bank-aggregate
   simulator abstraction.
-- Request departure, callback, modeled data-availability, statistics-
-  completion, and movement-specific accounting boundaries.
+- Modeled data availability and movement-specific statistics/accounting
+  boundaries.
 - Exact pending admission and mixed-traffic arbitration details that do not
   change the accepted ownership policy.
 - Movement metadata in traces.

@@ -4,6 +4,7 @@
 
 #include "ramulator/base/base.h"
 #include "ramulator/controller/controller_base.h"
+#include "ramulator/controller/pud_sequence.h"
 #include "ramulator/controller/pud_request_validation.h"
 #include "ramulator/controller/refresh/i_refresh_manager.h"
 #include "ramulator/controller/rowpolicy/i_row_policy.h"
@@ -21,12 +22,6 @@ class GenericDDRController : public ControllerBase {
     if (m_device.m_spec->geometry.has_subarrays()) {
       const auto& spec = *m_device.m_spec;
       m_pud_placement_levels = get_pud_placement_levels(spec);
-      m_cmd_prepb = spec.get_command_id("PREpb");
-      m_cmd_act_pud = spec.get_command_id("ACT_PUD");
-      m_cmd_act_pud_oc = spec.get_command_id("ACT_PUD_OC");
-      m_cmd_act_pud_s = spec.get_command_id("ACT_PUD_S");
-      m_cmd_act_pud_s_oc = spec.get_command_id("ACT_PUD_S_OC");
-      m_cmd_n = spec.get_command_id("N");
     }
   }
   void setup(IFrontEnd* frontend, IMemorySystem* memory_system) override {
@@ -35,22 +30,15 @@ class GenericDDRController : public ControllerBase {
   void tick() override;
 
  protected:
-  int m_cmd_prepb = -1;
-  int m_cmd_act_pud = -1;
-  int m_cmd_act_pud_oc = -1;
-  int m_cmd_act_pud_s = -1;
-  int m_cmd_act_pud_s_oc = -1;
-  int m_cmd_n = -1;
   PuDPlacementLevels m_pud_placement_levels{};
 
   std::optional<bool> try_send_special_request(Request& req) override;
-  void configure_pud_step(Request& req) const;
-  bool advance_pud_sequence(Request& req) const;
   bool is_pud_eligible_before_prerequisite(const Request& candidate) const;
+  bool is_retained_movement_owner(const Request& req) const;
 };
 
 std::optional<bool> GenericDDRController::try_send_special_request(Request& req) {
-  if (!is_inherited_pud_request_type(req.type_id)) {
+  if (!is_pud_request_type(req.type_id)) {
     return std::nullopt;
   }
   if (!m_device.m_spec->supports_controller_sequenced_request(req.type_id)) {
@@ -61,70 +49,40 @@ std::optional<bool> GenericDDRController::try_send_special_request(Request& req)
 
   validate_pud_placement(
       req, *m_device.m_spec, m_channel_id, m_pud_placement_levels);
-  req.pud_sequence_index = 0;
-  configure_pud_step(req);
+  initialize_pud_sequence(req, *m_device.m_spec);
   req.arrive = m_clk;
   if (!m_pud_buffer.enqueue(req)) {
     req.arrive = -1;
     return false;
   }
-  s_num_pud_reqs[*legacy_pud_statistic_slot(req.type_id)]++;
+  if (const auto slot = legacy_pud_statistic_slot(req.type_id); slot.has_value()) {
+    s_num_pud_reqs[*slot]++;
+  }
   return true;
 }
 
-void GenericDDRController::configure_pud_step(Request& req) const {
-  const size_t step = req.pud_sequence_index;
-  const size_t operand_count = req.operands.size();
-  const size_t sequence_length = req.type_id == Request::Type::NOT ? 3 : operand_count + 1;
-  if (step >= sequence_length) {
+bool GenericDDRController::is_retained_movement_owner(const Request& req) const {
+  if (!is_movement_request_type(req.type_id)) {
+    return false;
+  }
+  const size_t sequence_length = get_pud_sequence_length(req);
+  if (req.occurrence_issue_history.size() != sequence_length ||
+      req.occurrence_index > sequence_length) {
     throw std::logic_error(fmt::format(
-        "{} sequence step {} is outside [0, {})",
-        request_type_name(req.type_id), step, sequence_length));
+        "{} has inconsistent retained ownership context: cursor {}, history {}, sequence {}",
+        request_type_name(req.type_id), req.occurrence_index,
+        req.occurrence_issue_history.size(), sequence_length));
   }
-
-  int next_command = -1;
-  if (step + 1 == sequence_length) {
-    next_command = m_cmd_prepb;
-    // PREpb is bank-scoped; retain the preceding operand address.
-  } else if (req.type_id == Request::Type::RowCopy) {
-    next_command = step == 0 ? m_cmd_act_pud_s_oc : m_cmd_act_pud;
-    req.addr_vec = req.operands[step];
-  } else if (req.type_id == Request::Type::MAJ3 || req.type_id == Request::Type::MAJ5) {
-    if (step == 0) {
-      next_command = m_cmd_act_pud_oc;
-    } else if (step + 1 == operand_count) {
-      next_command = m_cmd_act_pud_s;
-    } else {
-      next_command = m_cmd_act_pud;
-    }
-    req.addr_vec = req.operands[step];
-  } else if (req.type_id == Request::Type::NOT) {
-    next_command = step == 0 ? m_cmd_act_pud_s_oc : m_cmd_n;
-    req.addr_vec = req.operands[0];
-  } else {
-    throw std::logic_error(fmt::format(
-        "Cannot configure PuD sequence for request type {}", req.type_id));
-  }
-
-  req.command = -1;
-  req.final_command = next_command;
-}
-
-bool GenericDDRController::advance_pud_sequence(Request& req) const {
-  req.pud_sequence_index++;
-  const size_t sequence_length =
-      req.type_id == Request::Type::NOT ? 3 : req.operands.size() + 1;
-  if (req.pud_sequence_index == sequence_length) {
-    return true;
-  }
-  configure_pud_step(req);
-  return false;
+  return req.occurrence_index > 0 && req.occurrence_index < sequence_length &&
+         req.occurrence_issue_history[0] != Request::kOccurrenceNotIssued;
 }
 
 bool GenericDDRController::is_pud_eligible_before_prerequisite(
     const Request& candidate) const {
   for (const auto& owner : m_active_buffer.buffer) {
-    if (!is_inherited_pud_request_type(owner.type_id) || &candidate == &owner) {
+    const bool owns_bank = is_inherited_pud_request_type(owner.type_id) ||
+                           is_retained_movement_owner(owner);
+    if (!owns_bank || &candidate == &owner) {
       continue;
     }
 
@@ -158,7 +116,18 @@ void GenericDDRController::tick() {
   auto pud_eligibility = [&](const Request& req) {
     return is_pud_eligible_before_prerequisite(req);
   };
-  Candidate cand = pick_best_ready_from(m_active_buffer, {}, pud_eligibility);
+  auto movement_prerequisite_compatibility = [&](const Request& req) {
+    if (is_retained_movement_owner(req) && req.command != req.final_command) {
+      throw std::logic_error(fmt::format(
+          "Active {} occurrence {} resolved incompatible prerequisite {} instead of {}",
+          request_type_name(req.type_id), req.occurrence_index,
+          m_device.m_spec->command_names[req.command],
+          m_device.m_spec->command_names[req.final_command]));
+    }
+    return true;
+  };
+  Candidate cand = pick_best_ready_from(
+      m_active_buffer, movement_prerequisite_compatibility, pud_eligibility);
 
   // 2. If no candidate found, try to schedule from priority
   if (!cand.valid) {
@@ -197,12 +166,15 @@ void GenericDDRController::tick() {
     }
 
     // Advance request
-    if (is_inherited_pud_request_type(cand.it->type_id) &&
-        cand.it->command == cand.it->final_command) {
-      const bool complete = advance_pud_sequence(*cand.it);
-      if (complete) {
+    if (is_pud_request_type(cand.it->type_id)) {
+      const auto progress = observe_pud_command_issue(
+          *cand.it, cand.it->command, m_clk, *m_device.m_spec);
+      if (progress == PuDOccurrenceAdvance::Complete) {
+        // Terminal PREpb ends ownership and schedulable state at issue. PuD
+        // callbacks remain delayed through the accepted nRP recovery.
         retire_request(cand.it, *cand.buffer);
-      } else if (cand.buffer != &m_active_buffer) {
+      } else if (progress == PuDOccurrenceAdvance::Advanced &&
+                 cand.buffer != &m_active_buffer) {
         promote_to_active(cand.it, *cand.buffer);
       }
     } else if (cand.it->command == cand.it->final_command) {

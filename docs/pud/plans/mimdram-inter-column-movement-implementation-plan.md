@@ -9,10 +9,15 @@ Phase.
 | Phase 1 | Complete and committed |
 | Phase 2 | Complete and committed |
 | Decision session C/D/E | Resolved and recorded |
+| Decision Gate A | Resolved and recorded |
 | Phase 3.A | Complete |
 | Phase 3.B | Complete |
-| Phase 3 | Complete; ready for commit |
-| Phases 4–6 | Not started |
+| Phase 3 | Complete and committed |
+| Phase 4.A | Complete |
+| Phase 4.B | Complete |
+| Phase 4.C | Complete |
+| Phase 4 | Complete; ready for commit |
+| Phases 5–6 | Not started |
 
 ## Goal
 

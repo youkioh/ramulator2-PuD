@@ -56,7 +56,7 @@ def test_combined_phase3_configuration_preserves_ddr4_pud_baseline():
     } == baseline_dut.timings
     assert combined_dut.timings["nRELOC"] == 2
     assert combined_dut.supports_inherited_pud_requests() is True
-    assert combined_dut.supports_movement_requests() is False
+    assert combined_dut.supports_movement_requests() is True
 
 
 @pytest.mark.parametrize("command", ("ACT_MOV", "RD_MOV", "WR_MOV"))

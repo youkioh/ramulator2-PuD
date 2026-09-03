@@ -142,7 +142,8 @@ struct DRAMSpec {
            supports_controller_sequenced_request(Request::Type::NOT);
   }
   bool supports_movement_requests() const {
-    return supports_controller_sequenced_request(Request::Type::LCMOV) &&
+    return supports_inherited_pud_requests() &&
+           supports_controller_sequenced_request(Request::Type::LCMOV) &&
            supports_controller_sequenced_request(Request::Type::GBMOV);
   }
 
