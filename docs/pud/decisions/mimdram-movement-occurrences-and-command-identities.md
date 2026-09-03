@@ -99,16 +99,11 @@ command identity. The existence of two GB-MOV activation occurrences therefore
 does not by itself justify `ACT_SRC` and `ACT_DST` semantic commands. Do not
 introduce a timing alias in this decision.
 
-It remains unresolved whether one `ACT_MOV` history is sufficient for the
-final numeric timing graph. LC-MOV may need a relationship to its most recent
-`ACT_MOV`, while GB-MOV may need a relationship to its source `ACT_MOV` after
-the destination `ACT_MOV` has become the most recent occurrence. Current
-static timing constraints may be unable to select different history windows
-according to LC versus GB request context. If the numeric timing gate proves
-that this cannot be expressed using one semantic identity, it may introduce a
-simulator-only timing alias. Such an alias would distinguish timing-history
-occurrences of the same physical MIMDRAM ACT semantics; it would not represent
-a different physical ACT command semantic.
+Later resolution: the timing-responsibility decision in
+`docs/pud/decisions/mimdram-movement-timing-responsibility.md` assigns
+occurrence-sensitive relationships to the retained controller PuD primitive
+execution context and rejects timing-only command aliases for the initial
+model. The exact numeric timing graph remains unresolved.
 
 Command occurrence count does not determine Device-state count. Do not accept
 any replacement movement state, prerequisite, or action table here. The exact
@@ -210,8 +205,9 @@ Open issues
   actions, and ordinary-command legality under the shared identities.
 - Exact numeric directed timing edges and independent CK quantization for both
   published latency equations.
-- Whether LC-versus-GB selection of different `ACT_MOV` history occurrences
-  requires a simulator-only timing alias or another timing mechanism.
+- Exact primitive-local relationships needed to distinguish LC-versus-GB
+  structure and repeated `ACT_MOV` occurrence roles under the controller-side
+  mechanism accepted by the timing-responsibility decision.
 - The GB-MOV activation-occurrence issue gap and its treatment in end-to-end
   latency.
 - Exact movement command encoding and command/address-bus occupancy.
