@@ -403,6 +403,14 @@ T_GB-MOV = tRAS + tRELOC + tWR + tRP
 The paper attributes the lower aggregate latency relative to `LC-MOV` to the
 source and destination row activations occurring concurrently.
 
+**MIMDRAM source fact:** GB-MOV physically overlaps, or concurrently performs,
+source and destination row activation sufficiently for the source-reported
+latency relation to contain one `tRAS` activation interval.
+
+**Unresolved source detail:** MIMDRAM does not establish whether the
+corresponding ACT commands occupy the same C/A cycle, successive C/A cycles,
+or another exact issue relationship.
+
 This equation is a source fact. It does not by itself determine a Ramulator
 command graph or timing-resource model.
 
