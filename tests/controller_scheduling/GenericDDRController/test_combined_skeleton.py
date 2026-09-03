@@ -3,7 +3,6 @@ import pytest
 import ramulator
 import tests.controller_scheduling.harness as cs
 
-
 pytestmark = pytest.mark.controller_scheduling
 
 
@@ -13,7 +12,7 @@ def make_dut(dram_class):
         timing_preset="DDR4_2400R",
         rank=1,
     )
-    return cs.ControllerUnderTest.make_generic_ddr(dram)
+    return cs.ControllerUnderTest.make_generic_ddr(dram, num_cores=10)
 
 
 def operand(dut, row, column=0):
@@ -57,4 +56,4 @@ def test_combined_skeleton_does_not_advertise_movement_requests():
 
     for type_id in (6, 7):
         with pytest.raises(RuntimeError, match="type_id"):
-            dut._cpp.send_pud_request(type_id, operands)
+            dut._cpp.send_request(type_id, operands[0])

@@ -17,6 +17,8 @@ inline void validate_pud_operand_count(const Request& req) {
     case Request::Type::MAJ3: valid = count == 3; break;
     case Request::Type::MAJ5: valid = count == 5; break;
     case Request::Type::NOT: valid = count == 1; break;
+    case Request::Type::LCMOV:
+    case Request::Type::GBMOV: valid = count == 2; break;
     default:
       throw std::runtime_error(fmt::format("Invalid PuD request type_id {}", req.type_id));
   }
@@ -26,8 +28,27 @@ inline void validate_pud_operand_count(const Request& req) {
   }
 }
 
+inline void validate_movement_metadata(const Request& req) {
+  bool valid = false;
+  switch (req.type_id) {
+    case Request::Type::LCMOV:
+      valid = std::holds_alternative<Request::LCMovementMetadata>(req.movement);
+      break;
+    case Request::Type::GBMOV:
+      valid = std::holds_alternative<Request::GBMovementMetadata>(req.movement);
+      break;
+    default: return;
+  }
+  if (!valid) {
+    throw std::runtime_error(fmt::format(
+        "{} request is missing its required typed movement metadata",
+        request_type_name(req.type_id)));
+  }
+}
+
 inline int validate_pud_routing(const Request& req, int num_channels) {
   validate_pud_operand_count(req);
+  validate_movement_metadata(req);
 
   int route_channel = -1;
   for (size_t i = 0; i < req.operands.size(); i++) {

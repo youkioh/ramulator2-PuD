@@ -36,6 +36,13 @@ bool is_controller_sequenced_request_type(int type_id) {
   return is_pud_request_type(type_id);
 }
 
+bool is_valid_external_request_size(int type_id, int size_bytes, int tx_bytes) {
+  if (is_movement_request_type(type_id)) {
+    return size_bytes == Request::kMovementSizeBytesNotApplicable;
+  }
+  return size_bytes > 0 && size_bytes <= tx_bytes;
+}
+
 std::optional<size_t> legacy_pud_statistic_slot(int type_id) {
   switch (type_id) {
     case Request::Type::RowCopy: return 0;

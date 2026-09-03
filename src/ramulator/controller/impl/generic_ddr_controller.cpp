@@ -4,6 +4,7 @@
 
 #include "ramulator/base/base.h"
 #include "ramulator/controller/controller_base.h"
+#include "ramulator/controller/pud_request_validation.h"
 #include "ramulator/controller/refresh/i_refresh_manager.h"
 #include "ramulator/controller/rowpolicy/i_row_policy.h"
 
@@ -19,10 +20,7 @@ class GenericDDRController : public ControllerBase {
     m_pud_buffer.max_size = m_pud_buffer_size;
     if (m_device.m_spec->geometry.has_subarrays()) {
       const auto& spec = *m_device.m_spec;
-      m_pud_rank_level = spec.get_level_id("Rank");
-      m_pud_bankgroup_level = spec.get_level_id("BankGroup");
-      m_pud_bank_level = spec.get_level_id("Bank");
-      m_pud_row_level = spec.get_level_id("Row");
+      m_pud_placement_levels = get_pud_placement_levels(spec);
       m_cmd_prepb = spec.get_command_id("PREpb");
       m_cmd_act_pud = spec.get_command_id("ACT_PUD");
       m_cmd_act_pud_oc = spec.get_command_id("ACT_PUD_OC");
@@ -37,19 +35,15 @@ class GenericDDRController : public ControllerBase {
   void tick() override;
 
  protected:
-  int m_pud_rank_level = -1;
-  int m_pud_bankgroup_level = -1;
-  int m_pud_bank_level = -1;
-  int m_pud_row_level = -1;
   int m_cmd_prepb = -1;
   int m_cmd_act_pud = -1;
   int m_cmd_act_pud_oc = -1;
   int m_cmd_act_pud_s = -1;
   int m_cmd_act_pud_s_oc = -1;
   int m_cmd_n = -1;
+  PuDPlacementLevels m_pud_placement_levels{};
 
   std::optional<bool> try_send_special_request(Request& req) override;
-  void validate_pud_placement(const Request& req) const;
   void configure_pud_step(Request& req) const;
   bool advance_pud_sequence(Request& req) const;
   bool is_pud_eligible_before_prerequisite(const Request& candidate) const;
@@ -65,7 +59,8 @@ std::optional<bool> GenericDDRController::try_send_special_request(Request& req)
         m_device.m_spec->standard_name, request_type_name(req.type_id)));
   }
 
-  validate_pud_placement(req);
+  validate_pud_placement(
+      req, *m_device.m_spec, m_channel_id, m_pud_placement_levels);
   req.pud_sequence_index = 0;
   configure_pud_step(req);
   req.arrive = m_clk;
@@ -142,64 +137,6 @@ bool GenericDDRController::is_pud_eligible_before_prerequisite(
     }
   }
   return true;
-}
-
-void GenericDDRController::validate_pud_placement(const Request& req) const {
-  const auto& spec = *m_device.m_spec;
-  if (!spec.geometry.has_subarrays()) {
-    throw std::runtime_error(fmt::format(
-        "DRAM standard {} does not define PuD subarray geometry", spec.standard_name));
-  }
-  if (req.operands.empty()) {
-    throw std::runtime_error(fmt::format(
-        "{} request has no operands", request_type_name(req.type_id)));
-  }
-
-  auto validate_operand = [&](const AddrVec_t& operand, size_t operand_idx) {
-    if (operand.size() != static_cast<size_t>(spec.level_count)) {
-      throw std::runtime_error(fmt::format(
-          "{} operand {} has {} hierarchy coordinates; expected {}",
-          request_type_name(req.type_id), operand_idx, operand.size(), spec.level_count));
-    }
-    for (int level = 0; level < spec.level_count; level++) {
-      int value = operand[level];
-      if (level == 0) {
-        if (value != m_channel_id) {
-          throw std::runtime_error(fmt::format(
-              "{} operand {} targets channel {}, but controller owns channel {}",
-              request_type_name(req.type_id), operand_idx, value, m_channel_id));
-        }
-      } else if (value < 0 || value >= spec.organization.level_sizes[level]) {
-        throw std::runtime_error(fmt::format(
-            "{} operand {} coordinate {} at level {} is outside [0, {})",
-            request_type_name(req.type_id), operand_idx, value,
-            spec.level_names[level], spec.organization.level_sizes[level]));
-      }
-    }
-  };
-
-  validate_operand(req.operands[0], 0);
-  const auto& first = req.operands[0];
-  const int first_subarray = spec.geometry.subarray_id(first[m_pud_row_level]);
-
-  for (size_t i = 1; i < req.operands.size(); i++) {
-    const auto& operand = req.operands[i];
-    validate_operand(operand, i);
-    for (int level : {m_pud_rank_level, m_pud_bankgroup_level, m_pud_bank_level}) {
-      if (operand[level] != first[level]) {
-        throw std::runtime_error(fmt::format(
-            "{} operands must share {}: operand 0 has {}, operand {} has {}",
-            request_type_name(req.type_id), spec.level_names[level],
-            first[level], i, operand[level]));
-      }
-    }
-    int subarray = spec.geometry.subarray_id(operand[m_pud_row_level]);
-    if (subarray != first_subarray) {
-      throw std::runtime_error(fmt::format(
-          "{} operands must share a logical subarray: operand 0 has {}, operand {} has {}",
-          request_type_name(req.type_id), first_subarray, i, subarray));
-    }
-  }
 }
 
 void GenericDDRController::tick() {

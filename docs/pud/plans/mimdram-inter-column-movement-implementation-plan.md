@@ -1,8 +1,16 @@
 # Initial MIMDRAM Inter-Column Movement Implementation Plan
 
-Status: Ready for implementation; six implementation Phases are defined and
-none has started. Final Integration Closure is a separate validation activity,
-not a seventh Phase.
+Status: Implementation in progress; six implementation Phases are defined.
+Final Integration Closure is a separate validation activity, not a seventh
+Phase.
+
+| Milestone | Progress |
+| --- | --- |
+| Phase 1 | Complete and committed |
+| Phase 2.A | Complete |
+| Phase 2.B implementation/tests | Complete |
+| Phase 2 | Complete; ready for commit |
+| Phases 3–6 | Not started |
 
 ## Goal
 

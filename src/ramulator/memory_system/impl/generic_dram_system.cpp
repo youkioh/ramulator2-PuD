@@ -62,8 +62,13 @@ class GenericDRAMSystem final : public IMemorySystem, public Implementation {
   }
 
   bool send(Request& req) override {
-    // Validate request size: must be set and fit within one transaction.
-    if (req.size_bytes <= 0 || req.size_bytes > m_tx_bytes) {
+    if (!is_valid_external_request_size(req.type_id, req.size_bytes, m_tx_bytes)) {
+      if (is_movement_request_type(req.type_id)) {
+        throw std::runtime_error(fmt::format(
+            "{} request size_bytes must use the N/A sentinel {} (got {}).",
+            request_type_name(req.type_id), Request::kMovementSizeBytesNotApplicable,
+            req.size_bytes));
+      }
       throw std::runtime_error(fmt::format(
           "Request size_bytes must be set by the frontend (got {}, tx_bytes = {}).",
           req.size_bytes, m_tx_bytes));

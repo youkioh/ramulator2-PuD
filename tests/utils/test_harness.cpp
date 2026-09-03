@@ -11,6 +11,7 @@
 #include "ramulator/base/factory.h"
 #include "ramulator/base/request.h"
 #include "ramulator/controller/controller_base.h"
+#include "ramulator/controller/pud_request_validation.h"
 #include "ramulator/controller/i_controller.h"
 #include "ramulator/controller/plugin/controller_validation_hook.h"
 #include "ramulator/dram/device.h"
@@ -260,14 +261,20 @@ class RoutingControllerStub final : public IController, public Implementation {
  public:
   inline static int last_receiver = -1;
   inline static Request last_request{};
+  inline static bool reject_next = false;
 
-  static void reset() {
+  static void reset(bool reject_first = false) {
     last_receiver = -1;
     last_request = Request{};
+    reject_next = reject_first;
   }
 
   void init() override {}
   bool send(Request& req) override {
+    if (reject_next) {
+      reject_next = false;
+      return false;
+    }
     last_receiver = m_channel_id;
     last_request = req;
     return true;
@@ -308,10 +315,11 @@ class PuDRoutingSystemUnderTestCpp {
     m_memory_system->connect_frontend(m_frontend.get());
   }
 
-  nb::dict send_pud_request(int type_id, const std::vector<AddrVec_t>& operands) {
+  nb::dict send_pud_request(
+      int type_id, const std::vector<AddrVec_t>& operands, int size_bytes = 64) {
     RoutingControllerStub::reset();
     Request req(operands, type_id);
-    req.size_bytes = m_memory_system->get_tx_bytes();
+    req.size_bytes = size_bytes;
     if (!m_memory_system->send(req)) {
       throw std::runtime_error("GenericDRAMSystem failed to route PuD request");
     }
@@ -319,6 +327,69 @@ class PuDRoutingSystemUnderTestCpp {
     nb::dict out;
     out["receiver"] = RoutingControllerStub::last_receiver;
     out["operands"] = RoutingControllerStub::last_request.operands;
+    return out;
+  }
+
+  nb::dict send_regular_request(int type_id, const AddrVec_t& addr_vec, int size_bytes) {
+    RoutingControllerStub::reset();
+    Request req(addr_vec, type_id);
+    req.addr = 0;
+    req.size_bytes = size_bytes;
+    if (!m_memory_system->send(req)) {
+      throw std::runtime_error("GenericDRAMSystem failed to route regular request");
+    }
+
+    nb::dict out;
+    out["receiver"] = RoutingControllerStub::last_receiver;
+    out["size_bytes"] = RoutingControllerStub::last_request.size_bytes;
+    return out;
+  }
+
+  nb::dict send_movement_request(
+      int type_id,
+      const std::vector<AddrVec_t>& operands,
+      const std::string& metadata_kind,
+      int first_mat,
+      int second_mat,
+      int size_bytes = Request::kMovementSizeBytesNotApplicable,
+      bool retry_once = false) {
+    RoutingControllerStub::reset(retry_once);
+    Request req(operands, type_id);
+    req.size_bytes = size_bytes;
+    if (metadata_kind == "LC") {
+      req.movement = Request::LCMovementMetadata{{first_mat, second_mat}};
+    } else if (metadata_kind == "GB") {
+      req.movement = Request::GBMovementMetadata{first_mat, second_mat};
+    } else if (!metadata_kind.empty()) {
+      throw std::runtime_error("Unknown movement metadata kind " + metadata_kind);
+    }
+
+    bool accepted = m_memory_system->send(req);
+    if (!accepted && retry_once) {
+      accepted = m_memory_system->send(req);
+    }
+    if (!accepted) {
+      throw std::runtime_error("GenericDRAMSystem failed to route movement request");
+    }
+
+    const Request& stored = RoutingControllerStub::last_request;
+    nb::dict out;
+    out["receiver"] = RoutingControllerStub::last_receiver;
+    out["operands"] = stored.operands;
+    out["size_bytes"] = stored.size_bytes;
+    if (const auto* lc = std::get_if<Request::LCMovementMetadata>(&stored.movement)) {
+      out["metadata_kind"] = "LC";
+      out["first_mat"] = lc->mats.begin;
+      out["second_mat"] = lc->mats.end;
+    } else if (const auto* gb = std::get_if<Request::GBMovementMetadata>(&stored.movement)) {
+      out["metadata_kind"] = "GB";
+      out["first_mat"] = gb->source_mat;
+      out["second_mat"] = gb->destination_mat;
+    } else {
+      out["metadata_kind"] = "";
+      out["first_mat"] = -1;
+      out["second_mat"] = -1;
+    }
     return out;
   }
 
@@ -721,7 +792,14 @@ NB_MODULE(_ramulator_test, m) {
   nb::class_<PuDRoutingSystemUnderTestCpp>(m, "_PuDRoutingSystemUnderTest")
       .def(nb::init<int>(), nb::arg("num_channels"))
       .def("send_pud_request", &PuDRoutingSystemUnderTestCpp::send_pud_request,
-           nb::arg("type_id"), nb::arg("operands"))
+           nb::arg("type_id"), nb::arg("operands"), nb::arg("size_bytes") = 64)
+      .def("send_regular_request", &PuDRoutingSystemUnderTestCpp::send_regular_request,
+           nb::arg("type_id"), nb::arg("addr_vec"), nb::arg("size_bytes"))
+      .def("send_movement_request", &PuDRoutingSystemUnderTestCpp::send_movement_request,
+           nb::arg("type_id"), nb::arg("operands"), nb::arg("metadata_kind"),
+           nb::arg("first_mat"), nb::arg("second_mat"),
+           nb::arg("size_bytes") = Request::kMovementSizeBytesNotApplicable,
+           nb::arg("retry_once") = false)
       .def("stats", &PuDRoutingSystemUnderTestCpp::stats);
 
   m.def("_validate_pud_routing",
@@ -741,4 +819,32 @@ NB_MODULE(_ramulator_test, m) {
     out["legacy_stat_slot"] = slot.has_value() ? nb::cast(*slot) : nb::none();
     return out;
   }, nb::arg("type_id"));
+  m.def("_request_size_contract", [](int type_id, int size_bytes, int tx_bytes) {
+    return is_valid_external_request_size(type_id, size_bytes, tx_bytes);
+  }, nb::arg("type_id"), nb::arg("size_bytes"), nb::arg("tx_bytes"));
+  m.def("_internal_request_default_size", []() {
+    Request req(AddrVec_t{}, Request::Cmd, 0);
+    return req.size_bytes;
+  });
+  m.def("_validate_movement_placement", [](
+      nb::dict dram_config, int type_id, const std::vector<AddrVec_t>& operands,
+      const std::string& metadata_kind, int first_mat, int second_mat,
+      int controller_channel_id) {
+    ConfigNode cfg = py_to_confignode(dram_config);
+    std::string dram_impl = cfg["impl"].as<std::string>();
+    auto spec = DRAMSpec::create(
+        dram_impl, ConfigNode(ConfigNode::Map{{"dram", std::move(cfg)}}));
+
+    Request req(operands, type_id);
+    if (metadata_kind == "LC") {
+      req.movement = Request::LCMovementMetadata{{first_mat, second_mat}};
+    } else if (metadata_kind == "GB") {
+      req.movement = Request::GBMovementMetadata{first_mat, second_mat};
+    }
+    validate_pud_placement(
+        req, *spec, controller_channel_id, get_pud_placement_levels(*spec));
+    return get_movement_moved_bits(req, *spec);
+  }, nb::arg("dram_config"), nb::arg("type_id"), nb::arg("operands"),
+     nb::arg("metadata_kind"), nb::arg("first_mat"), nb::arg("second_mat"),
+     nb::arg("controller_channel_id") = 0);
 }
