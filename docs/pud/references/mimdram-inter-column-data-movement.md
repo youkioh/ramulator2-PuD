@@ -132,6 +132,38 @@ determine the simulator state or command representation.
 "Communicating MAT Information", "Timing of MAT Information", and control-unit
 description; MIMDRAM §8.4; MIMDRAM §8.5.
 
+#### MIMD concurrency boundary
+
+MIMDRAM schedules independent PUD bbops across available mat ranges. Its mat
+scheduler scans buffered bbops, checks each target range against the mat
+scoreboard, marks an available range busy, and assigns the bbop to a free
+μProgram processing engine. Multiple engines can execute allocated bbops and
+maintain their command timing concurrently. When an engine finishes, it frees
+the corresponding mats in the scoreboard. This establishes general MIMDRAM
+support for concurrent independent PUD operations on available, nonoverlapping
+mat ranges.
+
+For data movement, the MIMDRAM control unit derives the targeted mat range for
+`bbop_mov` and translates the instruction to `LC-MOV` when the source and
+destination mats are the same, and to `GB-MOV` otherwise.
+
+These source facts do not provide a movement-specific pairwise concurrency or
+shared-resource contract. The paper does not explicitly establish concurrent
+execution of:
+
+- two independent `LC-MOV` invocations;
+- two independent `GB-MOV` invocations;
+- an `LC-MOV` with a `GB-MOV`; or
+- a movement invocation with an arithmetic PUD operation.
+
+The corresponding movement-specific mat, local-I/O, global-I/O,
+neighboring-link, command-interface, and other shared-resource conflict rules
+therefore remain unresolved. A simulator decision to use a conservative Bank
+resource domain is a project modeling choice, not a MIMDRAM source fact.
+
+**Sources:** MIMDRAM §4.2, control-unit description and Fig. 7; MIMDRAM §6.1,
+Table 1, "Data Move".
+
 ### 1.3 High-level data-movement instruction
 
 At the ISA level, MIMDRAM exposes:
