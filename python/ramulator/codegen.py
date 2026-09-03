@@ -16,6 +16,7 @@ import os
 import sys
 
 from ramulator.dram.spec import CONTROLLER_SEQUENCED, DRAMStandard
+from ramulator.param import Param
 
 # Components with custom Python logic — skip auto-generation.
 _CUSTOM_COMPONENTS = set()
@@ -45,6 +46,8 @@ def generate_header(cls):
     in its constructor from static enums + config.
     """
     name = cls.name
+    has_hffs_per_mat = isinstance(getattr(cls, "hffs_per_mat", None), Param)
+    hffs_per_mat_line = "    supports_hffs_per_mat = true;\n" if has_hffs_per_mat else ""
 
     # Level enum
     level_names = list(cls.levels.keys())
@@ -195,7 +198,7 @@ class {name} : public DRAMSpec {{
 
     // Static spec data
     internal_prefetch_size = {cls.internal_prefetch_size};
-    init_states = {{
+{hffs_per_mat_line}    init_states = {{
 {init_states}
     }};
     supported_requests = {{

@@ -33,6 +33,9 @@ class _ControllerSequencedMarker:
 
 CONTROLLER_SEQUENCED = _ControllerSequencedMarker()
 
+REQUEST_TYPE_NAMES = ("Read", "Write", "RowCopy", "MAJ3", "MAJ5", "NOT", "LC-MOV", "GB-MOV")
+REQUEST_TYPE_IDS = {name: type_id for type_id, name in enumerate(REQUEST_TYPE_NAMES)}
+
 
 class TimingConstraint:
     """A timing constraint between commands at a specific hierarchy level.
@@ -352,6 +355,12 @@ class DRAMStandard(Component):
             raise ValueError(
                 f"supported_requests must start with 'Read' and 'Write', got {req_keys[:2]}"
             )
+        for type_id, req_type in enumerate(req_keys):
+            expected = REQUEST_TYPE_IDS.get(req_type)
+            if expected is not None and expected != type_id:
+                raise ValueError(
+                    f"supported request '{req_type}' must have type_id {expected}, got {type_id}"
+                )
         for req_type, cmd_name in cls.supported_requests.items():
             if cmd_name is CONTROLLER_SEQUENCED:
                 continue

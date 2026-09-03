@@ -79,6 +79,26 @@ class DeviceUnderTestCpp {
     return spec().get_timing_value(name);
   }
 
+  bool supports_controller_sequenced_request(int type_id) const {
+    return spec().supports_controller_sequenced_request(type_id);
+  }
+
+  bool supports_inherited_pud_requests() const {
+    return spec().supports_inherited_pud_requests();
+  }
+
+  bool supports_movement_requests() const {
+    return spec().supports_movement_requests();
+  }
+
+  bool supports_hffs_per_mat_config() const {
+    return spec().supports_hffs_per_mat;
+  }
+
+  int hffs_per_mat() const {
+    return spec().hffs_per_mat.value_or(-1);
+  }
+
   nb::dict probe(const std::string& command_name, const AddrVec_t& addr_vec, Clk_t clk) {
     validate_addr_vec_size(spec(), addr_vec);
     int cmd = spec().get_command_id(command_name);
@@ -652,6 +672,13 @@ NB_MODULE(_ramulator_test, m) {
       .def_prop_ro("state_names", &DeviceUnderTestCpp::state_names)
       .def_prop_ro("timings", &DeviceUnderTestCpp::timings)
       .def("timing", &DeviceUnderTestCpp::timing, nb::arg("name"))
+      .def("supports_controller_sequenced_request",
+           &DeviceUnderTestCpp::supports_controller_sequenced_request,
+           nb::arg("type_id"))
+      .def("supports_inherited_pud_requests", &DeviceUnderTestCpp::supports_inherited_pud_requests)
+      .def("supports_movement_requests", &DeviceUnderTestCpp::supports_movement_requests)
+      .def_prop_ro("supports_hffs_per_mat_config", &DeviceUnderTestCpp::supports_hffs_per_mat_config)
+      .def_prop_ro("hffs_per_mat", &DeviceUnderTestCpp::hffs_per_mat)
       .def("command_info", &DeviceUnderTestCpp::command_info, nb::arg("command"))
       .def("probe", &DeviceUnderTestCpp::probe, nb::arg("command"), nb::arg("addr_vec"), nb::arg("clk"))
       .def("issue", &DeviceUnderTestCpp::issue, nb::arg("command"), nb::arg("addr_vec"), nb::arg("clk"));
@@ -703,4 +730,15 @@ NB_MODULE(_ramulator_test, m) {
           return validate_pud_routing(req, num_channels);
         },
         nb::arg("type_id"), nb::arg("operands"), nb::arg("num_channels"));
+  m.def("_request_type_info", [](int type_id) {
+    nb::dict out;
+    out["name"] = request_type_name(type_id);
+    out["inherited_pud"] = is_inherited_pud_request_type(type_id);
+    out["movement"] = is_movement_request_type(type_id);
+    out["pud"] = is_pud_request_type(type_id);
+    out["controller_sequenced"] = is_controller_sequenced_request_type(type_id);
+    const auto slot = legacy_pud_statistic_slot(type_id);
+    out["legacy_stat_slot"] = slot.has_value() ? nb::cast(*slot) : nb::none();
+    return out;
+  }, nb::arg("type_id"));
 }

@@ -27,6 +27,7 @@ target_sources(
   impl/DDR3.cpp
   impl/DDR4.cpp
   impl/DDR4_PuD.cpp
+  impl/DDR4_PuD_Movement.cpp
   impl/DDR4_VRR.cpp
   impl/DDR5.cpp
   impl/DDR5_RFM.cpp

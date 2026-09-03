@@ -14,8 +14,46 @@ Request::Request(Addr_t addr, int type, int source_id, std::function<void(Reques
 
 Request::Request(AddrVec_t addr_vec, Cmd_t, int final_cmd) : addr_vec(std::move(addr_vec)), final_command(final_cmd){};
 
+bool is_inherited_pud_request_type(int type_id) {
+  switch (type_id) {
+    case Request::Type::RowCopy:
+    case Request::Type::MAJ3:
+    case Request::Type::MAJ5:
+    case Request::Type::NOT: return true;
+    default: return false;
+  }
+}
+
+bool is_movement_request_type(int type_id) {
+  return type_id == Request::Type::LCMOV || type_id == Request::Type::GBMOV;
+}
+
 bool is_pud_request_type(int type_id) {
-  return type_id >= Request::Type::RowCopy && type_id <= Request::Type::NOT;
+  return is_inherited_pud_request_type(type_id) || is_movement_request_type(type_id);
+}
+
+bool is_controller_sequenced_request_type(int type_id) {
+  return is_pud_request_type(type_id);
+}
+
+std::optional<size_t> legacy_pud_statistic_slot(int type_id) {
+  switch (type_id) {
+    case Request::Type::RowCopy: return 0;
+    case Request::Type::MAJ3: return 1;
+    case Request::Type::MAJ5: return 2;
+    case Request::Type::NOT: return 3;
+    default: return std::nullopt;
+  }
+}
+
+const char* legacy_pud_statistic_name(int type_id) {
+  switch (type_id) {
+    case Request::Type::RowCopy: return "rowcopy";
+    case Request::Type::MAJ3: return "maj3";
+    case Request::Type::MAJ5: return "maj5";
+    case Request::Type::NOT: return "not";
+    default: return nullptr;
+  }
 }
 
 const char* request_type_name(int type_id) {
@@ -26,6 +64,8 @@ const char* request_type_name(int type_id) {
     case Request::Type::MAJ3: return "MAJ3";
     case Request::Type::MAJ5: return "MAJ5";
     case Request::Type::NOT: return "NOT";
+    case Request::Type::LCMOV: return "LC-MOV";
+    case Request::Type::GBMOV: return "GB-MOV";
     default: return "Unknown";
   }
 }

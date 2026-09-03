@@ -138,11 +138,10 @@ class ControllerBase : public IController, public Implementation {
   size_t s_read_latency = 0;
   float s_avg_read_latency = 0;
 
-  static constexpr size_t kNumPuDOperations = 4;
-  std::array<size_t, kNumPuDOperations> s_num_pud_reqs{};
-  std::array<size_t, kNumPuDOperations> s_num_pud_reqs_completed{};
-  std::array<size_t, kNumPuDOperations> s_pud_latency{};
-  std::array<float, kNumPuDOperations> s_avg_pud_latency{};
+  std::array<size_t, kNumLegacyPuDStatisticSlots> s_num_pud_reqs{};
+  std::array<size_t, kNumLegacyPuDStatisticSlots> s_num_pud_reqs_completed{};
+  std::array<size_t, kNumLegacyPuDStatisticSlots> s_pud_latency{};
+  std::array<float, kNumLegacyPuDStatisticSlots> s_avg_pud_latency{};
 
   float s_read_throughput_MBps = 0;
   float s_write_throughput_MBps = 0;
@@ -184,7 +183,6 @@ class ControllerBase : public IController, public Implementation {
   void update_request_stats(ReqBuffer::iterator& req);
   void serve_completed_requests();
   void set_write_mode();
-  static size_t pud_operation_index(int type_id);
 };
 
 }  // namespace Ramulator

@@ -9,6 +9,18 @@ void DRAMSpec::load_config(const ConfigNode& config) {
   channel_width = dram["channel_width"].as<int>();
   ConfigNode data_payload_node = dram["data_payload_bytes"];
   data_payload_bytes = data_payload_node ? data_payload_node.as<int>() : -1;
+  ConfigNode hffs_per_mat_node = dram["hffs_per_mat"];
+  if (hffs_per_mat_node && !supports_hffs_per_mat) {
+    throw std::runtime_error("DRAMSpec: hffs_per_mat is unsupported by this DRAM standard");
+  }
+  if (hffs_per_mat_node) {
+    hffs_per_mat = hffs_per_mat_node.as<int>();
+    if (*hffs_per_mat <= 0) {
+      throw std::runtime_error("DRAMSpec: hffs_per_mat must be positive");
+    }
+  } else if (supports_movement_requests()) {
+    throw std::runtime_error("DRAMSpec: hffs_per_mat is required for movement-capable standards");
+  }
   ConfigNode org = dram["org"];
   organization.dq = org["dq"].as<int>();
   ConfigNode count_node = org["count"];

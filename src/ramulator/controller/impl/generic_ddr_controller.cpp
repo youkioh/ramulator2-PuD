@@ -56,10 +56,10 @@ class GenericDDRController : public ControllerBase {
 };
 
 std::optional<bool> GenericDDRController::try_send_special_request(Request& req) {
-  if (!is_pud_request_type(req.type_id)) {
+  if (!is_inherited_pud_request_type(req.type_id)) {
     return std::nullopt;
   }
-  if (m_device.m_spec->supported_requests[req.type_id] != DRAMSpec::CONTROLLER_SEQUENCED) {
+  if (!m_device.m_spec->supports_controller_sequenced_request(req.type_id)) {
     throw std::runtime_error(fmt::format(
         "DRAM standard {} has an invalid PuD request mapping for {}",
         m_device.m_spec->standard_name, request_type_name(req.type_id)));
@@ -73,7 +73,7 @@ std::optional<bool> GenericDDRController::try_send_special_request(Request& req)
     req.arrive = -1;
     return false;
   }
-  s_num_pud_reqs[pud_operation_index(req.type_id)]++;
+  s_num_pud_reqs[*legacy_pud_statistic_slot(req.type_id)]++;
   return true;
 }
 
@@ -129,7 +129,7 @@ bool GenericDDRController::advance_pud_sequence(Request& req) const {
 bool GenericDDRController::is_pud_eligible_before_prerequisite(
     const Request& candidate) const {
   for (const auto& owner : m_active_buffer.buffer) {
-    if (!is_pud_request_type(owner.type_id) || &candidate == &owner) {
+    if (!is_inherited_pud_request_type(owner.type_id) || &candidate == &owner) {
       continue;
     }
 
@@ -260,7 +260,7 @@ void GenericDDRController::tick() {
     }
 
     // Advance request
-    if (is_pud_request_type(cand.it->type_id) &&
+    if (is_inherited_pud_request_type(cand.it->type_id) &&
         cand.it->command == cand.it->final_command) {
       const bool complete = advance_pud_sequence(*cand.it);
       if (complete) {

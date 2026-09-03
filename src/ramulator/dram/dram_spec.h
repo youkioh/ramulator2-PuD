@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "ramulator/base/config_node.h"
+#include "ramulator/base/request.h"
 #include "ramulator/base/type.h"
 #include "ramulator/dram/func_types.h"
 
@@ -102,6 +103,8 @@ struct DRAMSpec {
   int channel_width = -1;
   int data_payload_bytes = -1;
   Clk_t read_latency = -1;
+  bool supports_hffs_per_mat = false;
+  std::optional<int> hffs_per_mat;
 
   // Per-level/command arrays
   Organization organization;
@@ -124,6 +127,24 @@ struct DRAMSpec {
   bool has_command(const std::string& name) const { return commands.count(name); }
   bool has_state(const std::string& name) const { return states.count(name); }
   bool has_timing(const std::string& name) const { return timings.count(name); }
+
+  bool supports_request_type(int type_id) const {
+    return type_id >= 0 && type_id < static_cast<int>(supported_requests.size());
+  }
+  bool supports_controller_sequenced_request(int type_id) const {
+    return supports_request_type(type_id) &&
+           supported_requests[type_id] == CONTROLLER_SEQUENCED;
+  }
+  bool supports_inherited_pud_requests() const {
+    return supports_controller_sequenced_request(Request::Type::RowCopy) &&
+           supports_controller_sequenced_request(Request::Type::MAJ3) &&
+           supports_controller_sequenced_request(Request::Type::MAJ5) &&
+           supports_controller_sequenced_request(Request::Type::NOT);
+  }
+  bool supports_movement_requests() const {
+    return supports_controller_sequenced_request(Request::Type::LCMOV) &&
+           supports_controller_sequenced_request(Request::Type::GBMOV);
+  }
 
   // Checked lookups — throw std::runtime_error if not found.
   // Use at init-time and cache the result. Never call on a hot path.

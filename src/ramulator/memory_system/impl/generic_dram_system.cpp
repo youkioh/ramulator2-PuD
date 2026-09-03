@@ -24,7 +24,7 @@ class GenericDRAMSystem final : public IMemorySystem, public Implementation {
  public:
   int s_num_read_requests = 0;
   int s_num_write_requests = 0;
-  std::array<int, 4> s_num_pud_requests{};
+  std::array<int, kNumLegacyPuDStatisticSlots> s_num_pud_requests{};
 
  public:
   void init() override {
@@ -48,10 +48,14 @@ class GenericDRAMSystem final : public IMemorySystem, public Implementation {
 
     m_stats.add("total_num_read_requests", s_num_read_requests);
     m_stats.add("total_num_write_requests", s_num_write_requests);
-    m_stats.add("total_num_pud_rowcopy_requests", s_num_pud_requests[0]);
-    m_stats.add("total_num_pud_maj3_requests", s_num_pud_requests[1]);
-    m_stats.add("total_num_pud_maj5_requests", s_num_pud_requests[2]);
-    m_stats.add("total_num_pud_not_requests", s_num_pud_requests[3]);
+    for (int type_id = 0; type_id < Request::Type::Count; type_id++) {
+      const auto slot = legacy_pud_statistic_slot(type_id);
+      if (slot.has_value()) {
+        m_stats.add(
+            fmt::format("total_num_pud_{}_requests", legacy_pud_statistic_name(type_id)),
+            s_num_pud_requests[*slot]);
+      }
+    }
   };
 
   void setup(IFrontEnd* frontend, IMemorySystem* memory_system) override {
@@ -86,13 +90,11 @@ class GenericDRAMSystem final : public IMemorySystem, public Implementation {
           s_num_write_requests++;
           break;
         }
-        case Request::Type::RowCopy:
-        case Request::Type::MAJ3:
-        case Request::Type::MAJ5:
-        case Request::Type::NOT: {
-          s_num_pud_requests[req.type_id - Request::Type::RowCopy]++;
+        default:
+          if (const auto slot = legacy_pud_statistic_slot(req.type_id); slot.has_value()) {
+            s_num_pud_requests[*slot]++;
+          }
           break;
-        }
       }
     }
     return is_success;

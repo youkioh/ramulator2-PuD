@@ -2,6 +2,7 @@
 #define RAMULATOR_BASE_REQUEST_H
 
 #include <functional>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -18,7 +19,17 @@ struct Request {
   // Universal built-in external request types — always Read = 0, Write = 1.
   // Additional non-negative ids may exist as metadata for future extensions.
   struct Type {
-    enum : int { Read = 0, Write = 1, RowCopy = 2, MAJ3 = 3, MAJ5 = 4, NOT = 5 };
+    enum : int {
+      Read = 0,
+      Write = 1,
+      RowCopy = 2,
+      MAJ3 = 3,
+      MAJ5 = 4,
+      NOT = 5,
+      LCMOV = 6,
+      GBMOV = 7,
+      Count = 8,
+    };
   };
 
   int type_id = -1;        // Request type. -1 is the convention for internal maintenance/direct-command requests.
@@ -53,7 +64,14 @@ struct Request {
   Request(AddrVec_t addr_vec, Cmd_t, int final_cmd);  // internal commands (refresh, row close, etc.)
 };
 
+inline constexpr size_t kNumLegacyPuDStatisticSlots = 4;
+
+bool is_inherited_pud_request_type(int type_id);
+bool is_movement_request_type(int type_id);
 bool is_pud_request_type(int type_id);
+bool is_controller_sequenced_request_type(int type_id);
+std::optional<size_t> legacy_pud_statistic_slot(int type_id);
+const char* legacy_pud_statistic_name(int type_id);
 const char* request_type_name(int type_id);
 
 }  // namespace Ramulator

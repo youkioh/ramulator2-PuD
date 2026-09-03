@@ -13,20 +13,6 @@
 
 namespace Ramulator {
 
-namespace {
-
-constexpr std::array<const char*, 4> kPuDStatNames = {
-    "rowcopy", "maj3", "maj5", "not"};
-
-}  // namespace
-
-size_t ControllerBase::pud_operation_index(int type_id) {
-  if (!is_pud_request_type(type_id)) {
-    throw std::logic_error(fmt::format("Request type {} is not a PuD operation", type_id));
-  }
-  return static_cast<size_t>(type_id - Request::Type::RowCopy);
-}
-
 // ── Forwarding methods ──────────────────────────────────────────────────
 
 void ControllerBase::set_channel_id(int channel_id) {
@@ -137,22 +123,21 @@ void ControllerBase::setup_base(IFrontEnd* frontend, IMemorySystem* memory_syste
   m_stats.add("read_latency", s_read_latency);
   m_stats.add("avg_read_latency", s_avg_read_latency);
 
-  const auto& supported = m_device.m_spec->supported_requests;
-  const bool supports_pud = supported.size() > Request::Type::NOT &&
-      supported[Request::Type::RowCopy] == DRAMSpec::CONTROLLER_SEQUENCED &&
-      supported[Request::Type::MAJ3] == DRAMSpec::CONTROLLER_SEQUENCED &&
-      supported[Request::Type::MAJ5] == DRAMSpec::CONTROLLER_SEQUENCED &&
-      supported[Request::Type::NOT] == DRAMSpec::CONTROLLER_SEQUENCED;
-  if (supports_pud) {
+  if (m_device.m_spec->supports_inherited_pud_requests()) {
     m_stats.add("pud_queue_len", s_pud_queue_len);
     m_stats.add("pud_queue_len_avg", s_pud_queue_len_avg);
-    for (size_t i = 0; i < kNumPuDOperations; i++) {
-      m_stats.add(fmt::format("num_pud_{}_reqs", kPuDStatNames[i]), s_num_pud_reqs[i]);
+    for (int type_id = 0; type_id < Request::Type::Count; type_id++) {
+      const auto slot = legacy_pud_statistic_slot(type_id);
+      if (!slot.has_value()) {
+        continue;
+      }
+      const char* stat_name = legacy_pud_statistic_name(type_id);
+      m_stats.add(fmt::format("num_pud_{}_reqs", stat_name), s_num_pud_reqs[*slot]);
       m_stats.add(
-          fmt::format("num_pud_{}_reqs_completed", kPuDStatNames[i]),
-          s_num_pud_reqs_completed[i]);
-      m_stats.add(fmt::format("pud_{}_latency", kPuDStatNames[i]), s_pud_latency[i]);
-      m_stats.add(fmt::format("avg_pud_{}_latency", kPuDStatNames[i]), s_avg_pud_latency[i]);
+          fmt::format("num_pud_{}_reqs_completed", stat_name),
+          s_num_pud_reqs_completed[*slot]);
+      m_stats.add(fmt::format("pud_{}_latency", stat_name), s_pud_latency[*slot]);
+      m_stats.add(fmt::format("avg_pud_{}_latency", stat_name), s_avg_pud_latency[*slot]);
     }
   }
 
@@ -290,7 +275,7 @@ void ControllerBase::retire_request(ReqBuffer::iterator& req_it, ReqBuffer& buff
       req_it->callback(*req_it);
     }
     s_num_write_reqs_served++;
-  } else if (is_pud_request_type(req_it->type_id)) {
+  } else if (is_inherited_pud_request_type(req_it->type_id)) {
     req_it->depart = m_clk + m_device.m_spec->get_timing_value("nRP");
     m_pending.push_back(*req_it);
   } else if (req_it->type_id == -1) {
@@ -459,10 +444,10 @@ void ControllerBase::serve_completed_requests() {
     const size_t latency = static_cast<size_t>(completed.depart - completed.arrive);
     if (completed.type_id == Request::Type::Read) {
       s_read_latency += latency;
-    } else if (is_pud_request_type(completed.type_id)) {
-      const size_t op = pud_operation_index(completed.type_id);
-      s_num_pud_reqs_completed[op]++;
-      s_pud_latency[op] += latency;
+    } else if (const auto slot = legacy_pud_statistic_slot(completed.type_id);
+               slot.has_value()) {
+      s_num_pud_reqs_completed[*slot]++;
+      s_pud_latency[*slot] += latency;
     }
     if (completed.callback) {
       completed.callback(completed);
@@ -484,7 +469,7 @@ void ControllerBase::set_write_mode() {
 
 void ControllerBase::update_stats() {
   s_avg_read_latency = (s_num_read_reqs_served > 0) ? (float)s_read_latency / (float)s_num_read_reqs_served : 0;
-  for (size_t i = 0; i < kNumPuDOperations; i++) {
+  for (size_t i = 0; i < kNumLegacyPuDStatisticSlots; i++) {
     s_avg_pud_latency[i] = s_num_pud_reqs_completed[i] > 0
         ? static_cast<float>(s_pud_latency[i]) / static_cast<float>(s_num_pud_reqs_completed[i])
         : 0;
