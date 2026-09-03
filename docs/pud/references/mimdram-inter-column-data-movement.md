@@ -67,11 +67,11 @@ segments can be addressed.
 #### Logical mat ID and logical mat range
 
 For fine-grained PUD execution, the memory controller communicates the first
-and last logical mats targeted by an operation as a logical mat range
-`[mat_begin, mat_end]`. MIMDRAM restricts a PUD operation to a physically
-contiguous set of logical mats. Each DRAM chip determines whether the logical
-range includes mats in that chip and translates the logical range into a
-physical mat range for its mat selector.
+and last logical mat identifiers targeted by an operation as a logical mat
+range `[mat_begin, mat_end]`. MIMDRAM restricts one PUD operation to a
+physically contiguous set of DRAM mats. Each DRAM chip determines whether the
+logical range intersects its mats and translates the applicable portion into
+a physical mat range for its mat selector.
 
 For the logical encoding described in §4.2, MIMDRAM uses 14 bits for a logical
 mat range, with 7 bits for `mat_begin` and 7 bits for `mat_end`. Each 7-bit
@@ -111,12 +111,37 @@ In MIMDRAM's example, a TRA can target only `mat0`. The row decoder latch keeps
 the local row address for the activation in `mat0`, allowing the memory
 controller to issue a TRA to another mat while `mat0` is being activated.
 
-MIMDRAM §4.2 also introduces a per-chip mat queue plus `ACT-enqueue`,
-`PRE-enqueue`, and `ACT-dequeue` variants to communicate mat-range information
-around the deterministic `ACT`/`PRE` sequence of a PUD μProgram. This is a
-source fact about MIMDRAM's general mat-information transport mechanism. The
-LC-MOV and GB-MOV walkthroughs do not separately spell out how each internal
-activation uses these queueing variants.
+MIMDRAM's control unit avoids maintaining execution state independently for
+every DRAM mat by allowing the contiguous range of DRAM mats selected for one
+PUD operation to share the same `ACT`-`PRE` sequence and state.
+
+#### General mat-information transport
+
+MIMDRAM §4.2 introduces a per-chip mat queue and three command variants for
+communicating mat information around the deterministic `ACT`/`PRE` sequence
+of a PUD μProgram:
+
+- **`ACT-enqueue`** issues `ACT` to `row_addr` in the first DRAM clock cycle,
+  then communicates and enqueues `[mat_begin, mat_end]` in the second DRAM
+  clock cycle;
+- **`PRE-enqueue`** issues `PRE` to `bank_id` while communicating and
+  enqueuing `[mat_begin, mat_end]`;
+- **`ACT-dequeue`** issues `ACT` to `row_addr` and dequeues the applicable mat
+  information from the per-chip mat queue.
+
+MIMDRAM requires the mat information to be available before its corresponding
+activation selects the mats. Sending the information only after that
+activation would allow the full DRAM row to be activated. In the described
+PUD μProgram mechanism, MIMDRAM uses the available `ACT`-to-`ACT` and
+`PRE`-to-`ACT` command-latency intervals to overlap mat-information
+communication with command latency. The evaluated MIMDRAM configuration uses
+an eight-entry mat queue.
+
+These facts define MIMDRAM's general mat-information transport mechanism. The
+AAP/AP-specific transport walkthrough must not be generalized into an
+LC-MOV/GB-MOV schedule: the movement walkthroughs do not state which of their
+individual `ACT` and `PRE` occurrences use the enqueue, dequeue, or other
+forms.
 
 MIMDRAM §4.2 describes its control unit as orchestrating independent PUD
 operations concurrently across the mats of a DRAM subarray. Its mat scoreboard
@@ -246,6 +271,8 @@ on the source location.
 MIMDRAM states that this proceeds like a regular `ACT-RD-PRE` sequence up to
 this point, except for the HFF-enable behavior described next.
 
+The `RD` semantically operates on the selected LC source location or locations.
+
 **Source:** MIMDRAM §4.1, "Local I/O Data Movement", Fig. 5.
 
 #### Persistent physical condition across source PRE
@@ -277,6 +304,12 @@ on the destination location.
    destination local sense-amplifier state.
 4. The new value propagates through the local bitlines and is written to the
    destination cells.
+
+The `WR` semantically operates on the selected LC destination location or
+locations. MIMDRAM does not fully specify how either LC column operation
+selects the appropriate mat when multiple mats contain independently active
+rows. In particular, the source does not establish that `ACT` alone provides
+all mat-selection context needed by the later `RD` and `WR`.
 
 **Source:** MIMDRAM §4.1, "Local I/O Data Movement", Fig. 5.
 
@@ -395,15 +428,23 @@ MIMDRAM describes three main steps:
 1. The memory controller issues an `ACT` to the source row and, concurrently,
    an `ACT` to the destination row in the other mat.
 2. A source `RD(column_src)` loads the selected four-bit source column into the
-   source HFFs, which drive the corresponding source global-SA set.
-3. A destination `WR(column_dst)` selects the added neighboring-global-SA path.
-   Data in the source global-SA set is loaded into the destination global-SA
-   set, which drives the destination HFFs and local sense amplifiers. The local
-   sense amplifiers restore the destination local bitlines and cells.
+   source HFFs, which drive the corresponding source global-SA set. The `RD`
+   semantically targets the source mat.
+3. A destination `WR(column_dst)` semantically targets the destination mat and
+   selects the added neighboring-global-SA path. Data in the source global-SA
+   set is loaded into the destination global-SA set, which drives the
+   destination HFFs and local sense amplifiers. The local sense amplifiers
+   restore the destination local bitlines and cells.
 
 The source-reported latency equation also includes `tRP`, i.e. a final
 precharge/recovery interval before the bank is ready for another row
 activation.
+
+MIMDRAM does not fully specify the C/A or control mechanism by which these
+column operations select the appropriate source and destination mats while
+both mats contain active rows. The source therefore does not establish that
+the preceding activations alone provide all later `RD`/`WR` mat-selection
+context.
 
 **Source:** MIMDRAM §4.1, "Global I/O Data Movement", Fig. 4.
 
@@ -690,18 +731,34 @@ sources do not provide enough information to close them.
 
 7. **How exactly are the general mat-queue command variants used by LC-MOV and
    GB-MOV?**
-   - §4.2 defines `ACT-enqueue`, `PRE-enqueue`, and `ACT-dequeue` for
-     deterministic PUD μPrograms.
+   - §4.2 defines the general `ACT-enqueue`, `PRE-enqueue`, and `ACT-dequeue`
+     transport mechanism and evaluates an eight-entry per-chip mat queue.
    - §4.1 describes LC-MOV and GB-MOV using `ACT`, `RD`, `WR`, and `PRE`
      terminology without a separate movement-specific mat-queue walkthrough.
+   - The paper does not specify which LC source/destination `ACT` occurrences
+     use `ACT-enqueue`, `ACT-dequeue`, or another form, or which LC `PRE`
+     occurrences use `PRE-enqueue` or another form.
+   - The corresponding mapping for GB-MOV, the interaction of its two endpoint
+     selections with the mat queue, and the exact LC/GB transport schedules are
+     unresolved.
+   - The paper does not establish whether or how this transport contributes to
+     LC/GB command-bus contention or to the published movement latencies.
 
-8. **How is the four-element output of the intra-mat reduction converted to a
+8. **How do LC-MOV and GB-MOV column commands select their mats?**
+   - LC `RD` and `WR` semantically operate on the selected source and
+     destination locations, respectively.
+   - GB `RD` semantically targets the source mat, while GB `WR` semantically
+     targets the destination mat and selects the neighboring-global-SA path.
+   - The paper does not fully specify how `RD`/`WR` select the applicable mat
+     when multiple mats contain independently active rows.
+
+9. **How is the four-element output of the intra-mat reduction converted to a
    scalar?**
    - MIMDRAM describes the LC-MOV adder tree down to four data elements.
    - The cited vector-reduction description does not provide a further
      `4 -> 1` mechanism.
 
-9. **How accurately does FIGARO-derived `tRELOC` model each MIMDRAM path?**
+10. **How accurately does FIGARO-derived `tRELOC` model each MIMDRAM path?**
    - MIMDRAM reports equations containing `tRELOC`.
    - FIGARO provides SPICE evidence for a related, but physically different,
      inter-subarray relocation path.
