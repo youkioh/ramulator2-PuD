@@ -167,7 +167,9 @@ takes:
    `column_dst`.
 
 The worked mechanism moves four bits from `(row_src, column_src)` to
-`(row_dst, column_dst)` within `mat_M`.
+`(row_dst, column_dst)` within `mat_M`. This walkthrough demonstrates the
+singleton case; it does not explicitly narrate execution over a range
+containing multiple mats.
 
 **Source:** MIMDRAM §4.1, "Local I/O Data Movement", Fig. 5.
 
@@ -248,12 +250,15 @@ on the destination location.
 
 #### Transfer granularity
 
-The worked MIMDRAM organization moves four bits per `LC-MOV`. MIMDRAM
-explicitly ties the movement width to the number of HFFs already present in a
-mat and assumes four HFFs per mat based on prior fine-grained-DRAM work.
+The singleton walkthrough moves four bits through the selected mat's four
+HFFs. Four bits is therefore the evaluated per-mat HFF width, not a
+technology-independent constant.
 
-Thus, "four bits" is the source-reported granularity for the evaluated
-organization, not a technology-independent constant.
+For a range containing `N` selected mats, `4N` bits is the inferred aggregate
+movement width if every selected mat executes the common LC-MOV locally in
+lockstep. MIMDRAM does not state this aggregate width explicitly; the
+range-wide interpretation is classified as an architectural inference in
+section 3.
 
 **Source:** MIMDRAM §4.1, footnote 5.
 
@@ -527,7 +532,28 @@ Therefore, FIGARO's `tRELOC` provides a primary-source timing basis for a
 related global-row-buffer transfer mechanism, but FIGARO is not a direct
 circuit validation of MIMDRAM's exact `GB-MOV` or `LC-MOV` datapath.
 
-### 3.2 The depicted GB-MOV hardware does not provide a cross-chip datapath
+### 3.2 A multi-mat LC-MOV strongly implies lockstep per-mat movement
+
+MIMDRAM gives LC-MOV one logical target-mat range, one source Row/Column pair,
+and one destination Row/Column pair. Its general PUD range mechanism selects a
+contiguous range whose mats share state while executing the same ACT-PRE
+sequence. LC-MOV's HFF and column-select datapath is local to each mat.
+
+Together, these source facts strongly imply that a multi-mat LC-MOV applies
+the common source and destination addresses in every selected mat in lockstep,
+with each mat moving one local HFF width. In the evaluated four-HFF
+organization, `N` selected mats therefore imply `4N` aggregate bits moved.
+
+This is an architectural inference, not an explicitly demonstrated source
+fact. MIMDRAM's detailed LC-MOV walkthrough shows only one selected `mat_M`.
+It also does not describe distinct per-mat addresses or independently
+progressing phases within one LC-MOV range.
+
+Because each participating mat uses its own local datapath, an LC range that
+selects mats belonging to multiple chips does not imply cross-chip data
+transfer.
+
+### 3.3 The depicted GB-MOV hardware does not provide a cross-chip datapath
 
 The `GB-MOV` interconnect shown by MIMDRAM connects neighboring global-SA sets
 inside a DRAM chip. The paper does not depict a corresponding data path
@@ -537,18 +563,21 @@ Therefore, cross-chip `GB-MOV` is not supported by the described physical
 interconnect. This conclusion follows from the depicted connectivity rather
 than from an explicit sentence in MIMDRAM stating "GB-MOV cannot cross chips."
 
-### 3.3 The direct GB-MOV connection shown is a neighboring connection
+### 3.4 The direct GB-MOV connection shown is directional and neighboring
 
 MIMDRAM explicitly describes the destination global-SA set `SA_i` as selecting
 data from neighboring set `SA_(i-1)` and illustrates movement from
 `mat_(M-2)` to `mat_(M-1)`.
 
-It is therefore not justified to reinterpret the published datapath as an
-arbitrary all-to-all mat crossbar. The paper does not establish whether an
-arbitrary non-neighbor move is performed by repeated hops, by another
-unreported path, or is disallowed.
+The directly supported physical edge is therefore `SA_(i-1) -> SA_i`. The
+depicted hardware does not provide the reverse direct edge or an arbitrary
+all-to-all mat crossbar. The paper does not establish whether an arbitrary
+non-neighbor move is performed by repeated hops, by another unreported path,
+or is disallowed. It also does not establish that consecutive logical local-mat
+IDs necessarily map to physically adjacent global-SA sets; that correspondence
+is a simulator mapping question.
 
-### 3.4 Physical persistence does not imply simulator-visible persistence
+### 3.5 Physical persistence does not imply simulator-visible persistence
 
 Two important examples follow from the source descriptions:
 
@@ -561,7 +590,7 @@ made observable to other operations. They do not, by themselves, establish
 the state granularity of a simulator that may instead treat a movement as a
 compound operation.
 
-### 3.5 The 128-entry control/scheduling mat set is better supported as subarray-scoped
+### 3.6 The 128-entry control/scheduling mat set is better supported as subarray-scoped
 
 MIMDRAM describes independent PUD operations as executing across mats within a
 DRAM subarray, sizes the mat scoreboard as 128 bits with one bit per DRAM mat
@@ -599,30 +628,27 @@ sources do not provide enough information to close them.
    - The exact relationship among logical mat ID, bank, subarray, and every
      physical mat in the full device is not completely specified.
 
-3. **What are the exact semantics of an LC-MOV logical mat range containing
-   more than one mat?**
-   - The command accepts a logical mat range.
-   - The detailed walkthrough explains a move inside a single `mat_M`.
-   - The paper does not explicitly define whether the same local movement is
-     performed in parallel in every mat in a multi-mat range.
-
-4. **How are GB-MOV source and destination ranges paired?**
+3. **How are GB-MOV source and destination ranges paired and executed?**
    - `GB-MOV` accepts separate logical source and destination ranges.
    - The detailed circuit example shows one neighboring pair.
-   - The paper does not fully define the pairing rule for wider ranges.
+   - The paper does not define whether wider ranges must have equal lengths,
+     how their mats are paired, whether multiple pairs execute simultaneously,
+     whether source and destination ranges may overlap, what alignment or
+     displacement is required, or whether one command internally expands into
+     multiple pair transfers.
 
-5. **What is the supported reachability for non-neighbor GB-MOV targets?**
+4. **What is the supported reachability for non-neighbor GB-MOV targets?**
    - The physical connection shown is `SA_(i-1) -> SA_i`.
    - The paper does not specify a multi-hop protocol or another direct route
      for arbitrary non-neighbor source/destination mats.
 
-6. **How does the high-level `bbop_mov` "same mat -> LC-MOV, otherwise ->
+5. **How does the high-level `bbop_mov` "same mat -> LC-MOV, otherwise ->
    GB-MOV" rule interact with physical reachability?**
    - The ISA description gives this translation rule.
    - The hardware description does not explain how every possible
      "otherwise" mapping is realized by the depicted neighboring interconnect.
 
-7. **What exact precharge scope is intended for the internal movement
+6. **What exact precharge scope is intended for the internal movement
    sequences?**
    - MIMDRAM describes mat-selective activation and separately describes
      `ACT-enqueue`, `PRE-enqueue`, and `ACT-dequeue` for PUD μPrograms.
@@ -630,20 +656,20 @@ sources do not provide enough information to close them.
      structures a movement-related `PRE` closes when multiple mats or
      independent operations are active.
 
-8. **How exactly are the general mat-queue command variants used by LC-MOV and
+7. **How exactly are the general mat-queue command variants used by LC-MOV and
    GB-MOV?**
    - §4.2 defines `ACT-enqueue`, `PRE-enqueue`, and `ACT-dequeue` for
      deterministic PUD μPrograms.
    - §4.1 describes LC-MOV and GB-MOV using `ACT`, `RD`, `WR`, and `PRE`
      terminology without a separate movement-specific mat-queue walkthrough.
 
-9. **How is the four-element output of the intra-mat reduction converted to a
+8. **How is the four-element output of the intra-mat reduction converted to a
    scalar?**
    - MIMDRAM describes the LC-MOV adder tree down to four data elements.
    - The cited vector-reduction description does not provide a further
      `4 -> 1` mechanism.
 
-10. **How accurately does FIGARO-derived `tRELOC` model each MIMDRAM path?**
+9. **How accurately does FIGARO-derived `tRELOC` model each MIMDRAM path?**
    - MIMDRAM reports equations containing `tRELOC`.
    - FIGARO provides SPICE evidence for a related, but physically different,
      inter-subarray relocation path.

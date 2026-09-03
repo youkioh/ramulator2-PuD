@@ -130,6 +130,10 @@ Open issues
   active-mat, or intermediate-path state.
 - Exact movement Column semantics, transfer width, alignment, and transfer
   quantization.
+  Later refinement: `docs/pud/decisions/mimdram-movement-range-and-placement.md`
+  accepts one local HFF width per selected LC-MOV mat and an inferred `4N`-bit
+  aggregate width in the evaluated four-HFF organization. Movement Column
+  semantics, alignment, and detailed transfer quantization remain unresolved.
 - Exact movement command names.
 - Exact movement-related precharge scope and whether mat-information transport
   commands are explicit or remain metadata/internal.

@@ -25,6 +25,10 @@ invocation. The exact physical transfer granularity, single-mat versus
 mat-range execution semantics, and source/destination range pairing are not
 decided here.
 
+Later resolution note: `docs/pud/decisions/mimdram-movement-range-and-placement.md`
+accepts range-wide lockstep LC-MOV execution while retaining singleton GB-MOV
+as the initial supported subset.
+
 The controller owns the movement request lifecycle and any command sequencing
 required by the subsequently accepted command-granularity decision. Whether
 an LC-MOV or GB-MOV invocation maps to an aggregate DRAM command or exposes
@@ -82,6 +86,8 @@ MIMDRAM source facts:
   movement commands with source and destination location information. It also
   preserves unresolved physical details, including multi-mat LC behavior,
   GB range pairing, and non-neighbor reachability.
+  Later resolution: `docs/pud/decisions/mimdram-movement-range-and-placement.md`
+  resolves the multi-mat LC behavior; the listed GB questions remain open.
 
 Repository evidence:
 
@@ -116,6 +122,9 @@ Open issues
 - Physical transfer width remains unresolved.
 - Single-mat versus mat-range execution semantics remain unresolved.
 - Source/destination range pairing remains unresolved.
+- Later resolution: `docs/pud/decisions/mimdram-movement-range-and-placement.md`
+  accepts range-wide LC-MOV execution and its inferred aggregate width. GB-MOV
+  wider-range pairing and detailed movement quantization remain unresolved.
 - The exact combined-standard class and registration name remain unresolved.
 - Whether the combined standard later adds mat-selective computation
   mechanisms remains unresolved.

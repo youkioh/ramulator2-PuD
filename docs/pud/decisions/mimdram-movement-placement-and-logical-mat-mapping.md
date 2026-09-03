@@ -1,4 +1,6 @@
-Status: Accepted
+Status: Superseded
+
+Superseded by `docs/pud/decisions/mimdram-movement-range-and-placement.md`.
 
 Question
 
