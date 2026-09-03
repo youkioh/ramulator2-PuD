@@ -15,6 +15,7 @@ void DRAMDevice::set_channel_id(int channel_id) {
 }
 
 void DRAMDevice::issue_command(int command, const AddrVec_t& addr_vec, Clk_t clk) {
+  validate_command(command, addr_vec, clk);
   m_root->update_timing(command, addr_vec, clk);
   apply_action(command, addr_vec, clk);
 }
@@ -24,6 +25,7 @@ bool DRAMDevice::check_timing(int command, const AddrVec_t& addr_vec, Clk_t clk)
 }
 
 int DRAMDevice::get_preq_command(int command, const AddrVec_t& addr_vec, Clk_t clk) {
+  validate_command(command, addr_vec, clk);
   auto preq_fn = m_spec->funcs.preqs[command];
   if (!preq_fn) return command;
 
@@ -75,6 +77,14 @@ std::vector<int> DRAMDevice::get_target_banks(int command, const AddrVec_t& addr
   std::vector<int> ids;
   for_each_target_bank(command, addr_vec, [&](int id) { ids.push_back(id); });
   return ids;
+}
+
+void DRAMDevice::validate_command(int command, const AddrVec_t& addr_vec, Clk_t clk) const {
+  auto validate_fn = m_spec->funcs.validators[command];
+  if (!validate_fn) return;
+  for_each_target_bank(command, addr_vec, [&](int flat_bank_id) {
+    validate_fn(m_bank_nodes[flat_bank_id], command, addr_vec, clk);
+  });
 }
 
 void DRAMDevice::apply_action(int command, const AddrVec_t& addr_vec, Clk_t clk) {

@@ -7,10 +7,12 @@ Phase.
 | Milestone | Progress |
 | --- | --- |
 | Phase 1 | Complete and committed |
-| Phase 2.A | Complete |
-| Phase 2.B implementation/tests | Complete |
-| Phase 2 | Complete; ready for commit |
-| Phases 3–6 | Not started |
+| Phase 2 | Complete and committed |
+| Decision session C/D/E | Resolved and recorded |
+| Phase 3.A | Complete |
+| Phase 3.B | Complete |
+| Phase 3 | Complete; ready for commit |
+| Phases 4–6 | Not started |
 
 ## Goal
 

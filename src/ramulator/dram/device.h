@@ -95,6 +95,10 @@ class DRAMDevice {
   }
 
  private:
+  // Run any command-specific defensive validation across the complete target
+  // scope before prerequisite resolution, timing mutation, or state mutation.
+  void validate_command(int command, const AddrVec_t& addr_vec, Clk_t clk) const;
+
   // Flat bank dispatch — apply action to target banks
   void apply_action(int command, const AddrVec_t& addr_vec, Clk_t clk);
 };

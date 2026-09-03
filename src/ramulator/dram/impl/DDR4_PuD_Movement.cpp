@@ -7,6 +7,7 @@
  * Regenerate:   python -m ramulator codegen DDR4_PuD_Movement
  ******************************************************************************/
 #include "ramulator/dram/commands/ACT.h"
+#include "ramulator/dram/commands/ACT_MOV.h"
 #include "ramulator/dram/commands/ACT_PUD.h"
 #include "ramulator/dram/commands/ACT_PUD_OC.h"
 #include "ramulator/dram/commands/ACT_PUD_S.h"
@@ -16,9 +17,11 @@
 #include "ramulator/dram/commands/PREpb.h"
 #include "ramulator/dram/commands/RD.h"
 #include "ramulator/dram/commands/RDA.h"
+#include "ramulator/dram/commands/RD_MOV.h"
 #include "ramulator/dram/commands/REFab.h"
 #include "ramulator/dram/commands/WR.h"
 #include "ramulator/dram/commands/WRA.h"
+#include "ramulator/dram/commands/WR_MOV.h"
 #include "ramulator/dram/commands/populate.h"
 #include "ramulator/dram/dram_spec.h"
 
@@ -30,10 +33,28 @@ class DDR4_PuD_Movement : public DRAMSpec {
     enum : int { Channel, Rank, BankGroup, Bank, Row, Column, COUNT };
   };
   struct Command {
-    enum : int { ACT, PREpb, PREab, RD, WR, RDA, WRA, REFab, ACT_PUD, ACT_PUD_OC, ACT_PUD_S, ACT_PUD_S_OC, N, COUNT };
+    enum : int {
+      ACT,
+      PREpb,
+      PREab,
+      RD,
+      WR,
+      RDA,
+      WRA,
+      REFab,
+      ACT_PUD,
+      ACT_PUD_OC,
+      ACT_PUD_S,
+      ACT_PUD_S_OC,
+      N,
+      ACT_MOV,
+      RD_MOV,
+      WR_MOV,
+      COUNT
+    };
   };
   struct State {
-    enum : int { Opened, Closed, N_A, PuDChargeSharing, PuDSensed, COUNT };
+    enum : int { Opened, Closed, N_A, PuDChargeSharing, PuDSensed, MovementActive, MovementDataValid, COUNT };
   };
   struct Timing {
     enum : int {
@@ -63,6 +84,7 @@ class DDR4_PuD_Movement : public DRAMSpec {
       nPUD_ACT_S_OC,
       nPUD_ACT_S,
       nPUD_N,
+      nRELOC,
       COUNT
     };
   };
@@ -72,7 +94,8 @@ class DDR4_PuD_Movement : public DRAMSpec {
                  Cmd::RD<DDR4_PuD_Movement>, Cmd::WR<DDR4_PuD_Movement>, Cmd::RDA<DDR4_PuD_Movement>,
                  Cmd::WRA<DDR4_PuD_Movement>, Cmd::REFab<DDR4_PuD_Movement>, Cmd::ACT_PUD<DDR4_PuD_Movement>,
                  Cmd::ACT_PUD_OC<DDR4_PuD_Movement>, Cmd::ACT_PUD_S<DDR4_PuD_Movement>,
-                 Cmd::ACT_PUD_S_OC<DDR4_PuD_Movement>, Cmd::N<DDR4_PuD_Movement> >;
+                 Cmd::ACT_PUD_S_OC<DDR4_PuD_Movement>, Cmd::N<DDR4_PuD_Movement>, Cmd::ACT_MOV<DDR4_PuD_Movement>,
+                 Cmd::RD_MOV<DDR4_PuD_Movement>, Cmd::WR_MOV<DDR4_PuD_Movement> >;
 
   DDR4_PuD_Movement(const ConfigNode& config) {
     // Counts
@@ -85,12 +108,14 @@ class DDR4_PuD_Movement : public DRAMSpec {
     set_names(levels, level_names, {"Channel", "Rank", "BankGroup", "Bank", "Row", "Column"});
     set_names(commands, command_names,
               {"ACT", "PREpb", "PREab", "RD", "WR", "RDA", "WRA", "REFab", "ACT_PUD", "ACT_PUD_OC", "ACT_PUD_S",
-               "ACT_PUD_S_OC", "N"});
-    set_names(states, state_names, {"Opened", "Closed", "N_A", "PuDChargeSharing", "PuDSensed"});
-    set_names(timings, timing_names,
-              {"rate",  "nBL",   "nCL",    "nRCD",        "nRP",      "nRAS",          "nRC",        "nWR",   "nRTP",
-               "nCWL",  "nCCDS", "nCCDL",  "nRRDS",       "nRRDL",    "nWTRS",         "nWTRL",      "nFAW",  "nRFC",
-               "nREFI", "nCS",   "tCK_ps", "nPUD_ACT_OC", "nPUD_ACT", "nPUD_ACT_S_OC", "nPUD_ACT_S", "nPUD_N"});
+               "ACT_PUD_S_OC", "N", "ACT_MOV", "RD_MOV", "WR_MOV"});
+    set_names(states, state_names,
+              {"Opened", "Closed", "N_A", "PuDChargeSharing", "PuDSensed", "MovementActive", "MovementDataValid"});
+    set_names(
+        timings, timing_names,
+        {"rate",  "nBL",   "nCL",    "nRCD",        "nRP",      "nRAS",          "nRC",        "nWR",    "nRTP",
+         "nCWL",  "nCCDS", "nCCDL",  "nRRDS",       "nRRDL",    "nWTRS",         "nWTRL",      "nFAW",   "nRFC",
+         "nREFI", "nCS",   "tCK_ps", "nPUD_ACT_OC", "nPUD_ACT", "nPUD_ACT_S_OC", "nPUD_ACT_S", "nPUD_N", "nRELOC"});
 
     // Static spec data
     internal_prefetch_size = 8;

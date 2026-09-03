@@ -84,6 +84,10 @@ class DeviceUnderTest:
         """
         return ProbeResult(**self._cpp.probe(command, addr_vec, clk))
 
+    def bank_info(self, addr_vec: list[int]) -> dict:
+        """Return test-only Bank state and row-state contents for ``addr_vec``."""
+        return self._cpp.bank_info(addr_vec)
+
     def issue(self, command: str, addr_vec: list[int], clk: int) -> None:
         """Issue ``command`` at ``clk``, mutating device state.
 

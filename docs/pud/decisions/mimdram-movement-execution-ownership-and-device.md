@@ -40,6 +40,15 @@ Ordinary `ACT`, `RD`, and `WR` are not reused because their conventional
 flat-Bank, row-hit, host-DQ, row-policy, and statistics meanings do not apply
 to the internal movement occurrences.
 
+Set `is_opening=false`, `is_accessing=false`, and `is_closing=false` for all
+three movement commands. Each has `BankTarget::Single`. These metadata fields
+classify the current controller, row-policy, and plugin behaviors; they do not
+describe every physical action represented by a command. Movement activation
+therefore does not enter the generic active-buffer path or activation-based
+RowHammer handling, and movement transfer phases are not ordinary row-buffer
+accesses. Do not provide movement `rowhit` or `rowopen` handlers. Keep shared
+`PREpb` metadata and its single-Bank target unchanged.
+
 The retained request/controller execution context owns primitive identity,
 the two ordered operands, logical-mat metadata, one monotonic occurrence
 cursor, each occurrence's source/destination role, and the occurrence issue
@@ -153,6 +162,26 @@ from unrelated PRE. The Device API does not reproduce request provenance or
 the exact cursor. Reusing Bank-level `PREpb` does not claim physical whole-
 Bank movement precharge; exact physical scope remains unresolved.
 
+The Open and ClosedCAP row policies require no movement-specific production
+behavior. ClosedCAP's exact `RD`/`WR` upgrade checks cannot convert movement to
+`RDA`/`WRA`, and movement's non-accessing metadata cannot increment its CAP or
+independently trigger policy-generated PRE. Shared movement `PREpb`
+notifications may retain the existing close-bookkeeping path: movement enters
+ownership from an already-Closed Bank or after a preparatory conventional
+`PREpb`, and no movement occurrence increments the CAP, so the reset is
+behaviorally inert. Ownership remains the protection against independently
+queued policy work.
+
+Pure observational controller plugins may observe issued movement commands;
+this means command visibility only and does not imply functional movement-data
+knowledge or resolve later trace-schema choices. Plugins already incompatible
+because the combined standard lacks required VRR or RFM capabilities remain
+rejected by their setup checks. Reject AQUA and RRS at setup whenever the DRAM
+standard is movement-capable: their RIT placement/remapping semantics are not
+functionally integrated with movement operands. Future support requires an
+explicit movement-aware mapping decision rather than relying on ownership or
+the current absence of functional data modeling.
+
 Ordinary `ACT`, `RD`, `WR`, `RDA`, `WRA`, inherited PuD work, `PREab`,
 refresh, and refresh-generated close are illegal if their complete scope
 intersects a Bank in either movement state. Ownership is the primary
@@ -210,8 +239,11 @@ claims.
 Repository evidence is the retained-request/cursor controller architecture,
 pre-prerequisite eligibility, one-command/one-address Device handlers, one
 Bank state plus Row map, issue-time action/timing updates, existing PRE
-dispatch, and GenericDDR priority/refresh behavior. These mechanisms support
-the accepted boundary without explicit Mat hierarchy or a second owner map.
+dispatch, GenericDDR priority/refresh behavior, exact-ID ClosedCAP upgrades,
+metadata-driven activation plugins, exact-ID RowHammer plugins, observational
+issue hooks, and AQUA/RRS RIT mutation plus injected traffic. These mechanisms
+support the accepted boundary without explicit Mat hierarchy or a second owner
+map.
 
 This document consolidates the current accepted authority formerly carried by
 `mimdram-movement-occurrences-and-command-identities.md`,
@@ -227,8 +259,9 @@ Open issues
   completion, and movement-specific accounting boundaries.
 - Exact pending admission and mixed-traffic arbitration details that do not
   change the accepted ownership policy.
-- Movement metadata in traces and the physical interpretation of row-policy
-  or behavior-changing plugin interactions.
+- Movement metadata in traces.
+- Future movement-aware mapping semantics that could make AQUA or RRS
+  compatible with movement operands.
 - Future same-Bank disjoint-mat MIMD, which requires a new finer-grained
   ownership, legality, resource, and Device-state decision.
 - Future refresh deadline, retention, credit, and maximum-deferral fidelity

@@ -1,6 +1,8 @@
 #ifndef RAMULATOR_DRAM_COMMANDS_REFAB_H
 #define RAMULATOR_DRAM_COMMANDS_REFAB_H
 
+#include <stdexcept>
+
 #include "ramulator/dram/node.h"
 
 namespace Ramulator::Cmd {
@@ -9,6 +11,15 @@ template <class T>
 struct REFab {
   static constexpr DRAMCommandMeta meta = {.is_refreshing = true};
   static constexpr BankTarget bank_target = BankTarget::All;
+
+  static void validate(DRAMNode* bank, int cmd, const AddrVec_t& addr_vec, Clk_t clk) {
+    if constexpr (requires { T::State::MovementActive; T::State::MovementDataValid; }) {
+      if (bank->m_state == T::State::MovementActive ||
+          bank->m_state == T::State::MovementDataValid) {
+        throw std::runtime_error("[REFab] Invalid bank state!");
+      }
+    }
+  }
 
   static int preq(DRAMNode* bank, int cmd, const AddrVec_t& addr_vec, Clk_t clk) {
     if (bank->m_state != T::State::Closed) {

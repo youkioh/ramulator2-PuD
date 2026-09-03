@@ -100,6 +100,25 @@ class DeviceUnderTestCpp {
     return spec().hffs_per_mat.value_or(-1);
   }
 
+  nb::dict bank_info(const AddrVec_t& addr_vec) const {
+    validate_addr_vec_size(spec(), addr_vec);
+    int bank_id = m_device.get_flat_bank_id(addr_vec);
+    if (bank_id < 0 || bank_id >= static_cast<int>(m_device.m_bank_nodes.size())) {
+      throw std::runtime_error("bank_info address does not identify a valid Bank");
+    }
+
+    const auto* bank = m_device.m_bank_nodes[bank_id];
+    std::map<int, std::string> row_state;
+    for (const auto& [row, state] : bank->m_row_state) {
+      row_state[row] = spec().state_names[state];
+    }
+
+    nb::dict out;
+    out["state"] = spec().state_names[bank->m_state];
+    out["row_state"] = row_state;
+    return out;
+  }
+
   nb::dict probe(const std::string& command_name, const AddrVec_t& addr_vec, Clk_t clk) {
     validate_addr_vec_size(spec(), addr_vec);
     int cmd = spec().get_command_id(command_name);
@@ -750,6 +769,7 @@ NB_MODULE(_ramulator_test, m) {
       .def("supports_movement_requests", &DeviceUnderTestCpp::supports_movement_requests)
       .def_prop_ro("supports_hffs_per_mat_config", &DeviceUnderTestCpp::supports_hffs_per_mat_config)
       .def_prop_ro("hffs_per_mat", &DeviceUnderTestCpp::hffs_per_mat)
+      .def("bank_info", &DeviceUnderTestCpp::bank_info, nb::arg("addr_vec"))
       .def("command_info", &DeviceUnderTestCpp::command_info, nb::arg("command"))
       .def("probe", &DeviceUnderTestCpp::probe, nb::arg("command"), nb::arg("addr_vec"), nb::arg("clk"))
       .def("issue", &DeviceUnderTestCpp::issue, nb::arg("command"), nb::arg("addr_vec"), nb::arg("clk"));
