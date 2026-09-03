@@ -84,6 +84,10 @@ activation intervals of the two GB `ACT_MOV` occurrences to overlap. This does
 not decide whether those activations occupy different command/address cycles in
 the described hardware.
 
+Later resolution: `docs/pud/decisions/mimdram-movement-numeric-timing-and-directed-edges.md`
+accepts the initial numeric parameters, directed edges, history selection, and
+quantization under this responsibility boundary.
+
 Rationale
 
 Conventional command-history timing is sufficient when hierarchy node and
