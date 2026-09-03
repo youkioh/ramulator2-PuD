@@ -63,6 +63,15 @@ Preserve the existing active-before-priority ordering and FIFO priority-head
 behavior. Do not add scope-aware priority bypass or detailed refresh-deadline
 policy in this decision.
 
+Later resolution: the focused refresh investigation classified the initial
+model as F-A. It intentionally inherits GenericDDR's deferred-refresh
+behavior: queued priority refresh prevents pending movement acquisition,
+refresh generated after acquisition waits for the non-preemptive movement,
+and terminal `PREpb` releases ownership while Device timing retains `nRP`
+protection before `REFab`. No deadline, maximum-deferral credit, or
+deadline-aware admission is added. Their absence remains a GenericDDR
+fidelity limitation and is not plan-shaping for the initial movement model.
+
 Future MIMDRAM-MIMD support may refine Bank ownership into finer mat-range or
 movement-resource ownership without changing the accepted LC-MOV/GB-MOV
 request boundary, placement contract, or visible command-role semantics.

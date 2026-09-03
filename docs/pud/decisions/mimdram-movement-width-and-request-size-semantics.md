@@ -170,6 +170,9 @@ Open issues
 - Column semantics and refresh admission/deferral remain candidate
   plan-shaping questions that must be resolved before final implementation-plan
   readiness is declared.
+  Later resolution: Column semantics were accepted separately, and the focused
+  refresh investigation classified the initial model as F-A, requiring no new
+  refresh-policy decision before planning.
 - Exact request departure, callback, modeled data-availability, and
   statistics-completion boundaries remain a later lifecycle decision.
 - Exact movement counter names, accepted/completed accounting boundaries,

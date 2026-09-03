@@ -172,3 +172,6 @@ Open issues
 - Refresh admission, maximum deferral, and deadline treatment remain the
   remaining identified candidate plan-shaping issue. This decision makes no
   refresh-policy choice.
+  Later resolution: the focused refresh investigation classified the initial
+  model as F-A; existing GenericDDR deferred-refresh behavior is retained, and
+  no new refresh-policy decision is required before planning.

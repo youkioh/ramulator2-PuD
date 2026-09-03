@@ -143,6 +143,21 @@ LC-MOV/GB-MOV schedule: the movement walkthroughs do not state which of their
 individual `ACT` and `PRE` occurrences use the enqueue, dequeue, or other
 forms.
 
+#### PUD command ordering and maintenance already in progress
+
+MIMDRAM states that the memory controller must preserve the order of the
+`ACT` and `PRE` commands specified for a PUD operation; those commands cannot
+be reordered during execution, making the operation deterministic. It also
+states that, when Bank maintenance is already in progress, the `AAP`/`AP`
+commands of a PUD operation wait until that maintenance finishes.
+
+These statements concern command ordering and `AAP`/`AP` waiting for
+already-active maintenance. They do not specify LC-MOV/GB-MOV admission near
+a refresh deadline, interruption of an active movement, pause/resume, or a
+refresh-postponement bound.
+
+**Source:** MIMDRAM §4.2, footnote 10.
+
 MIMDRAM §4.2 describes its control unit as orchestrating independent PUD
 operations concurrently across the mats of a DRAM subarray. Its mat scoreboard
 tracks whether mats targeted by a PUD operation are available. MIMDRAM's §8.5
