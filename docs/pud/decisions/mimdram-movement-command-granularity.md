@@ -1,4 +1,7 @@
-Status: Accepted
+Status: Superseded
+
+Superseded by
+`docs/pud/decisions/mimdram-movement-occurrences-and-command-identities.md`.
 
 Question
 

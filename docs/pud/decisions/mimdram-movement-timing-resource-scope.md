@@ -19,6 +19,12 @@ multiplied by the number of selected mats. In the evaluated four-HFF
 organization, an LC-MOV selecting `N` mats represents an inferred aggregate
 movement of `4N` bits.
 
+Later resolution: the replacement command-identity decision in
+`docs/pud/decisions/mimdram-movement-occurrences-and-command-identities.md`
+preserves these six LC-MOV roles and the five GB-MOV roles below as command
+occurrences, not unique semantic command types. This does not change the
+timing/resource scope accepted here.
+
 One singleton GB-MOV is one controller-sequenced invocation that retains
 distinct ordered source and destination endpoint semantics and the derivable
 same-chip directional-neighbor path. Its separately issued source- and
@@ -127,11 +133,12 @@ Accepted project decisions:
   evaluated organization, the initial singleton directional-neighbor GB-MOV
   subset, movement-specific logical metadata, the derived-subarray placement
   context, and the unchanged ordinary hierarchy.
-- `docs/pud/decisions/mimdram-movement-command-granularity.md` accepts six
-  visible LC-MOV roles and five visible GB-MOV roles, represents GB activation
-  endpoints as separate one-address commands, requires their physical
-  activation intervals to be able to overlap, and rejects true same-cycle
-  multi-command issue and a combined multi-address Device command.
+- `docs/pud/decisions/mimdram-movement-occurrences-and-command-identities.md`
+  accepts six visible LC-MOV occurrences and five visible GB-MOV occurrences,
+  represents GB activation endpoints as separate one-address occurrences,
+  requires their physical activation intervals to be able to overlap, and
+  rejects true same-cycle multi-command issue and a combined multi-address
+  Device command.
 
 Repository evidence:
 

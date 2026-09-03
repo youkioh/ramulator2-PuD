@@ -14,6 +14,12 @@ substrate. The protected sequence begins when the first intended
 movement-specific command role actually issues and ends when the terminal
 movement-close role issues.
 
+Later resolution: under
+`docs/pud/decisions/mimdram-movement-occurrences-and-command-identities.md`,
+the first protected occurrence is `ACT_MOV`, and terminal movement-close means
+the movement request's terminal `PREpb` occurrence. Shared command identities
+do not change the ownership lifetime accepted here.
+
 A movement request waiting in the pending queue owns no resource. An ordinary
 preparatory prerequisite issued before the first intended movement-specific
 role does not acquire ownership. If unrelated same-Bank activity subsequently
@@ -133,9 +139,9 @@ Accepted project decisions:
   range-wide lockstep LC-MOV, singleton directional-neighbor GB-MOV, and
   same-Bank/derived-subarray placement while leaving independent-request
   concurrency unresolved.
-- `docs/pud/decisions/mimdram-movement-command-granularity.md` accepts six
-  ordered LC-MOV roles and five ordered GB-MOV roles, with retained request
-  operands and monotonic controller sequence progress.
+- `docs/pud/decisions/mimdram-movement-occurrences-and-command-identities.md`
+  accepts six ordered LC-MOV occurrences and five ordered GB-MOV occurrences,
+  with retained request operands and monotonic controller sequence progress.
 - `docs/pud/decisions/mimdram-movement-timing-resource-scope.md` assigns
   independent same-Bank movement and inherited DDR4_PuD roles to one
   conservative conflicting resource domain while explicitly deferring
