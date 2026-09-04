@@ -81,7 +81,6 @@ explicitly requiring substrate-specific physical and policy decisions.
 
 Open issues
 
-- Exact combined-standard class and registration name.
 - Whether a future combined standard also adds other mat-selective compute
   mechanisms.
 - Future workload/frontend integration, `bbop_mov` lowering, array placement,

@@ -1,8 +1,8 @@
 # Initial MIMDRAM Inter-Column Movement Implementation Plan
 
-Status: Implementation in progress; six implementation Phases are defined.
-Final Integration Closure is a separate validation activity, not a seventh
-Phase.
+Status: Final Integration Closure complete; the Phase 6 milestone is ready for
+the final commit. Six implementation Phases are defined. Final Integration
+Closure is a separate validation activity, not a seventh Phase.
 
 | Milestone | Progress |
 | --- | --- |
@@ -19,8 +19,14 @@ Phase.
 | Phase 4 | Complete and committed |
 | Phase 5.A | Complete |
 | Phase 5.B | Complete |
-| Phase 5 | Complete; independent-audit finding resolved; ready for commit |
-| Phase 6 | Not started |
+| Phase 5 | Complete; independently audited, fixed, and committed |
+| Phase 6.A | Complete |
+| Phase 6.B | Complete |
+| Decision Gate F | Resolved and recorded |
+| Phase 6.C | Complete |
+| Decision Gate B | Resolved and recorded |
+| Phase 6.D | Complete |
+| Phase 6 | Complete; Final Integration Closure complete and ready for final commit |
 
 ## Goal
 
@@ -925,6 +931,25 @@ and zero ordinary byte throughput for movement-only traffic.
 - Double-counting between memory-system acceptance and controller completion.
 - Using the wrong Gate A boundary or converting sub-byte payloads to bytes.
 
+### Phase 6 exit result
+
+The intermittent full controller-scheduling allocator abort is a known
+baseline test-harness/runtime defect relative to Phase 6, not a Phase 6
+regression. The current tree can report all 439 tests passed and then abort in
+Python finalization, while a separately built clean Phase 5 `HEAD` without the
+Phase 6 diff reproduces the same failure. Isolated GenericDDR, HBM, and
+top-level groups were repeatedly clean, while larger mixed native-controller
+populations reproduced it. A debugger located the failing cleanup path after
+controller/plugin/harness teardown in
+`Py_FinalizeEx -> PyObject_Free -> glibc free`. Review of the complete Phase 6
+diff found no implicated ownership or destruction change.
+
+The exact root corrupting write or lifetime violation and its first introducing
+commit remain unresolved. ASan/UBSan could not diagnose it in this environment
+because the instrumented Python extension hit an unrelated sanitizer/runtime
+exception-interception failure. Further diagnosis is deferred to a separate
+investigation and must not weaken or skip the affected suite.
+
 ## Final Integration Closure
 
 Final Integration Closure is a mandatory fresh-context validation activity,
@@ -995,6 +1020,19 @@ a test.
   change, unsupported fidelity claim, or future-scope implementation.
 - `git diff --check` passes and the Phase 6 milestone is ready for user review
   and commit.
+
+### Closure result
+
+Final Integration Closure is complete. Git history identifies
+`158f8dfc65870429960adedfd9da369927326c55` as the pre-MIMDRAM branch point
+and `7b42f6f4e4e6b0f4ab56322af55bfdfd8789752d` as the implementation-only
+baseline immediately before Phase 1. Complete implementation, authority,
+non-goal, and Superseded-decision review found no blocking contradiction.
+Fresh code generation/build and the directed and broad regression assertions
+passed. The full controller-scheduling process reproduced the already-deferred
+post-pytest allocator-finalization abort after reporting all 439 tests passed;
+no new evidence implicates MIMDRAM. The Phase 6 milestone is ready for the
+final commit.
 
 ## Old-to-new coverage map
 

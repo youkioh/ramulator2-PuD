@@ -47,7 +47,14 @@ def test_combined_skeleton_matches_ddr4_pud_request_behavior(type_name, rows):
 
     assert combined_history == baseline_history
     assert combined.completions() == baseline.completions()
-    assert combined.stats() == baseline.stats()
+    combined_stats = combined.stats()
+    baseline_stats = baseline.stats()
+    inherited_combined_stats = {
+        name: value
+        for name, value in combined_stats.items()
+        if "lcmov" not in name and "gbmov" not in name
+    }
+    assert inherited_combined_stats == baseline_stats
 
 
 def test_combined_standard_advertises_both_movement_requests():

@@ -91,7 +91,8 @@ def test_movement_depart_and_callback_follow_terminal_precharge_recovery(type_na
     for _ in range(3):
         dut.tick()
     assert len(dut.completions()) == 1
-    assert not any("mov" in name.lower() for name in dut.stats())
+    stat_name = type_name.lower().replace("-", "")
+    assert dut.stats()[f"num_pud_{stat_name}_reqs_completed"] == 1
 
 
 def test_movement_completion_queue_handles_departure_reordering():

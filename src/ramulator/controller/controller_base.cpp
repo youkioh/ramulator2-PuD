@@ -8,6 +8,7 @@
 #include "ramulator/controller/refresh/i_refresh_manager.h"
 #include "ramulator/controller/rowpolicy/i_row_policy.h"
 #include "ramulator/controller/scheduler/i_scheduler.h"
+#include "ramulator/controller/pud_request_validation.h"
 #include "ramulator/dram/dram_spec.h"
 #include "ramulator/frontend/i_frontend.h"
 
@@ -49,6 +50,10 @@ int ControllerBase::get_num_levels() const {
 
 float ControllerBase::get_tCK() const {
   return m_tCK_ps / 1000.0f;  // ps → ns
+}
+
+bool ControllerBase::supports_movement_requests() const {
+  return m_device.m_spec->supports_movement_requests();
 }
 
 // ── Shared initialization ───────────────────────────────────────────────
@@ -149,6 +154,24 @@ void ControllerBase::setup_base(IFrontEnd* frontend, IMemorySystem* memory_syste
           s_num_pud_reqs_completed[*slot]);
       m_stats.add(fmt::format("pud_{}_latency", stat_name), s_pud_latency[*slot]);
       m_stats.add(fmt::format("avg_pud_{}_latency", stat_name), s_avg_pud_latency[*slot]);
+    }
+  }
+
+  if (m_device.m_spec->supports_movement_requests()) {
+    for (int type_id : {Request::Type::LCMOV, Request::Type::GBMOV}) {
+      const auto slot = movement_statistic_slot(type_id);
+      const char* stat_name = movement_statistic_name(type_id);
+      m_stats.add(fmt::format("num_pud_{}_reqs", stat_name), s_num_movement_reqs[*slot]);
+      m_stats.add(
+          fmt::format("num_pud_{}_reqs_completed", stat_name),
+          s_num_movement_reqs_completed[*slot]);
+      m_stats.add(fmt::format("pud_{}_latency", stat_name), s_movement_latency[*slot]);
+      m_stats.add(
+          fmt::format("avg_pud_{}_latency", stat_name),
+          s_avg_movement_latency[*slot]);
+      m_stats.add(
+          fmt::format("pud_{}_moved_bits", stat_name),
+          s_movement_moved_bits[*slot]);
     }
   }
 
@@ -459,6 +482,12 @@ void ControllerBase::serve_completed_requests() {
                slot.has_value()) {
       s_num_pud_reqs_completed[*slot]++;
       s_pud_latency[*slot] += latency;
+    } else if (const auto slot = movement_statistic_slot(completed.type_id);
+               slot.has_value()) {
+      s_num_movement_reqs_completed[*slot]++;
+      s_movement_latency[*slot] += latency;
+      s_movement_moved_bits[*slot] +=
+          get_movement_moved_bits(completed, *m_device.m_spec);
     }
     if (completed.callback) {
       completed.callback(completed);
@@ -483,6 +512,12 @@ void ControllerBase::update_stats() {
   for (size_t i = 0; i < kNumLegacyPuDStatisticSlots; i++) {
     s_avg_pud_latency[i] = s_num_pud_reqs_completed[i] > 0
         ? static_cast<float>(s_pud_latency[i]) / static_cast<float>(s_num_pud_reqs_completed[i])
+        : 0;
+  }
+  for (size_t i = 0; i < kNumMovementStatisticSlots; i++) {
+    s_avg_movement_latency[i] = s_num_movement_reqs_completed[i] > 0
+        ? static_cast<float>(s_movement_latency[i]) /
+              static_cast<float>(s_num_movement_reqs_completed[i])
         : 0;
   }
 
@@ -546,6 +581,11 @@ void ControllerBase::reset_stats() {
   s_num_pud_reqs_completed.fill(0);
   s_pud_latency.fill(0);
   s_avg_pud_latency.fill(0);
+  s_num_movement_reqs.fill(0);
+  s_num_movement_reqs_completed.fill(0);
+  s_movement_latency.fill(0);
+  s_avg_movement_latency.fill(0);
+  s_movement_moved_bits.fill(0);
   s_read_throughput_MBps = 0;
   s_write_throughput_MBps = 0;
   s_total_throughput_MBps = 0;

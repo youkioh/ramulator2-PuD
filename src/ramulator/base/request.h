@@ -90,6 +90,7 @@ struct Request {
 };
 
 inline constexpr size_t kNumLegacyPuDStatisticSlots = 4;
+inline constexpr size_t kNumMovementStatisticSlots = 2;
 
 bool is_inherited_pud_request_type(int type_id);
 bool is_movement_request_type(int type_id);
@@ -98,6 +99,8 @@ bool is_controller_sequenced_request_type(int type_id);
 bool is_valid_external_request_size(int type_id, int size_bytes, int tx_bytes);
 std::optional<size_t> legacy_pud_statistic_slot(int type_id);
 const char* legacy_pud_statistic_name(int type_id);
+std::optional<size_t> movement_statistic_slot(int type_id);
+const char* movement_statistic_name(int type_id);
 const char* request_type_name(int type_id);
 
 }  // namespace Ramulator

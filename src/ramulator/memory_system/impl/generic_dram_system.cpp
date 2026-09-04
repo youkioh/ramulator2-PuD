@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <array>
 #include <stdexcept>
 
@@ -25,6 +26,7 @@ class GenericDRAMSystem final : public IMemorySystem, public Implementation {
   int s_num_read_requests = 0;
   int s_num_write_requests = 0;
   std::array<int, kNumLegacyPuDStatisticSlots> s_num_pud_requests{};
+  std::array<int, kNumMovementStatisticSlots> s_num_movement_requests{};
 
  public:
   void init() override {
@@ -54,6 +56,19 @@ class GenericDRAMSystem final : public IMemorySystem, public Implementation {
         m_stats.add(
             fmt::format("total_num_pud_{}_requests", legacy_pud_statistic_name(type_id)),
             s_num_pud_requests[*slot]);
+      }
+    }
+    const bool supports_movement = std::all_of(
+        m_controllers.begin(), m_controllers.end(),
+        [](const IController* controller) {
+          return controller->supports_movement_requests();
+        });
+    if (supports_movement) {
+      for (int type_id : {Request::Type::LCMOV, Request::Type::GBMOV}) {
+        const auto slot = movement_statistic_slot(type_id);
+        m_stats.add(
+            fmt::format("total_num_pud_{}_requests", movement_statistic_name(type_id)),
+            s_num_movement_requests[*slot]);
       }
     }
   };
@@ -98,6 +113,9 @@ class GenericDRAMSystem final : public IMemorySystem, public Implementation {
         default:
           if (const auto slot = legacy_pud_statistic_slot(req.type_id); slot.has_value()) {
             s_num_pud_requests[*slot]++;
+          } else if (const auto slot = movement_statistic_slot(req.type_id);
+                     slot.has_value()) {
+            s_num_movement_requests[*slot]++;
           }
           break;
       }
@@ -115,6 +133,7 @@ class GenericDRAMSystem final : public IMemorySystem, public Implementation {
     s_num_read_requests = 0;
     s_num_write_requests = 0;
     s_num_pud_requests.fill(0);
+    s_num_movement_requests.fill(0);
   }
 
   int get_clock_ratio() override {

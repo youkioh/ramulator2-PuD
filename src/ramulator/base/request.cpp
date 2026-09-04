@@ -63,6 +63,22 @@ const char* legacy_pud_statistic_name(int type_id) {
   }
 }
 
+std::optional<size_t> movement_statistic_slot(int type_id) {
+  switch (type_id) {
+    case Request::Type::LCMOV: return 0;
+    case Request::Type::GBMOV: return 1;
+    default: return std::nullopt;
+  }
+}
+
+const char* movement_statistic_name(int type_id) {
+  switch (type_id) {
+    case Request::Type::LCMOV: return "lcmov";
+    case Request::Type::GBMOV: return "gbmov";
+    default: return nullptr;
+  }
+}
+
 const char* request_type_name(int type_id) {
   switch (type_id) {
     case Request::Type::Read: return "Read";

@@ -304,6 +304,7 @@ class RoutingControllerStub final : public IController, public Implementation {
   int get_tx_bytes() const override { return 64; }
   int get_num_levels() const override { return 0; }
   float get_tCK() const override { return 1.0f; }
+  bool supports_movement_requests() const override { return true; }
 };
 
 class PuDRoutingSystemUnderTestCpp {
@@ -694,7 +695,7 @@ class ControllerUnderTestCpp {
     return out;
   }
 
-  void send_movement_request_for_testing(
+  nb::dict try_send_movement_request_for_testing(
       int type_id, const std::vector<AddrVec_t>& operands,
       int first_mat, int second_mat, int source_id) {
     if (!is_movement_request_type(type_id)) {
@@ -723,9 +724,26 @@ class ControllerUnderTestCpp {
     };
     if (!m_controller->send(req)) {
       m_pud_completions_pending--;
-      throw std::runtime_error("ControllerUnderTest failed to enqueue movement request");
+      nb::dict out;
+      out["accepted"] = false;
+      out["arrive"] = req.arrive;
+      return out;
     }
     m_command_outstanding++;
+    nb::dict out;
+    out["accepted"] = true;
+    out["arrive"] = req.arrive;
+    return out;
+  }
+
+  void send_movement_request_for_testing(
+      int type_id, const std::vector<AddrVec_t>& operands,
+      int first_mat, int second_mat, int source_id) {
+    nb::dict out = try_send_movement_request_for_testing(
+        type_id, operands, first_mat, second_mat, source_id);
+    if (!nb::cast<bool>(out["accepted"])) {
+      throw std::runtime_error("ControllerUnderTest failed to enqueue movement request");
+    }
   }
 
   void send_movement_with_reentrant_forwarded_read(
@@ -806,6 +824,14 @@ class ControllerUnderTestCpp {
     return out;
   }
 
+  nb::list completion_callback_stats() const {
+    nb::list out;
+    for (const auto& stats : m_completion_callback_stats) {
+      out.append(nb::cast<nb::dict>(confignode_to_py(stats)));
+    }
+    return out;
+  }
+
   void priority_send(const std::string& command_name, const AddrVec_t& addr_vec) {
     validate_addr_vec_size(spec(), addr_vec);
     int command = spec().get_command_id(command_name);
@@ -863,6 +889,11 @@ class ControllerUnderTestCpp {
     return nb::cast<nb::dict>(confignode_to_py(m_controller->collect_stats()));
   }
 
+  nb::dict sample_stats() {
+    m_controller_base->update_stats();
+    return nb::cast<nb::dict>(confignode_to_py(m_controller->collect_stats()));
+  }
+
  private:
   std::unique_ptr<HarnessFrontEnd> m_frontend;
   std::unique_ptr<HarnessMemorySystem> m_memory_system;
@@ -882,6 +913,7 @@ class ControllerUnderTestCpp {
     std::vector<Clk_t> occurrence_issue_history;
   };
   std::vector<CompletionRecord> m_completions;
+  std::vector<ConfigNode> m_completion_callback_stats;
 
   void record_completion(const Request& req) {
     m_completions.push_back({
@@ -891,6 +923,7 @@ class ControllerUnderTestCpp {
         req.depart,
         req.occurrence_issue_history,
     });
+    m_completion_callback_stats.push_back(m_controller->collect_stats());
   }
 
   const DRAMSpec& spec() const {
@@ -990,6 +1023,10 @@ NB_MODULE(_ramulator_test, m) {
            &ControllerUnderTestCpp::send_movement_request_for_testing,
            nb::arg("type_id"), nb::arg("operands"), nb::arg("first_mat"),
            nb::arg("second_mat"), nb::arg("source_id") = 0)
+      .def("try_send_movement_request_for_testing",
+           &ControllerUnderTestCpp::try_send_movement_request_for_testing,
+           nb::arg("type_id"), nb::arg("operands"), nb::arg("first_mat"),
+           nb::arg("second_mat"), nb::arg("source_id") = 0)
       .def("send_movement_with_reentrant_forwarded_read",
            &ControllerUnderTestCpp::send_movement_with_reentrant_forwarded_read,
            nb::arg("type_id"), nb::arg("operands"), nb::arg("first_mat"),
@@ -1001,6 +1038,8 @@ NB_MODULE(_ramulator_test, m) {
       .def("completions", &ControllerUnderTestCpp::completions)
       .def("completion_occurrence_histories",
            &ControllerUnderTestCpp::completion_occurrence_histories)
+      .def("completion_callback_stats", &ControllerUnderTestCpp::completion_callback_stats)
+      .def("sample_stats", &ControllerUnderTestCpp::sample_stats)
       .def("stats", &ControllerUnderTestCpp::stats);
 
   nb::class_<PuDRoutingSystemUnderTestCpp>(m, "_PuDRoutingSystemUnderTest")

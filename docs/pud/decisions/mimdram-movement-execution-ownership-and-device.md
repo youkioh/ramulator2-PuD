@@ -3,8 +3,8 @@ Status: Accepted
 Question
 
 What visible occurrences, semantic command identities, controller ownership,
-Device states/actions, prerequisites, and maintenance policy should the
-initial LC-MOV and GB-MOV model use?
+Device states/actions, prerequisites, maintenance policy, and lifecycle
+statistics/accounting should the initial LC-MOV and GB-MOV model use?
 
 Decision
 
@@ -174,13 +174,31 @@ queued policy work.
 
 Pure observational controller plugins may observe issued movement commands;
 this means command visibility only and does not imply functional movement-data
-knowledge or resolve later trace-schema choices. Plugins already incompatible
-because the combined standard lacks required VRR or RFM capabilities remain
-rejected by their setup checks. Reject AQUA and RRS at setup whenever the DRAM
-standard is movement-capable: their RIT placement/remapping semantics are not
-functionally integrated with movement operands. Future support requires an
-explicit movement-aware mapping decision rather than relying on ownership or
-the current absence of functional data modeling.
+knowledge. For the initial milestone, keep the existing `CmdTraceRecorder`,
+`BinTraceRecorder`, and `LiveTraceStreamer` schemas and lifecycle interfaces
+unchanged. Their existing command identity, issue cycle, request type, source
+ID, and occurrence address make movement commands visible. The occurrence
+Column coordinate is the opaque movement selector already carried by that
+address; tracing assigns it no additional physical meaning. RAM2BIN and live
+events also retain their existing arrival field.
+
+The fixed LC/GB sequence may be used to infer source/destination role and
+occurrence position when the corresponding request stream is otherwise
+identifiable, such as in an isolated directed trace. This is not a guarantee
+for an arbitrary concurrent trace: the existing schemas have no unique request
+identity and are not self-contained request-reconstruction formats. Do not add
+logical-mat metadata, moved bits, explicit occurrence role/index, occurrence
+history, or delayed departure/callback events to production traces in this
+milestone. Movement statistics and exact-bit accounting are defined separately
+below.
+
+Plugins already incompatible because the combined standard lacks required VRR
+or RFM capabilities remain rejected by their setup checks. Reject AQUA and RRS
+at setup whenever the DRAM standard is movement-capable: their RIT
+placement/remapping semantics are not functionally integrated with movement
+operands. Future support requires an explicit movement-aware mapping decision
+rather than relying on ownership or the current absence of functional data
+modeling.
 
 Ordinary `ACT`, `RD`, `WR`, `RDA`, `WRA`, inherited PuD work, `PREab`,
 refresh, and refresh-generated close are illegal if their complete scope
@@ -202,6 +220,52 @@ Ownership/state cleanup at terminal `PREpb` issue is distinct from recovery
 completion. Request retirement, departure, and callback timing are defined by
 `mimdram-movement-timing-and-resource-model.md`.
 
+Report LC-MOV and GB-MOV lifecycle statistics separately and add no combined
+movement statistic. At the controller level, register these fields only for a
+movement-capable standard, using `lcmov` and `gbmov` as `<type>`:
+
+```text
+num_pud_<type>_reqs
+num_pud_<type>_reqs_completed
+pud_<type>_latency
+avg_pud_<type>_latency
+pud_<type>_moved_bits
+```
+
+At the memory-system level, expose the accepted-request totals
+`total_num_pud_lcmov_requests` and `total_num_pud_gbmov_requests`. Increment a
+controller accepted count only after successful pending-PuD-buffer enqueue,
+and increment its memory-system counterpart only after the controller
+`send()` succeeds. A rejected or backpressured attempt contributes nothing.
+
+Lifecycle completion accounting occurs at the accepted Gate A departure
+boundary. If terminal `PREpb` issues at cycle `T`, ownership and schedulable
+state end at `T`, while `depart = T + nRP`. At `depart`, extract and erase the
+delayed completion before callback; then increment the completed-request
+count, add `depart - arrive` to total latency, and add exact moved bits, all
+before invoking the callback. An accepted request that has not reached
+`depart` contributes to accepted count only: it contributes zero completed
+requests, latency, and moved bits. This is lifecycle completion accounting,
+not functional data validation; the model has no post-admission movement
+failure or abort semantics.
+
+Derive moved bits from the retained, validated request metadata and typed
+`hffs_per_mat` configuration at lifecycle completion:
+
+```text
+LC-MOV moved bits = (mat_end - mat_begin + 1) * hffs_per_mat
+GB-MOV moved bits = hffs_per_mat
+```
+
+Do not store a duplicated or rounded request byte size. Movement retains the
+`size_bytes = -1` N/A contract and contributes nothing to ordinary Read/Write
+accepted/served, forwarding/coalescing, row-buffer, or byte-throughput
+statistics. Derive each average latency during statistic update/finalization
+as total latency divided by completed-request count, or zero when none has
+completed. Add no movement rate/bandwidth, per-mat, per-occurrence, functional-
+data, or trace statistic. Combined counts, bits, and averages remain externally
+derivable from the separate LC/GB aggregate counters.
+
 Implementation impact is limited by this contract: GenericDDR sequence logic
 must become extensible for LC/GB metadata and occurrence history; shared
 `PREpb` plus `PREab`/`REFab` paths require explicit movement legality; and
@@ -219,6 +283,13 @@ Continuous Bank ownership protects LC's retained payload and GB's partially
 progressed endpoint/path conditions without inventing unsupported same-Bank
 mat concurrency or save/resume rules. Releasing at terminal PRE separates
 sequence integrity from physical recovery.
+
+Separate accepted and completed counts expose pending lifecycle work, while
+completion-time exact-bit accounting describes only requests that have reached
+the existing depart/callback boundary. Per-primitive totals preserve the
+different LC range-width and GB singleton semantics. Reusing existing PuD
+accepted/completed/total-latency/derived-average conventions keeps the new
+state minimal and preserves ordinary byte-throughput meaning.
 
 The two aggregate states are the minimum under the accepted continuous
 Device-marking and shared-`PREpb` model: one marks movement occupancy and one
@@ -241,9 +312,19 @@ pre-prerequisite eligibility, one-command/one-address Device handlers, one
 Bank state plus Row map, issue-time action/timing updates, existing PRE
 dispatch, GenericDDR priority/refresh behavior, exact-ID ClosedCAP upgrades,
 metadata-driven activation plugins, exact-ID RowHammer plugins, observational
-issue hooks, and AQUA/RRS RIT mutation plus injected traffic. These mechanisms
-support the accepted boundary without explicit Mat hierarchy or a second owner
-map.
+issue hooks, the existing command/address trace records, and AQUA/RRS RIT
+mutation plus injected traffic. These mechanisms support the accepted boundary
+without explicit Mat hierarchy, a second owner map, or a movement-specific
+trace schema.
+
+The existing GenericDDR lifecycle increments accepted PuD counts only after
+enqueue, retires terminal-PRE requests into a shared delayed-completion path,
+extracts ready completions before callback, accumulates `depart - arrive`, and
+derives average latency from completed count. GenericDRAMSystem records
+accepted operation totals after controller success. The existing exact-bit
+helper derives LC range width and singleton GB width from validated metadata
+and typed `hffs_per_mat`; ordinary throughput uses only served Read/Write
+counts and the DRAM transaction byte width.
 
 This document consolidates the current accepted authority formerly carried by
 `mimdram-movement-occurrences-and-command-identities.md`,
@@ -255,11 +336,11 @@ Open issues
 
 - Exact physical movement PRE scope below the accepted Bank-aggregate
   simulator abstraction.
-- Modeled data availability and movement-specific statistics/accounting
-  boundaries.
 - Exact pending admission and mixed-traffic arbitration details that do not
   change the accepted ownership policy.
-- Movement metadata in traces.
+- Future self-contained request reconstruction or movement-enriched trace
+  formats, if a later milestone establishes that their observability value
+  justifies schema/version and decoder churn.
 - Future movement-aware mapping semantics that could make AQUA or RRS
   compatible with movement operands.
 - Future same-Bank disjoint-mat MIMD, which requires a new finer-grained

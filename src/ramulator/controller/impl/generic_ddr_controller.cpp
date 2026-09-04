@@ -70,6 +70,8 @@ std::optional<bool> GenericDDRController::try_send_special_request(Request& req)
   }
   if (const auto slot = legacy_pud_statistic_slot(req.type_id); slot.has_value()) {
     s_num_pud_reqs[*slot]++;
+  } else if (const auto slot = movement_statistic_slot(req.type_id); slot.has_value()) {
+    s_num_movement_reqs[*slot]++;
   }
   return true;
 }

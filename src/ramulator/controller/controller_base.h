@@ -2,6 +2,7 @@
 #define RAMULATOR_CONTROLLER_CONTROLLER_BASE_H
 
 #include <array>
+#include <cstdint>
 #include <deque>
 #include <optional>
 #include <string>
@@ -40,6 +41,7 @@ class ControllerBase : public IController, public Implementation {
   int get_tx_bytes() const override;
   int get_num_levels() const override;
   float get_tCK() const override;
+  bool supports_movement_requests() const override;
 
   bool send(Request& req) override;
   bool priority_send(Request& req) override;
@@ -144,6 +146,12 @@ class ControllerBase : public IController, public Implementation {
   std::array<size_t, kNumLegacyPuDStatisticSlots> s_num_pud_reqs_completed{};
   std::array<size_t, kNumLegacyPuDStatisticSlots> s_pud_latency{};
   std::array<float, kNumLegacyPuDStatisticSlots> s_avg_pud_latency{};
+
+  std::array<size_t, kNumMovementStatisticSlots> s_num_movement_reqs{};
+  std::array<size_t, kNumMovementStatisticSlots> s_num_movement_reqs_completed{};
+  std::array<size_t, kNumMovementStatisticSlots> s_movement_latency{};
+  std::array<float, kNumMovementStatisticSlots> s_avg_movement_latency{};
+  std::array<std::uint64_t, kNumMovementStatisticSlots> s_movement_moved_bits{};
 
   float s_read_throughput_MBps = 0;
   float s_write_throughput_MBps = 0;

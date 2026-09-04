@@ -223,6 +223,26 @@ class ControllerUnderTest:
             source_id,
         )
 
+    def try_send_movement_request_for_testing(
+        self,
+        type_name: str,
+        operands: list[list[int]],
+        first_mat: int,
+        second_mat: int,
+        source_id: int = 0,
+    ) -> dict:
+        if type_name not in ("LC-MOV", "GB-MOV"):
+            raise ValueError(f"Not a movement request: {type_name}")
+        return dict(
+            self._cpp.try_send_movement_request_for_testing(
+                REQUEST_TYPE_IDS[type_name],
+                operands,
+                first_mat,
+                second_mat,
+                source_id,
+            )
+        )
+
     def send_movement_with_reentrant_forwarded_read(
         self,
         type_name: str,
@@ -250,6 +270,9 @@ class ControllerUnderTest:
 
     def completion_occurrence_histories(self):
         return [list(history) for history in self._cpp.completion_occurrence_histories()]
+
+    def completion_callback_stats(self):
+        return [dict(stats) for stats in self._cpp.completion_callback_stats()]
 
     def validate_pud_routing(
         self, type_name: str, operands: list[list[int]], num_channels: int
@@ -284,6 +307,9 @@ class ControllerUnderTest:
 
     def stats(self):
         return self._cpp.stats()
+
+    def sample_stats(self):
+        return self._cpp.sample_stats()
 
     def run_until_idle(self, max_ticks: int = 256):
         start = len(self.history)
