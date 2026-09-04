@@ -61,6 +61,57 @@ latencies. The command trace is written to
 `build/ddr4_pud_trace.csv.ch0`; its columns are `clock`, `command`, the device
 hierarchy coordinates, `type`, and `source`.
 
+## MIMDRAM movement latency validation
+
+The combined `DDR4_PuD_Movement` standard has a separate reproducible
+latency-validation benchmark at
+[`examples/mimdram_movement_microbenchmark.cpp`](../../examples/mimdram_movement_microbenchmark.cpp),
+with its export configuration at
+[`examples/mimdram_movement_microbenchmark_config.py`](../../examples/mimdram_movement_microbenchmark_config.py).
+It submits isolated LC-MOV and GB-MOV requests through the normal
+`IMemorySystem::send(Request&)` and GenericDDR controller path and derives
+command issue cycles from the existing `CmdTraceRecorder`.
+
+From the repository root:
+
+```bash
+cmake -S . -B build
+cmake --build build --target mimdram_movement_microbenchmark -j
+PYTHONPATH=python python3 -m ramulator export \
+  examples/mimdram_movement_microbenchmark_config.py \
+  -o build/mimdram_movement_microbenchmark.yaml
+LD_LIBRARY_PATH=. ./build/mimdram_movement_microbenchmark \
+  build/mimdram_movement_microbenchmark.yaml \
+  build/mimdram_movement_trace
+```
+
+For each case, the benchmark prints request `arrive` and `depart`, every
+absolute and normalized command issue cycle, terminal `PREpb`, exact moved
+bits, and expected versus observed recovery-complete primitive latency. Under
+the canonical `DDR4_2400R` model, the expected normalized timelines are:
+
+```text
+LC-MOV: ACT_MOV 0, RD_MOV 16, PREpb 39,
+        ACT_MOV 55, WR_MOV 94, PREpb 114, recovery/depart 130
+GB-MOV: ACT_MOV 0, ACT_MOV 1, RD_MOV 39,
+        WR_MOV 41, PREpb 59, recovery/depart 75
+```
+
+Modeled primitive latency is `depart - first_ACT_MOV`; it measures the fixed
+movement command schedule through terminal precharge recovery. Request latency
+is `depart - arrive`; it also includes the admission, arbitration, scheduler,
+and any prerequisite offset before the first `ACT_MOV`. The command-line
+benchmark therefore observes 130 CK modeled versus 131 CK request latency for
+LC-MOV, and 75 CK modeled versus 76 CK request latency for GB-MOV, because this
+path issues the first command one cycle after admission.
+
+The benchmark runs LC widths of one and four selected mats and repeats LC/GB
+with `hffs_per_mat` values 4 and 7. It verifies unchanged command counts and
+latencies, `LC moved_bits = selected_mat_count * hffs_per_mat`,
+`GB moved_bits = hffs_per_mat`, and zero contribution to ordinary Read/Write
+counts and throughput. Its six text traces use the supplied prefix followed by
+the case name and `.ch0`.
+
 ## C++ request submission
 
 Phase 9's supported submission surface is the request-level C++ memory-system
@@ -178,7 +229,9 @@ and row-buffer hit/miss/conflict statistics.
 
 - The simulator does not track DRAM data values or validate functional copy,
   majority, or inversion results.
-- There is no energy model, inter-column movement, or higher-level PuD operations.
+- DDR4_PuD itself has no movement or energy model. Inter-column movement is
+  available only in the separate combined `DDR4_PuD_Movement` standard;
+  higher-level PuD operations remain outside the implemented scope.
 - Logical-subarray placement is a simulator assumption; physical mat identity
   and interleaving remain undefined.
 - There is no PuD preemption, abort, resume, refresh-postponement bound,

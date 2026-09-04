@@ -1034,6 +1034,52 @@ post-pytest allocator-finalization abort after reporting all 439 tests passed;
 no new evidence implicates MIMDRAM. The Phase 6 milestone is ready for the
 final commit.
 
+## Post-milestone latency validation and reproducibility
+
+Status: Complete and validated. This is a post-milestone reproducibility task,
+not a new implementation Phase and not a reopening of Phases 1-6 or Final
+Integration Closure.
+
+The benchmark validates the completed LC-MOV/GB-MOV implementation through the
+normal request, GenericDRAM, GenericDDR, and command-trace path. It reports
+arrival, every absolute and first-`ACT_MOV`-normalized issue cycle, terminal
+`PREpb`, recovery-complete departure, and depart-arrive request latency.
+
+Canonical `DDR4_2400R` expectations are:
+
+```text
+LC: ACT_MOV 0, RD_MOV 16, PREpb 39, ACT_MOV 55,
+    WR_MOV 94, PREpb 114, recovery/depart 130 CK
+GB: ACT_MOV 0, ACT_MOV 1, RD_MOV 39, WR_MOV 41,
+    PREpb 59, recovery/depart 75 CK
+```
+
+The 130/75 CK modeled primitive latency is measured from first `ACT_MOV` to
+terminal precharge recovery. Depart-arrive request latency additionally
+includes admission, scheduler/arbitration, and preparatory-prerequisite offset
+before that first command, and can therefore be larger.
+
+The benchmark also validates that LC range width changes neither command count
+nor latency; LC moved bits equal selected-mat count times `hffs_per_mat`; GB
+moved bits equal `hffs_per_mat`; changing `hffs_per_mat` changes bits but
+not latency; and movement remains excluded from ordinary Read/Write throughput.
+
+Paths:
+
+- benchmark: `examples/mimdram_movement_microbenchmark.cpp`;
+- export configuration: `examples/mimdram_movement_microbenchmark_config.py`;
+- command-line documentation:
+  `docs/pud/ddr4-pud-user-guide.md#mimdram-movement-latency-validation`.
+
+Validation completed with LC normalized issues
+`0,16,39,55,94,114` and recovery 130 CK, and GB normalized issues
+`0,1,39,41,59` and recovery 75 CK. The normal request path admitted each
+request at cycle 0, issued its first `ACT_MOV` at cycle 1, and departed at
+cycle 131 for LC or 76 for GB, giving depart-arrive latencies of 131/76 CK.
+LC moved-bit observations were 4/16 bits at four HFFs and 7/28 bits at seven
+HFFs for one/four selected mats; GB observations were 4/7 bits. Ordinary
+Read/Write request, served-request, and throughput statistics remained zero.
+
 ## Old-to-new coverage map
 
 | Expanded-plan work | Optimized owner | Preservation |
