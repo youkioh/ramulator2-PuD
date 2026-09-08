@@ -16,8 +16,9 @@ from tests.device_timings.harness import DeviceUnderTest
         (3, "MAJ3", True, False, 1),
         (4, "MAJ5", True, False, 2),
         (5, "NOT", True, False, 3),
-        (6, "LC-MOV", False, True, None),
-        (7, "GB-MOV", False, True, None),
+        (6, "NOT_COPY", True, False, 4),
+        (7, "LC-MOV", False, True, None),
+        (8, "GB-MOV", False, True, None),
     ],
 )
 def test_request_type_names_and_classification(
@@ -34,7 +35,7 @@ def test_request_type_names_and_classification(
     }
 
 
-@pytest.mark.parametrize("type_id", [-2, -1, 8, 99])
+@pytest.mark.parametrize("type_id", [-2, -1, 9, 99])
 def test_unknown_request_types_fail_classification_and_stat_lookup_safely(type_id):
     assert _request_type_info(type_id) == {
         "name": "Unknown",
@@ -67,15 +68,15 @@ def test_ddr4_rejects_all_pud_and_movement_requests():
             controller._cpp.send_request(type_id, addr_vec)
 
 
-def test_ddr4_pud_supports_only_the_four_inherited_operations():
+def test_ddr4_pud_supports_only_the_inherited_operations():
     dram = ramulator.dram.DDR4_PuD(org_preset="DDR4_8Gb_x8", timing_preset="DDR4_2400R")
     dut = DeviceUnderTest(dram)
     controller = ControllerUnderTest.make_generic_ddr(dram)
     addr_vec = controller.addr_vec(Row=1)
-    assert tuple(type(dram).supported_requests) == REQUEST_TYPE_NAMES[:6]
+    assert tuple(type(dram).supported_requests) == REQUEST_TYPE_NAMES[:7]
     assert dut._cpp.supports_inherited_pud_requests()
     assert not dut._cpp.supports_movement_requests()
-    for name in ("RowCopy", "MAJ3", "MAJ5", "NOT"):
+    for name in ("RowCopy", "MAJ3", "MAJ5", "NOT", "NOT_COPY"):
         assert dut._cpp.supports_controller_sequenced_request(REQUEST_TYPE_IDS[name])
     for name in ("LC-MOV", "GB-MOV"):
         type_id = REQUEST_TYPE_IDS[name]

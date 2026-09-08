@@ -220,11 +220,12 @@ def test_pud_controller_statistics_are_operation_based_and_exclude_rw_counters()
         "MAJ3": [142, 143, 144],
         "MAJ5": [145, 146, 147, 148, 149],
         "NOT": [150],
+        "NOT_COPY": [151, 152],
     }
     for bank, (type_name, rows) in enumerate(requests.items()):
         dut.send_pud_request(
             type_name,
-            [operand(dut, bank=bank, row=row) for row in rows],
+            [operand(dut, bank=bank % 4, row=row) for row in rows],
             source_id=bank,
         )
     dut.run_until_idle(max_ticks=512)
@@ -260,6 +261,7 @@ def test_generic_memory_system_counts_accepted_pud_operations():
         "MAJ3": [162, 163, 164],
         "MAJ5": [165, 166, 167, 168, 169],
         "NOT": [170],
+        "NOT_COPY": [171, 172],
     }
     for type_name, rows in requests.items():
         system.send_pud_request(

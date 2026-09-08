@@ -37,6 +37,7 @@ def operand(dut, *, channel=0, rank=0, bankgroup=0, bank=0, row=0, column=0):
         ("MAJ3", [3, 5, 7]),
         ("MAJ5", [3, 5, 7, 9, 11]),
         ("NOT", [3]),
+        ("NOT_COPY", [3, 5]),
     ],
 )
 def test_pud_requests_preserve_type_and_ordered_operands(type_name, rows):
@@ -62,7 +63,18 @@ def test_rowcopy_preserves_large_destination_list():
 
 @pytest.mark.parametrize(
     ("type_name", "count"),
-    [("RowCopy", 1), ("MAJ3", 2), ("MAJ3", 4), ("MAJ5", 4), ("MAJ5", 6), ("NOT", 0), ("NOT", 2)],
+    [
+        ("RowCopy", 1),
+        ("MAJ3", 2),
+        ("MAJ3", 4),
+        ("MAJ5", 4),
+        ("MAJ5", 6),
+        ("NOT", 0),
+        ("NOT", 2),
+        ("NOT_COPY", 0),
+        ("NOT_COPY", 1),
+        ("NOT_COPY", 3),
+    ],
 )
 def test_invalid_operand_counts_are_rejected(type_name, count):
     dut = make_dut()
@@ -309,6 +321,14 @@ def test_controller_rejects_placement_mismatch(field, value, message):
 
     with pytest.raises(RuntimeError, match=message):
         dut.send_pud_request("RowCopy", operands)
+
+
+def test_not_copy_reuses_pud_placement_validation():
+    dut = make_dut()
+    operands = [operand(dut, bank=0, row=0), operand(dut, bank=1, row=1)]
+
+    with pytest.raises(RuntimeError, match="share Bank"):
+        dut.send_pud_request("NOT_COPY", operands)
 
 
 def test_columns_are_preserved_but_do_not_affect_placement():

@@ -50,6 +50,12 @@ def exercise(dram, type_name, request_operands, commands, clocks=None):
             [0, 1, 2, 3, 4, 4],
         ),
         ("NOT", [50], ["ACT_PUD_S_OC", "N", "PREpb"], [0, 0, 0]),
+        (
+            "NOT_COPY",
+            [60, 61],
+            ["ACT_PUD_S_OC", "N", "ACT_PUD", "PREpb"],
+            [0, 0, 1, 1],
+        ),
     ],
 )
 def test_inherited_pud_occurrence_descriptors_are_unchanged(

@@ -19,7 +19,8 @@ bool is_inherited_pud_request_type(int type_id) {
     case Request::Type::RowCopy:
     case Request::Type::MAJ3:
     case Request::Type::MAJ5:
-    case Request::Type::NOT: return true;
+    case Request::Type::NOT:
+    case Request::Type::NOT_COPY: return true;
     default: return false;
   }
 }
@@ -49,6 +50,7 @@ std::optional<size_t> legacy_pud_statistic_slot(int type_id) {
     case Request::Type::MAJ3: return 1;
     case Request::Type::MAJ5: return 2;
     case Request::Type::NOT: return 3;
+    case Request::Type::NOT_COPY: return 4;
     default: return std::nullopt;
   }
 }
@@ -59,6 +61,7 @@ const char* legacy_pud_statistic_name(int type_id) {
     case Request::Type::MAJ3: return "maj3";
     case Request::Type::MAJ5: return "maj5";
     case Request::Type::NOT: return "not";
+    case Request::Type::NOT_COPY: return "not_copy";
     default: return nullptr;
   }
 }
@@ -87,6 +90,7 @@ const char* request_type_name(int type_id) {
     case Request::Type::MAJ3: return "MAJ3";
     case Request::Type::MAJ5: return "MAJ5";
     case Request::Type::NOT: return "NOT";
+    case Request::Type::NOT_COPY: return "NOT_COPY";
     case Request::Type::LCMOV: return "LC-MOV";
     case Request::Type::GBMOV: return "GB-MOV";
     default: return "Unknown";
