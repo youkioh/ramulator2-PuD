@@ -74,11 +74,11 @@ class FRFCFSRowHitScheduler : public IScheduler, public Implementation {
 
       if (candidate == buffer.end()) {
         candidate = it;
-        cand_timing_ok = m_ctrl->check_timing(it->command, it->addr_vec);
+        cand_timing_ok = m_ctrl->check_request_timing(*it);
         continue;
       }
 
-      bool it_timing_ok = m_ctrl->check_timing(it->command, it->addr_vec);
+      bool it_timing_ok = m_ctrl->check_request_timing(*it);
       if (cand_timing_ok != it_timing_ok) {
         if (it_timing_ok) {
           candidate = it;

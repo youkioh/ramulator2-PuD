@@ -29,6 +29,7 @@ class IController {
   virtual int get_tx_bytes() const = 0;
   virtual int get_num_levels() const = 0;
   virtual float get_tCK() const = 0;
+  virtual bool supports_movement_requests() const { return false; }
 };
 
 struct ReqBuffer {

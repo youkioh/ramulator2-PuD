@@ -5,6 +5,10 @@ target_sources(
   i_controller.h
   controller_base.h
   controller_base.cpp
+  pud_sequence.h
+  pud_sequence.cpp
+  pud_request_validation.h
+  pud_request_validation.cpp
 
   scheduler/i_scheduler.h
   scheduler/impl/frfcfs.cpp

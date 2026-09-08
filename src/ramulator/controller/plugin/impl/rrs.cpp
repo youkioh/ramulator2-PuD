@@ -74,6 +74,11 @@ class RRS : public IControllerPlugin, public Implementation {
     m_ctrl = cast_parent<ControllerBase>();
     auto* spec = m_ctrl->m_device.m_spec;
 
+    if (spec->supports_movement_requests()) {
+      throw std::runtime_error(
+          "RRS is not compatible with movement-capable DRAM standards");
+    }
+
     m_rit_mapper = dynamic_cast<RITAddrMapper*>(m_ctrl->m_addr_mapper);
     if (!m_rit_mapper) {
       throw std::runtime_error(

@@ -13,11 +13,27 @@ struct PREpb {
   static constexpr BankTarget bank_target = BankTarget::Single;
 
   static void action(DRAMNode* bank, int cmd, const AddrVec_t& addr_vec, Clk_t clk) {
+    if constexpr (requires { T::State::MovementActive; T::State::MovementDataValid; }) {
+      if (bank->m_state == T::State::MovementDataValid) {
+        return;
+      }
+      if (bank->m_state == T::State::MovementActive) {
+        bank->m_state = T::State::Closed;
+        bank->m_row_state.clear();
+        return;
+      }
+    }
     bank->m_state = T::State::Closed;
     bank->m_row_state.clear();
   }
 
   static int preq(DRAMNode* bank, int cmd, const AddrVec_t& addr_vec, Clk_t clk) {
+    if constexpr (requires { T::State::MovementActive; T::State::MovementDataValid; }) {
+      if (bank->m_state == T::State::MovementActive ||
+          bank->m_state == T::State::MovementDataValid) {
+        return T::Command::PREpb;
+      }
+    }
     if constexpr (requires { T::State::PuDChargeSharing; T::State::PuDSensed; }) {
       if (bank->m_state == T::State::PuDChargeSharing) {
         throw std::runtime_error("[PREpb] Invalid bank state!");

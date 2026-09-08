@@ -8,24 +8,11 @@
 #include "ramulator/controller/refresh/i_refresh_manager.h"
 #include "ramulator/controller/rowpolicy/i_row_policy.h"
 #include "ramulator/controller/scheduler/i_scheduler.h"
+#include "ramulator/controller/pud_request_validation.h"
 #include "ramulator/dram/dram_spec.h"
 #include "ramulator/frontend/i_frontend.h"
 
 namespace Ramulator {
-
-namespace {
-
-constexpr std::array<const char*, 4> kPuDStatNames = {
-    "rowcopy", "maj3", "maj5", "not"};
-
-}  // namespace
-
-size_t ControllerBase::pud_operation_index(int type_id) {
-  if (!is_pud_request_type(type_id)) {
-    throw std::logic_error(fmt::format("Request type {} is not a PuD operation", type_id));
-  }
-  return static_cast<size_t>(type_id - Request::Type::RowCopy);
-}
 
 // ── Forwarding methods ──────────────────────────────────────────────────
 
@@ -36,6 +23,17 @@ void ControllerBase::set_channel_id(int channel_id) {
 
 bool ControllerBase::check_timing(int command, const AddrVec_t& addr_vec) {
   return m_device.check_timing(command, addr_vec, m_clk);
+}
+
+bool ControllerBase::check_request_timing(const Request& req) {
+  return check_timing(req.command, req.addr_vec);
+}
+
+bool ControllerBase::validate_request_for_issue(const Request& req) {
+  const bool prerequisite_compatible =
+      req.command == get_preq_command(req.final_command, req.addr_vec);
+  const bool timing_ready = check_request_timing(req);
+  return prerequisite_compatible && timing_ready;
 }
 
 int ControllerBase::get_preq_command(int command, const AddrVec_t& addr_vec) {
@@ -52,6 +50,10 @@ int ControllerBase::get_num_levels() const {
 
 float ControllerBase::get_tCK() const {
   return m_tCK_ps / 1000.0f;  // ps → ns
+}
+
+bool ControllerBase::supports_movement_requests() const {
+  return m_device.m_spec->supports_movement_requests();
 }
 
 // ── Shared initialization ───────────────────────────────────────────────
@@ -137,22 +139,39 @@ void ControllerBase::setup_base(IFrontEnd* frontend, IMemorySystem* memory_syste
   m_stats.add("read_latency", s_read_latency);
   m_stats.add("avg_read_latency", s_avg_read_latency);
 
-  const auto& supported = m_device.m_spec->supported_requests;
-  const bool supports_pud = supported.size() > Request::Type::NOT &&
-      supported[Request::Type::RowCopy] == DRAMSpec::CONTROLLER_SEQUENCED &&
-      supported[Request::Type::MAJ3] == DRAMSpec::CONTROLLER_SEQUENCED &&
-      supported[Request::Type::MAJ5] == DRAMSpec::CONTROLLER_SEQUENCED &&
-      supported[Request::Type::NOT] == DRAMSpec::CONTROLLER_SEQUENCED;
-  if (supports_pud) {
+  if (m_device.m_spec->supports_inherited_pud_requests()) {
     m_stats.add("pud_queue_len", s_pud_queue_len);
     m_stats.add("pud_queue_len_avg", s_pud_queue_len_avg);
-    for (size_t i = 0; i < kNumPuDOperations; i++) {
-      m_stats.add(fmt::format("num_pud_{}_reqs", kPuDStatNames[i]), s_num_pud_reqs[i]);
+    for (int type_id = 0; type_id < Request::Type::Count; type_id++) {
+      const auto slot = legacy_pud_statistic_slot(type_id);
+      if (!slot.has_value()) {
+        continue;
+      }
+      const char* stat_name = legacy_pud_statistic_name(type_id);
+      m_stats.add(fmt::format("num_pud_{}_reqs", stat_name), s_num_pud_reqs[*slot]);
       m_stats.add(
-          fmt::format("num_pud_{}_reqs_completed", kPuDStatNames[i]),
-          s_num_pud_reqs_completed[i]);
-      m_stats.add(fmt::format("pud_{}_latency", kPuDStatNames[i]), s_pud_latency[i]);
-      m_stats.add(fmt::format("avg_pud_{}_latency", kPuDStatNames[i]), s_avg_pud_latency[i]);
+          fmt::format("num_pud_{}_reqs_completed", stat_name),
+          s_num_pud_reqs_completed[*slot]);
+      m_stats.add(fmt::format("pud_{}_latency", stat_name), s_pud_latency[*slot]);
+      m_stats.add(fmt::format("avg_pud_{}_latency", stat_name), s_avg_pud_latency[*slot]);
+    }
+  }
+
+  if (m_device.m_spec->supports_movement_requests()) {
+    for (int type_id : {Request::Type::LCMOV, Request::Type::GBMOV}) {
+      const auto slot = movement_statistic_slot(type_id);
+      const char* stat_name = movement_statistic_name(type_id);
+      m_stats.add(fmt::format("num_pud_{}_reqs", stat_name), s_num_movement_reqs[*slot]);
+      m_stats.add(
+          fmt::format("num_pud_{}_reqs_completed", stat_name),
+          s_num_movement_reqs_completed[*slot]);
+      m_stats.add(fmt::format("pud_{}_latency", stat_name), s_movement_latency[*slot]);
+      m_stats.add(
+          fmt::format("avg_pud_{}_latency", stat_name),
+          s_avg_movement_latency[*slot]);
+      m_stats.add(
+          fmt::format("pud_{}_moved_bits", stat_name),
+          s_movement_moved_bits[*slot]);
     }
   }
 
@@ -321,7 +340,7 @@ ControllerBase::Candidate ControllerBase::pick_best_ready_from(
   if (it == buffer.end()) {
     return c;
   }
-  if (!check_timing(it->command, it->addr_vec)) {
+  if (!check_request_timing(*it)) {
     return c;
   }
   c.valid = true;
@@ -343,7 +362,7 @@ ControllerBase::Candidate ControllerBase::pick_priority_if(
     return c;
   }
   it->command = get_preq_command(it->final_command, it->addr_vec);
-  if (!check_timing(it->command, it->addr_vec)) {
+  if (!check_request_timing(*it)) {
     return c;
   }
   if (would_close_active(*it)) {
@@ -459,10 +478,16 @@ void ControllerBase::serve_completed_requests() {
     const size_t latency = static_cast<size_t>(completed.depart - completed.arrive);
     if (completed.type_id == Request::Type::Read) {
       s_read_latency += latency;
-    } else if (is_pud_request_type(completed.type_id)) {
-      const size_t op = pud_operation_index(completed.type_id);
-      s_num_pud_reqs_completed[op]++;
-      s_pud_latency[op] += latency;
+    } else if (const auto slot = legacy_pud_statistic_slot(completed.type_id);
+               slot.has_value()) {
+      s_num_pud_reqs_completed[*slot]++;
+      s_pud_latency[*slot] += latency;
+    } else if (const auto slot = movement_statistic_slot(completed.type_id);
+               slot.has_value()) {
+      s_num_movement_reqs_completed[*slot]++;
+      s_movement_latency[*slot] += latency;
+      s_movement_moved_bits[*slot] +=
+          get_movement_moved_bits(completed, *m_device.m_spec);
     }
     if (completed.callback) {
       completed.callback(completed);
@@ -484,9 +509,15 @@ void ControllerBase::set_write_mode() {
 
 void ControllerBase::update_stats() {
   s_avg_read_latency = (s_num_read_reqs_served > 0) ? (float)s_read_latency / (float)s_num_read_reqs_served : 0;
-  for (size_t i = 0; i < kNumPuDOperations; i++) {
+  for (size_t i = 0; i < kNumLegacyPuDStatisticSlots; i++) {
     s_avg_pud_latency[i] = s_num_pud_reqs_completed[i] > 0
         ? static_cast<float>(s_pud_latency[i]) / static_cast<float>(s_num_pud_reqs_completed[i])
+        : 0;
+  }
+  for (size_t i = 0; i < kNumMovementStatisticSlots; i++) {
+    s_avg_movement_latency[i] = s_num_movement_reqs_completed[i] > 0
+        ? static_cast<float>(s_movement_latency[i]) /
+              static_cast<float>(s_num_movement_reqs_completed[i])
         : 0;
   }
 
@@ -550,6 +581,11 @@ void ControllerBase::reset_stats() {
   s_num_pud_reqs_completed.fill(0);
   s_pud_latency.fill(0);
   s_avg_pud_latency.fill(0);
+  s_num_movement_reqs.fill(0);
+  s_num_movement_reqs_completed.fill(0);
+  s_movement_latency.fill(0);
+  s_avg_movement_latency.fill(0);
+  s_movement_moved_bits.fill(0);
   s_read_throughput_MBps = 0;
   s_write_throughput_MBps = 0;
   s_total_throughput_MBps = 0;

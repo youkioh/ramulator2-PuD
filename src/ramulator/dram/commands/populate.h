@@ -20,6 +20,9 @@ void register_command(DRAMSpec& spec, int cmd_id) {
   if constexpr (requires { &CmdImpl::action; }) {
     spec.funcs.actions[cmd_id] = &CmdImpl::action;
   }
+  if constexpr (requires { &CmdImpl::validate; }) {
+    spec.funcs.validators[cmd_id] = &CmdImpl::validate;
+  }
   if constexpr (requires { &CmdImpl::preq; }) {
     spec.funcs.preqs[cmd_id] = &CmdImpl::preq;
   }

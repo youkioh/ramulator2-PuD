@@ -2,6 +2,7 @@
 #define RAMULATOR_CONTROLLER_CONTROLLER_BASE_H
 
 #include <array>
+#include <cstdint>
 #include <deque>
 #include <optional>
 #include <string>
@@ -31,6 +32,8 @@ class ControllerBase : public IController, public Implementation {
 
   // Forwarding methods — bind m_clk for sub-components
   bool check_timing(int command, const AddrVec_t& addr_vec);
+  virtual bool check_request_timing(const Request& req);
+  bool validate_request_for_issue(const Request& req);
   int get_preq_command(int command, const AddrVec_t& addr_vec);
 
   // IController overrides
@@ -38,6 +41,7 @@ class ControllerBase : public IController, public Implementation {
   int get_tx_bytes() const override;
   int get_num_levels() const override;
   float get_tCK() const override;
+  bool supports_movement_requests() const override;
 
   bool send(Request& req) override;
   bool priority_send(Request& req) override;
@@ -138,11 +142,16 @@ class ControllerBase : public IController, public Implementation {
   size_t s_read_latency = 0;
   float s_avg_read_latency = 0;
 
-  static constexpr size_t kNumPuDOperations = 4;
-  std::array<size_t, kNumPuDOperations> s_num_pud_reqs{};
-  std::array<size_t, kNumPuDOperations> s_num_pud_reqs_completed{};
-  std::array<size_t, kNumPuDOperations> s_pud_latency{};
-  std::array<float, kNumPuDOperations> s_avg_pud_latency{};
+  std::array<size_t, kNumLegacyPuDStatisticSlots> s_num_pud_reqs{};
+  std::array<size_t, kNumLegacyPuDStatisticSlots> s_num_pud_reqs_completed{};
+  std::array<size_t, kNumLegacyPuDStatisticSlots> s_pud_latency{};
+  std::array<float, kNumLegacyPuDStatisticSlots> s_avg_pud_latency{};
+
+  std::array<size_t, kNumMovementStatisticSlots> s_num_movement_reqs{};
+  std::array<size_t, kNumMovementStatisticSlots> s_num_movement_reqs_completed{};
+  std::array<size_t, kNumMovementStatisticSlots> s_movement_latency{};
+  std::array<float, kNumMovementStatisticSlots> s_avg_movement_latency{};
+  std::array<std::uint64_t, kNumMovementStatisticSlots> s_movement_moved_bits{};
 
   float s_read_throughput_MBps = 0;
   float s_write_throughput_MBps = 0;
@@ -184,7 +193,6 @@ class ControllerBase : public IController, public Implementation {
   void update_request_stats(ReqBuffer::iterator& req);
   void serve_completed_requests();
   void set_write_mode();
-  static size_t pud_operation_index(int type_id);
 };
 
 }  // namespace Ramulator

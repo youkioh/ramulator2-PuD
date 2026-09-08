@@ -40,12 +40,12 @@ class FRFCFSScheduler : public IScheduler, public Implementation {
       // First eligible candidate — take it, check timing once
       if (candidate == buffer.end()) {
         candidate = it;
-        cand_timing_ok = m_ctrl->check_timing(it->command, it->addr_vec);
+        cand_timing_ok = m_ctrl->check_request_timing(*it);
         continue;
       }
 
       // Compare challenger against incumbent (incumbent timing is cached)
-      bool it_timing_ok = m_ctrl->check_timing(it->command, it->addr_vec);
+      bool it_timing_ok = m_ctrl->check_request_timing(*it);
       if (cand_timing_ok != it_timing_ok) {
         if (it_timing_ok) {
           candidate = it;

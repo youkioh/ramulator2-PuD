@@ -2,8 +2,10 @@
 #define RAMULATOR_BASE_REQUEST_H
 
 #include <functional>
+#include <optional>
 #include <string>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "ramulator/base/type.h"
@@ -11,6 +13,25 @@
 namespace Ramulator {
 
 struct Request {
+  struct LogicalMatRange {
+    int begin = -1;
+    int end = -1;
+  };
+
+  struct LCMovementMetadata {
+    LogicalMatRange mats{};
+  };
+
+  struct GBMovementMetadata {
+    int source_mat = -1;
+    int destination_mat = -1;
+  };
+
+  using MovementMetadata =
+      std::variant<std::monostate, LCMovementMetadata, GBMovementMetadata>;
+
+  static constexpr int kMovementSizeBytesNotApplicable = -1;
+
   Addr_t addr = -1;
   Addr_t intra_channel_addr = -1;  // Flat address with channel bits stripped
   AddrVec_t addr_vec{};
@@ -18,22 +39,37 @@ struct Request {
   // Universal built-in external request types — always Read = 0, Write = 1.
   // Additional non-negative ids may exist as metadata for future extensions.
   struct Type {
-    enum : int { Read = 0, Write = 1, RowCopy = 2, MAJ3 = 3, MAJ5 = 4, NOT = 5 };
+    enum : int {
+      Read = 0,
+      Write = 1,
+      RowCopy = 2,
+      MAJ3 = 3,
+      MAJ5 = 4,
+      NOT = 5,
+      LCMOV = 6,
+      GBMOV = 7,
+      Count = 8,
+    };
   };
 
   int type_id = -1;        // Request type. -1 is the convention for internal maintenance/direct-command requests.
   int source_id = -1;      // Source identifier (e.g., which core)
   int ingress_id = -1;     // External ingress identifier (e.g., gem5 memory port)
 
-  int size_bytes = -1;     // Request size in bytes. Must be set explicitly by the frontend.
+  // Internal/direct-command requests retain the historical -1 default. External
+  // movement requests use the same value through the named N/A contract above.
+  int size_bytes = -1;
 
   // Ordered, request-owned row operands for PuD requests.
   // RowCopy uses operand 0 as source and operands 1..N as destinations.
   std::vector<AddrVec_t> operands{};
+  MovementMetadata movement{};
 
   int command = -1;        // Current command to issue to progress the request
   int final_command = -1;  // Terminal command, or next controller-sequenced command
-  size_t pud_sequence_index = 0;  // Next PuD sequence step to issue
+  static constexpr Clk_t kOccurrenceNotIssued = -1;
+  size_t occurrence_index = 0;  // Next controller-sequenced occurrence to issue
+  std::vector<Clk_t> occurrence_issue_history{};
   bool is_stat_updated = false;
 
   Clk_t arrive = -1;  // Clock cycle when the request arrives at the memory controller
@@ -53,7 +89,18 @@ struct Request {
   Request(AddrVec_t addr_vec, Cmd_t, int final_cmd);  // internal commands (refresh, row close, etc.)
 };
 
+inline constexpr size_t kNumLegacyPuDStatisticSlots = 4;
+inline constexpr size_t kNumMovementStatisticSlots = 2;
+
+bool is_inherited_pud_request_type(int type_id);
+bool is_movement_request_type(int type_id);
 bool is_pud_request_type(int type_id);
+bool is_controller_sequenced_request_type(int type_id);
+bool is_valid_external_request_size(int type_id, int size_bytes, int tx_bytes);
+std::optional<size_t> legacy_pud_statistic_slot(int type_id);
+const char* legacy_pud_statistic_name(int type_id);
+std::optional<size_t> movement_statistic_slot(int type_id);
+const char* movement_statistic_name(int type_id);
 const char* request_type_name(int type_id);
 
 }  // namespace Ramulator

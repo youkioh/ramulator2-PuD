@@ -9,6 +9,7 @@ from dataclasses import dataclass
 import ramulator
 from ramulator._ramulator_test import _ControllerUnderTest as _CppControllerUnderTest
 from ramulator._ramulator_test import _validate_pud_routing
+from ramulator.dram.spec import REQUEST_TYPE_IDS
 from tests.validation_common import _metadata_from_dram
 from tests.validation_common import _request_type_ids
 from tests.validation_common import build_addr_vec
@@ -110,6 +111,48 @@ class ControllerUnderTest:
     def timing(self, name: str) -> int:
         return self.timings[name]
 
+    def probe_command_timing(
+        self, type_name: str, command: str, addr_vec: list[int]
+    ) -> dict:
+        return dict(
+            self._cpp.probe_command_timing(
+                self._request_type_ids[type_name], command, addr_vec
+            )
+        )
+
+    def probe_movement_timing(
+        self,
+        type_name: str,
+        operands: list[list[int]],
+        occurrence_index: int,
+        occurrence_issue_history: list[int],
+    ) -> dict:
+        result = dict(
+            self._cpp.probe_movement_timing(
+                self._request_type_ids[type_name],
+                operands,
+                occurrence_index,
+                occurrence_issue_history,
+            )
+        )
+        result["history_before"] = list(result["history_before"])
+        result["history_after"] = list(result["history_after"])
+        return result
+
+    def probe_final_issue_validation(
+        self,
+        type_name: str,
+        command: str,
+        final_command: str,
+        addr_vec: list[int],
+    ) -> bool:
+        return self._cpp.probe_final_issue_validation(
+            self._request_type_ids[type_name],
+            command,
+            final_command,
+            addr_vec,
+        )
+
     def addr_vec(self, **levels) -> list[int]:
         return build_addr_vec(self.level_names, wildcard=self.ALL, **levels)
 
@@ -162,8 +205,74 @@ class ControllerUnderTest:
             "arrive": item["arrive"],
         }
 
+    def send_movement_request_for_testing(
+        self,
+        type_name: str,
+        operands: list[list[int]],
+        first_mat: int,
+        second_mat: int,
+        source_id: int = 0,
+    ) -> None:
+        if type_name not in ("LC-MOV", "GB-MOV"):
+            raise ValueError(f"Not a movement request: {type_name}")
+        self._cpp.send_movement_request_for_testing(
+            REQUEST_TYPE_IDS[type_name],
+            operands,
+            first_mat,
+            second_mat,
+            source_id,
+        )
+
+    def try_send_movement_request_for_testing(
+        self,
+        type_name: str,
+        operands: list[list[int]],
+        first_mat: int,
+        second_mat: int,
+        source_id: int = 0,
+    ) -> dict:
+        if type_name not in ("LC-MOV", "GB-MOV"):
+            raise ValueError(f"Not a movement request: {type_name}")
+        return dict(
+            self._cpp.try_send_movement_request_for_testing(
+                REQUEST_TYPE_IDS[type_name],
+                operands,
+                first_mat,
+                second_mat,
+                source_id,
+            )
+        )
+
+    def send_movement_with_reentrant_forwarded_read(
+        self,
+        type_name: str,
+        operands: list[list[int]],
+        first_mat: int,
+        second_mat: int,
+        source_id: int,
+        forwarded_addr_vec: list[int],
+        forwarded_source_id: int,
+    ) -> None:
+        if type_name not in ("LC-MOV", "GB-MOV"):
+            raise ValueError(f"Not a movement request: {type_name}")
+        self._cpp.send_movement_with_reentrant_forwarded_read(
+            REQUEST_TYPE_IDS[type_name],
+            operands,
+            first_mat,
+            second_mat,
+            source_id,
+            forwarded_addr_vec,
+            forwarded_source_id,
+        )
+
     def completions(self):
         return [dict(item) for item in self._cpp.completions()]
+
+    def completion_occurrence_histories(self):
+        return [list(history) for history in self._cpp.completion_occurrence_histories()]
+
+    def completion_callback_stats(self):
+        return [dict(stats) for stats in self._cpp.completion_callback_stats()]
 
     def validate_pud_routing(
         self, type_name: str, operands: list[list[int]], num_channels: int
@@ -198,6 +307,9 @@ class ControllerUnderTest:
 
     def stats(self):
         return self._cpp.stats()
+
+    def sample_stats(self):
+        return self._cpp.sample_stats()
 
     def run_until_idle(self, max_ticks: int = 256):
         start = len(self.history)

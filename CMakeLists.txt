@@ -89,6 +89,11 @@ add_executable(ddr4_pud_microbenchmark EXCLUDE_FROM_ALL
 )
 target_link_libraries(ddr4_pud_microbenchmark PRIVATE ramulator)
 
+add_executable(mimdram_movement_microbenchmark EXCLUDE_FROM_ALL
+  examples/mimdram_movement_microbenchmark.cpp
+)
+target_link_libraries(mimdram_movement_microbenchmark PRIVATE ramulator)
+
 if(RAMULATOR_PYTHON_BINDINGS)
   # Run codegen before building — generates C++ headers from DRAM DSL
   # and Python wrappers from C++ source. Only writes changed files.

@@ -3,6 +3,7 @@
 from tests.smoke.testcases.ddr3 import CONFIG as DDR3_CONFIG
 from tests.smoke.testcases.ddr4 import CONFIG as DDR4_CONFIG
 from tests.smoke.testcases.ddr4_pud import CONFIG as DDR4_PUD_CONFIG
+from tests.smoke.testcases.ddr4_pud_movement import CONFIG as DDR4_PUD_MOVEMENT_CONFIG
 from tests.smoke.testcases.ddr5 import CONFIG as DDR5_CONFIG
 from tests.smoke.testcases.hbm import CONFIG as HBM1_CONFIG
 from tests.smoke.testcases.hbm2 import CONFIG as HBM2_CONFIG
@@ -17,6 +18,7 @@ STANDARDS = {
     "DDR3": DDR3_CONFIG,
     "DDR4": DDR4_CONFIG,
     "DDR4_PuD": DDR4_PUD_CONFIG,
+    "DDR4_PuD_Movement": DDR4_PUD_MOVEMENT_CONFIG,
     "DDR5": DDR5_CONFIG,
     "HBM1": HBM1_CONFIG,
     "HBM2": HBM2_CONFIG,

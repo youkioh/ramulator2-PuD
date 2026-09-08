@@ -11,6 +11,8 @@
 #include "ramulator/base/factory.h"
 #include "ramulator/base/request.h"
 #include "ramulator/controller/controller_base.h"
+#include "ramulator/controller/pud_sequence.h"
+#include "ramulator/controller/pud_request_validation.h"
 #include "ramulator/controller/i_controller.h"
 #include "ramulator/controller/plugin/controller_validation_hook.h"
 #include "ramulator/dram/device.h"
@@ -77,6 +79,45 @@ class DeviceUnderTestCpp {
 
   int timing(const std::string& name) const {
     return spec().get_timing_value(name);
+  }
+
+  bool supports_controller_sequenced_request(int type_id) const {
+    return spec().supports_controller_sequenced_request(type_id);
+  }
+
+  bool supports_inherited_pud_requests() const {
+    return spec().supports_inherited_pud_requests();
+  }
+
+  bool supports_movement_requests() const {
+    return spec().supports_movement_requests();
+  }
+
+  bool supports_hffs_per_mat_config() const {
+    return spec().supports_hffs_per_mat;
+  }
+
+  int hffs_per_mat() const {
+    return spec().hffs_per_mat.value_or(-1);
+  }
+
+  nb::dict bank_info(const AddrVec_t& addr_vec) const {
+    validate_addr_vec_size(spec(), addr_vec);
+    int bank_id = m_device.get_flat_bank_id(addr_vec);
+    if (bank_id < 0 || bank_id >= static_cast<int>(m_device.m_bank_nodes.size())) {
+      throw std::runtime_error("bank_info address does not identify a valid Bank");
+    }
+
+    const auto* bank = m_device.m_bank_nodes[bank_id];
+    std::map<int, std::string> row_state;
+    for (const auto& [row, state] : bank->m_row_state) {
+      row_state[row] = spec().state_names[state];
+    }
+
+    nb::dict out;
+    out["state"] = spec().state_names[bank->m_state];
+    out["row_state"] = row_state;
+    return out;
   }
 
   nb::dict probe(const std::string& command_name, const AddrVec_t& addr_vec, Clk_t clk) {
@@ -240,14 +281,20 @@ class RoutingControllerStub final : public IController, public Implementation {
  public:
   inline static int last_receiver = -1;
   inline static Request last_request{};
+  inline static bool reject_next = false;
 
-  static void reset() {
+  static void reset(bool reject_first = false) {
     last_receiver = -1;
     last_request = Request{};
+    reject_next = reject_first;
   }
 
   void init() override {}
   bool send(Request& req) override {
+    if (reject_next) {
+      reject_next = false;
+      return false;
+    }
     last_receiver = m_channel_id;
     last_request = req;
     return true;
@@ -257,6 +304,7 @@ class RoutingControllerStub final : public IController, public Implementation {
   int get_tx_bytes() const override { return 64; }
   int get_num_levels() const override { return 0; }
   float get_tCK() const override { return 1.0f; }
+  bool supports_movement_requests() const override { return true; }
 };
 
 class PuDRoutingSystemUnderTestCpp {
@@ -288,10 +336,11 @@ class PuDRoutingSystemUnderTestCpp {
     m_memory_system->connect_frontend(m_frontend.get());
   }
 
-  nb::dict send_pud_request(int type_id, const std::vector<AddrVec_t>& operands) {
+  nb::dict send_pud_request(
+      int type_id, const std::vector<AddrVec_t>& operands, int size_bytes = 64) {
     RoutingControllerStub::reset();
     Request req(operands, type_id);
-    req.size_bytes = m_memory_system->get_tx_bytes();
+    req.size_bytes = size_bytes;
     if (!m_memory_system->send(req)) {
       throw std::runtime_error("GenericDRAMSystem failed to route PuD request");
     }
@@ -299,6 +348,69 @@ class PuDRoutingSystemUnderTestCpp {
     nb::dict out;
     out["receiver"] = RoutingControllerStub::last_receiver;
     out["operands"] = RoutingControllerStub::last_request.operands;
+    return out;
+  }
+
+  nb::dict send_regular_request(int type_id, const AddrVec_t& addr_vec, int size_bytes) {
+    RoutingControllerStub::reset();
+    Request req(addr_vec, type_id);
+    req.addr = 0;
+    req.size_bytes = size_bytes;
+    if (!m_memory_system->send(req)) {
+      throw std::runtime_error("GenericDRAMSystem failed to route regular request");
+    }
+
+    nb::dict out;
+    out["receiver"] = RoutingControllerStub::last_receiver;
+    out["size_bytes"] = RoutingControllerStub::last_request.size_bytes;
+    return out;
+  }
+
+  nb::dict send_movement_request(
+      int type_id,
+      const std::vector<AddrVec_t>& operands,
+      const std::string& metadata_kind,
+      int first_mat,
+      int second_mat,
+      int size_bytes = Request::kMovementSizeBytesNotApplicable,
+      bool retry_once = false) {
+    RoutingControllerStub::reset(retry_once);
+    Request req(operands, type_id);
+    req.size_bytes = size_bytes;
+    if (metadata_kind == "LC") {
+      req.movement = Request::LCMovementMetadata{{first_mat, second_mat}};
+    } else if (metadata_kind == "GB") {
+      req.movement = Request::GBMovementMetadata{first_mat, second_mat};
+    } else if (!metadata_kind.empty()) {
+      throw std::runtime_error("Unknown movement metadata kind " + metadata_kind);
+    }
+
+    bool accepted = m_memory_system->send(req);
+    if (!accepted && retry_once) {
+      accepted = m_memory_system->send(req);
+    }
+    if (!accepted) {
+      throw std::runtime_error("GenericDRAMSystem failed to route movement request");
+    }
+
+    const Request& stored = RoutingControllerStub::last_request;
+    nb::dict out;
+    out["receiver"] = RoutingControllerStub::last_receiver;
+    out["operands"] = stored.operands;
+    out["size_bytes"] = stored.size_bytes;
+    if (const auto* lc = std::get_if<Request::LCMovementMetadata>(&stored.movement)) {
+      out["metadata_kind"] = "LC";
+      out["first_mat"] = lc->mats.begin;
+      out["second_mat"] = lc->mats.end;
+    } else if (const auto* gb = std::get_if<Request::GBMovementMetadata>(&stored.movement)) {
+      out["metadata_kind"] = "GB";
+      out["first_mat"] = gb->source_mat;
+      out["second_mat"] = gb->destination_mat;
+    } else {
+      out["metadata_kind"] = "";
+      out["first_mat"] = -1;
+      out["second_mat"] = -1;
+    }
     return out;
   }
 
@@ -380,6 +492,73 @@ class ControllerUnderTestCpp {
 
   int timing(const std::string& name) const {
     return spec().get_timing_value(name);
+  }
+
+  nb::dict probe_command_timing(
+      int type_id, const std::string& command_name,
+      const AddrVec_t& addr_vec) const {
+    validate_addr_vec_size(spec(), addr_vec);
+    Request req(addr_vec, type_id);
+    req.command = spec().get_command_id(command_name);
+    req.final_command = req.command;
+
+    nb::dict out;
+    out["clk"] = m_controller_base->m_clk;
+    out["device_ready"] = m_controller_base->check_timing(req.command, req.addr_vec);
+    out["request_ready"] = m_controller_base->check_request_timing(req);
+    return out;
+  }
+
+  nb::dict probe_movement_timing(
+      int type_id, const std::vector<AddrVec_t>& operands,
+      size_t occurrence_index,
+      const std::vector<Clk_t>& occurrence_issue_history) const {
+    if (!is_movement_request_type(type_id)) {
+      throw std::runtime_error("Movement timing probe requires LC-MOV or GB-MOV");
+    }
+    for (const auto& operand : operands) {
+      validate_concrete_addr_vec(operand);
+    }
+
+    Request req(operands, type_id);
+    req.occurrence_index = occurrence_index;
+    req.occurrence_issue_history = occurrence_issue_history;
+    const auto occurrence = describe_pud_occurrence(req, occurrence_index, spec());
+    req.addr_vec = req.operands[occurrence.operand_index];
+    req.command = occurrence.command;
+    req.final_command = occurrence.command;
+
+    const size_t cursor_before = req.occurrence_index;
+    const auto history_before = req.occurrence_issue_history;
+    const auto local_constraints = make_movement_timing_constraints(spec());
+    const bool local_ready = check_pud_occurrence_timing(
+        req, m_controller_base->m_clk, local_constraints);
+    const bool device_ready =
+        m_controller_base->check_timing(req.command, req.addr_vec);
+    const bool request_ready = m_controller_base->check_request_timing(req);
+
+    nb::dict out;
+    out["clk"] = m_controller_base->m_clk;
+    out["command"] = spec().command_names[req.command];
+    out["local_ready"] = local_ready;
+    out["device_ready"] = device_ready;
+    out["request_ready"] = request_ready;
+    out["cursor_before"] = cursor_before;
+    out["cursor_after"] = req.occurrence_index;
+    out["history_before"] = history_before;
+    out["history_after"] = req.occurrence_issue_history;
+    return out;
+  }
+
+  bool probe_final_issue_validation(
+      int type_id, const std::string& command_name,
+      const std::string& final_command_name,
+      const AddrVec_t& addr_vec) const {
+    validate_addr_vec_size(spec(), addr_vec);
+    Request req(addr_vec, type_id);
+    req.command = spec().get_command_id(command_name);
+    req.final_command = spec().get_command_id(final_command_name);
+    return m_controller_base->validate_request_for_issue(req);
   }
 
   void send_request(int type_id, const AddrVec_t& addr_vec, int source_id) {
@@ -516,6 +695,113 @@ class ControllerUnderTestCpp {
     return out;
   }
 
+  nb::dict try_send_movement_request_for_testing(
+      int type_id, const std::vector<AddrVec_t>& operands,
+      int first_mat, int second_mat, int source_id) {
+    if (!is_movement_request_type(type_id)) {
+      throw std::runtime_error("Movement execution test seam requires LC-MOV or GB-MOV");
+    }
+
+    Request req(operands, type_id);
+    req.size_bytes = Request::kMovementSizeBytesNotApplicable;
+    req.source_id = source_id;
+    if (type_id == Request::Type::LCMOV) {
+      req.movement = Request::LCMovementMetadata{{first_mat, second_mat}};
+    } else {
+      req.movement = Request::GBMovementMetadata{first_mat, second_mat};
+    }
+    m_pud_completions_pending++;
+    req.callback = [this](Request& completed) {
+      if (m_pud_completions_pending == 0) {
+        throw std::runtime_error("ControllerUnderTest PuD completion accounting underflow");
+      }
+      if (m_command_outstanding == 0) {
+        throw std::runtime_error("ControllerUnderTest movement command accounting underflow");
+      }
+      m_pud_completions_pending--;
+      m_command_outstanding--;
+      record_completion(completed);
+    };
+    if (!m_controller->send(req)) {
+      m_pud_completions_pending--;
+      nb::dict out;
+      out["accepted"] = false;
+      out["arrive"] = req.arrive;
+      return out;
+    }
+    m_command_outstanding++;
+    nb::dict out;
+    out["accepted"] = true;
+    out["arrive"] = req.arrive;
+    return out;
+  }
+
+  void send_movement_request_for_testing(
+      int type_id, const std::vector<AddrVec_t>& operands,
+      int first_mat, int second_mat, int source_id) {
+    nb::dict out = try_send_movement_request_for_testing(
+        type_id, operands, first_mat, second_mat, source_id);
+    if (!nb::cast<bool>(out["accepted"])) {
+      throw std::runtime_error("ControllerUnderTest failed to enqueue movement request");
+    }
+  }
+
+  void send_movement_with_reentrant_forwarded_read(
+      int type_id, const std::vector<AddrVec_t>& operands,
+      int first_mat, int second_mat, int source_id,
+      const AddrVec_t& forwarded_addr_vec, int forwarded_source_id) {
+    if (!is_movement_request_type(type_id)) {
+      throw std::runtime_error("Movement execution test seam requires LC-MOV or GB-MOV");
+    }
+    validate_concrete_addr_vec(forwarded_addr_vec);
+
+    Request req(operands, type_id);
+    req.size_bytes = Request::kMovementSizeBytesNotApplicable;
+    req.source_id = source_id;
+    if (type_id == Request::Type::LCMOV) {
+      req.movement = Request::LCMovementMetadata{{first_mat, second_mat}};
+    } else {
+      req.movement = Request::GBMovementMetadata{first_mat, second_mat};
+    }
+    m_pud_completions_pending++;
+    req.callback = [this, forwarded_addr_vec, forwarded_source_id](Request& completed) {
+      if (m_pud_completions_pending == 0) {
+        throw std::runtime_error("ControllerUnderTest PuD completion accounting underflow");
+      }
+      if (m_command_outstanding == 0) {
+        throw std::runtime_error("ControllerUnderTest movement command accounting underflow");
+      }
+      m_pud_completions_pending--;
+      m_command_outstanding--;
+      record_completion(completed);
+
+      Request forwarded(forwarded_addr_vec, Request::Type::Read);
+      forwarded.addr = synthesize_addr(forwarded_addr_vec);
+      forwarded.intra_channel_addr = forwarded.addr;
+      forwarded.source_id = forwarded_source_id;
+      m_read_completions_pending++;
+      forwarded.callback = [this](Request& forwarded_completed) {
+        if (m_read_completions_pending == 0) {
+          throw std::runtime_error("ControllerUnderTest read completion accounting underflow");
+        }
+        m_read_completions_pending--;
+        record_completion(forwarded_completed);
+      };
+      if (!m_memory_system->send(forwarded)) {
+        m_read_completions_pending--;
+        throw std::runtime_error("ControllerUnderTest failed to enqueue reentrant forwarded read");
+      }
+      if (forwarded.depart == -1) {
+        throw std::runtime_error("ControllerUnderTest reentrant read was not write-forwarded");
+      }
+    };
+    if (!m_controller->send(req)) {
+      m_pud_completions_pending--;
+      throw std::runtime_error("ControllerUnderTest failed to enqueue movement request");
+    }
+    m_command_outstanding++;
+  }
+
   nb::list completions() const {
     nb::list out;
     for (const auto& completed : m_completions) {
@@ -525,6 +811,23 @@ class ControllerUnderTestCpp {
       item["arrive"] = completed.arrive;
       item["depart"] = completed.depart;
       out.append(item);
+    }
+    return out;
+  }
+
+  std::vector<std::vector<Clk_t>> completion_occurrence_histories() const {
+    std::vector<std::vector<Clk_t>> out;
+    out.reserve(m_completions.size());
+    for (const auto& completed : m_completions) {
+      out.push_back(completed.occurrence_issue_history);
+    }
+    return out;
+  }
+
+  nb::list completion_callback_stats() const {
+    nb::list out;
+    for (const auto& stats : m_completion_callback_stats) {
+      out.append(nb::cast<nb::dict>(confignode_to_py(stats)));
     }
     return out;
   }
@@ -546,7 +849,7 @@ class ControllerUnderTestCpp {
 
     nb::list issued;
     for (const auto& rec : m_validation_hook->take_issued_commands_this_tick()) {
-      bool pud_final = is_pud_request_type(rec.type_id) &&
+      bool pud_final = is_inherited_pud_request_type(rec.type_id) &&
                        rec.command == rec.final_command &&
                        spec().command_names[rec.command] == "PREpb";
       bool tracked_final = pud_final ||
@@ -586,6 +889,11 @@ class ControllerUnderTestCpp {
     return nb::cast<nb::dict>(confignode_to_py(m_controller->collect_stats()));
   }
 
+  nb::dict sample_stats() {
+    m_controller_base->update_stats();
+    return nb::cast<nb::dict>(confignode_to_py(m_controller->collect_stats()));
+  }
+
  private:
   std::unique_ptr<HarnessFrontEnd> m_frontend;
   std::unique_ptr<HarnessMemorySystem> m_memory_system;
@@ -602,11 +910,20 @@ class ControllerUnderTestCpp {
     int source_id;
     Clk_t arrive;
     Clk_t depart;
+    std::vector<Clk_t> occurrence_issue_history;
   };
   std::vector<CompletionRecord> m_completions;
+  std::vector<ConfigNode> m_completion_callback_stats;
 
   void record_completion(const Request& req) {
-    m_completions.push_back({req.type_id, req.source_id, req.arrive, req.depart});
+    m_completions.push_back({
+        req.type_id,
+        req.source_id,
+        req.arrive,
+        req.depart,
+        req.occurrence_issue_history,
+    });
+    m_completion_callback_stats.push_back(m_controller->collect_stats());
   }
 
   const DRAMSpec& spec() const {
@@ -652,6 +969,14 @@ NB_MODULE(_ramulator_test, m) {
       .def_prop_ro("state_names", &DeviceUnderTestCpp::state_names)
       .def_prop_ro("timings", &DeviceUnderTestCpp::timings)
       .def("timing", &DeviceUnderTestCpp::timing, nb::arg("name"))
+      .def("supports_controller_sequenced_request",
+           &DeviceUnderTestCpp::supports_controller_sequenced_request,
+           nb::arg("type_id"))
+      .def("supports_inherited_pud_requests", &DeviceUnderTestCpp::supports_inherited_pud_requests)
+      .def("supports_movement_requests", &DeviceUnderTestCpp::supports_movement_requests)
+      .def_prop_ro("supports_hffs_per_mat_config", &DeviceUnderTestCpp::supports_hffs_per_mat_config)
+      .def_prop_ro("hffs_per_mat", &DeviceUnderTestCpp::hffs_per_mat)
+      .def("bank_info", &DeviceUnderTestCpp::bank_info, nb::arg("addr_vec"))
       .def("command_info", &DeviceUnderTestCpp::command_info, nb::arg("command"))
       .def("probe", &DeviceUnderTestCpp::probe, nb::arg("command"), nb::arg("addr_vec"), nb::arg("clk"))
       .def("issue", &DeviceUnderTestCpp::issue, nb::arg("command"), nb::arg("addr_vec"), nb::arg("clk"));
@@ -673,6 +998,15 @@ NB_MODULE(_ramulator_test, m) {
       .def_prop_ro("command_names", &ControllerUnderTestCpp::command_names)
       .def_prop_ro("timings", &ControllerUnderTestCpp::timings)
       .def("timing", &ControllerUnderTestCpp::timing, nb::arg("name"))
+      .def("probe_command_timing", &ControllerUnderTestCpp::probe_command_timing,
+           nb::arg("type_id"), nb::arg("command"), nb::arg("addr_vec"))
+      .def("probe_movement_timing", &ControllerUnderTestCpp::probe_movement_timing,
+           nb::arg("type_id"), nb::arg("operands"), nb::arg("occurrence_index"),
+           nb::arg("occurrence_issue_history"))
+      .def("probe_final_issue_validation",
+           &ControllerUnderTestCpp::probe_final_issue_validation,
+           nb::arg("type_id"), nb::arg("command"),
+           nb::arg("final_command"), nb::arg("addr_vec"))
       .def("send_request", &ControllerUnderTestCpp::send_request,
            nb::arg("type_id"), nb::arg("addr_vec"), nb::arg("source_id") = 0)
       .def("send_read_with_reentrant_forwarded_read",
@@ -685,16 +1019,40 @@ NB_MODULE(_ramulator_test, m) {
            nb::arg("type_id"), nb::arg("operands"), nb::arg("source_id") = 0)
       .def("try_send_pud_request", &ControllerUnderTestCpp::try_send_pud_request,
            nb::arg("type_id"), nb::arg("operands"), nb::arg("source_id") = 0)
+      .def("send_movement_request_for_testing",
+           &ControllerUnderTestCpp::send_movement_request_for_testing,
+           nb::arg("type_id"), nb::arg("operands"), nb::arg("first_mat"),
+           nb::arg("second_mat"), nb::arg("source_id") = 0)
+      .def("try_send_movement_request_for_testing",
+           &ControllerUnderTestCpp::try_send_movement_request_for_testing,
+           nb::arg("type_id"), nb::arg("operands"), nb::arg("first_mat"),
+           nb::arg("second_mat"), nb::arg("source_id") = 0)
+      .def("send_movement_with_reentrant_forwarded_read",
+           &ControllerUnderTestCpp::send_movement_with_reentrant_forwarded_read,
+           nb::arg("type_id"), nb::arg("operands"), nb::arg("first_mat"),
+           nb::arg("second_mat"), nb::arg("source_id"),
+           nb::arg("forwarded_addr_vec"), nb::arg("forwarded_source_id"))
       .def("priority_send", &ControllerUnderTestCpp::priority_send, nb::arg("command"), nb::arg("addr_vec"))
       .def("tick", &ControllerUnderTestCpp::tick)
       .def("is_idle", &ControllerUnderTestCpp::is_idle)
       .def("completions", &ControllerUnderTestCpp::completions)
+      .def("completion_occurrence_histories",
+           &ControllerUnderTestCpp::completion_occurrence_histories)
+      .def("completion_callback_stats", &ControllerUnderTestCpp::completion_callback_stats)
+      .def("sample_stats", &ControllerUnderTestCpp::sample_stats)
       .def("stats", &ControllerUnderTestCpp::stats);
 
   nb::class_<PuDRoutingSystemUnderTestCpp>(m, "_PuDRoutingSystemUnderTest")
       .def(nb::init<int>(), nb::arg("num_channels"))
       .def("send_pud_request", &PuDRoutingSystemUnderTestCpp::send_pud_request,
-           nb::arg("type_id"), nb::arg("operands"))
+           nb::arg("type_id"), nb::arg("operands"), nb::arg("size_bytes") = 64)
+      .def("send_regular_request", &PuDRoutingSystemUnderTestCpp::send_regular_request,
+           nb::arg("type_id"), nb::arg("addr_vec"), nb::arg("size_bytes"))
+      .def("send_movement_request", &PuDRoutingSystemUnderTestCpp::send_movement_request,
+           nb::arg("type_id"), nb::arg("operands"), nb::arg("metadata_kind"),
+           nb::arg("first_mat"), nb::arg("second_mat"),
+           nb::arg("size_bytes") = Request::kMovementSizeBytesNotApplicable,
+           nb::arg("retry_once") = false)
       .def("stats", &PuDRoutingSystemUnderTestCpp::stats);
 
   m.def("_validate_pud_routing",
@@ -703,4 +1061,109 @@ NB_MODULE(_ramulator_test, m) {
           return validate_pud_routing(req, num_channels);
         },
         nb::arg("type_id"), nb::arg("operands"), nb::arg("num_channels"));
+  m.def("_request_type_info", [](int type_id) {
+    nb::dict out;
+    out["name"] = request_type_name(type_id);
+    out["inherited_pud"] = is_inherited_pud_request_type(type_id);
+    out["movement"] = is_movement_request_type(type_id);
+    out["pud"] = is_pud_request_type(type_id);
+    out["controller_sequenced"] = is_controller_sequenced_request_type(type_id);
+    const auto slot = legacy_pud_statistic_slot(type_id);
+    out["legacy_stat_slot"] = slot.has_value() ? nb::cast(*slot) : nb::none();
+    return out;
+  }, nb::arg("type_id"));
+  m.def("_request_size_contract", [](int type_id, int size_bytes, int tx_bytes) {
+    return is_valid_external_request_size(type_id, size_bytes, tx_bytes);
+  }, nb::arg("type_id"), nb::arg("size_bytes"), nb::arg("tx_bytes"));
+  m.def("_exercise_pud_sequence", [](
+      nb::dict dram_config, int type_id, const std::vector<AddrVec_t>& operands,
+      const std::vector<std::string>& issued_commands,
+      const std::vector<Clk_t>& issue_clks) {
+    if (issued_commands.size() != issue_clks.size()) {
+      throw std::runtime_error("issued_commands and issue_clks must have equal length");
+    }
+
+    ConfigNode cfg = py_to_confignode(dram_config);
+    std::string dram_impl = cfg["impl"].as<std::string>();
+    auto spec = DRAMSpec::create(
+        dram_impl, ConfigNode(ConfigNode::Map{{"dram", std::move(cfg)}}));
+
+    Request req(operands, type_id);
+    initialize_pud_sequence(req, *spec);
+
+    nb::list descriptors;
+    const size_t sequence_length = get_pud_sequence_length(req);
+    for (size_t index = 0; index < sequence_length; index++) {
+      const auto occurrence = describe_pud_occurrence(req, index, *spec);
+      nb::dict item;
+      item["command"] = spec->command_names[occurrence.command];
+      item["addr_vec"] = req.operands[occurrence.operand_index];
+      item["operand_index"] = occurrence.operand_index;
+      item["role"] = pud_occurrence_role_name(occurrence.role);
+      item["index"] = occurrence.index;
+      item["terminal"] = occurrence.terminal;
+      descriptors.append(item);
+    }
+
+    nb::list events;
+    for (size_t index = 0; index < issued_commands.size(); index++) {
+      const int command = spec->get_command_id(issued_commands[index]);
+      const size_t before = req.occurrence_index;
+      const auto progress = observe_pud_command_issue(
+          req, command, issue_clks[index], *spec);
+
+      nb::dict event;
+      event["cursor_before"] = before;
+      event["cursor_after"] = req.occurrence_index;
+      event["history"] = req.occurrence_issue_history;
+      event["progress"] =
+          progress == PuDOccurrenceAdvance::NotIssued
+              ? "not_issued"
+              : progress == PuDOccurrenceAdvance::Advanced ? "advanced" : "complete";
+      events.append(event);
+
+      // Exercise the same value-copy behavior used by controller queue insertion
+      // and pending-to-active promotion after every architectural occurrence.
+      if (progress == PuDOccurrenceAdvance::Advanced) {
+        ReqBuffer copied;
+        if (!copied.enqueue(req)) {
+          throw std::runtime_error("sequence harness copy failed");
+        }
+        req = copied.buffer.front();
+      }
+    }
+
+    nb::dict out;
+    out["descriptors"] = descriptors;
+    out["events"] = events;
+    out["cursor"] = req.occurrence_index;
+    out["history"] = req.occurrence_issue_history;
+    return out;
+  }, nb::arg("dram_config"), nb::arg("type_id"), nb::arg("operands"),
+     nb::arg("issued_commands"), nb::arg("issue_clks"));
+  m.def("_internal_request_default_size", []() {
+    Request req(AddrVec_t{}, Request::Cmd, 0);
+    return req.size_bytes;
+  });
+  m.def("_validate_movement_placement", [](
+      nb::dict dram_config, int type_id, const std::vector<AddrVec_t>& operands,
+      const std::string& metadata_kind, int first_mat, int second_mat,
+      int controller_channel_id) {
+    ConfigNode cfg = py_to_confignode(dram_config);
+    std::string dram_impl = cfg["impl"].as<std::string>();
+    auto spec = DRAMSpec::create(
+        dram_impl, ConfigNode(ConfigNode::Map{{"dram", std::move(cfg)}}));
+
+    Request req(operands, type_id);
+    if (metadata_kind == "LC") {
+      req.movement = Request::LCMovementMetadata{{first_mat, second_mat}};
+    } else if (metadata_kind == "GB") {
+      req.movement = Request::GBMovementMetadata{first_mat, second_mat};
+    }
+    validate_pud_placement(
+        req, *spec, controller_channel_id, get_pud_placement_levels(*spec));
+    return get_movement_moved_bits(req, *spec);
+  }, nb::arg("dram_config"), nb::arg("type_id"), nb::arg("operands"),
+     nb::arg("metadata_kind"), nb::arg("first_mat"), nb::arg("second_mat"),
+     nb::arg("controller_channel_id") = 0);
 }

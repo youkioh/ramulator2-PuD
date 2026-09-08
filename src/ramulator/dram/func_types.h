@@ -14,6 +14,7 @@ struct DRAMNode;
 // All handlers receive a bank-level DRAMNode — the controller dispatches to
 // the correct bank(s) via a flat bank array, so the hierarchy is not involved.
 using ActionFunc_t = void (*)(DRAMNode* bank, int cmd, const AddrVec_t& addr_vec, Clk_t clk);
+using ValidateFunc_t = void (*)(DRAMNode* bank, int cmd, const AddrVec_t& addr_vec, Clk_t clk);
 using PreqFunc_t = int (*)(DRAMNode* bank, int cmd, const AddrVec_t& addr_vec, Clk_t clk);
 using RowhitFunc_t = bool (*)(DRAMNode* bank, int cmd, const AddrVec_t& addr_vec, Clk_t clk);
 using RowopenFunc_t = bool (*)(DRAMNode* bank, int cmd, const AddrVec_t& addr_vec, Clk_t clk);
@@ -21,12 +22,14 @@ using RowopenFunc_t = bool (*)(DRAMNode* bank, int cmd, const AddrVec_t& addr_ve
 // 1D handler vectors indexed by command ID (not by level — handlers are always bank-level).
 struct FuncArrays {
   std::vector<ActionFunc_t> actions;
+  std::vector<ValidateFunc_t> validators;
   std::vector<PreqFunc_t> preqs;
   std::vector<RowhitFunc_t> rowhits;
   std::vector<RowopenFunc_t> rowopens;
 
   void resize(int num_cmds) {
     actions.resize(num_cmds, nullptr);
+    validators.resize(num_cmds, nullptr);
     preqs.resize(num_cmds, nullptr);
     rowhits.resize(num_cmds, nullptr);
     rowopens.resize(num_cmds, nullptr);

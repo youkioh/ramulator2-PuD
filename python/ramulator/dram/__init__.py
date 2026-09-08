@@ -7,6 +7,7 @@
 from .ddr3 import DDR3
 from .ddr4 import DDR4
 from .ddr4_pud import DDR4_PuD
+from .ddr4_pud_movement import DDR4_PuD_Movement
 from .ddr4_vrr import DDR4_VRR
 from .ddr5 import DDR5
 from .ddr5_rfm import DDR5_RFM
@@ -21,4 +22,4 @@ from .hbm4 import HBM4
 from .lpddr5 import LPDDR5
 from .lpddr6 import LPDDR6
 
-__all__ = ['DDR3', 'DDR4', 'DDR4_PuD', 'DDR4_VRR', 'DDR5', 'DDR5_RFM', 'DDR5_RFM_VRR', 'DDR5_VRR', 'GDDR6', 'GDDR7', 'HBM1', 'HBM2', 'HBM3', 'HBM4', 'LPDDR5', 'LPDDR6']
+__all__ = ['DDR3', 'DDR4', 'DDR4_PuD', 'DDR4_PuD_Movement', 'DDR4_VRR', 'DDR5', 'DDR5_RFM', 'DDR5_RFM_VRR', 'DDR5_VRR', 'GDDR6', 'GDDR7', 'HBM1', 'HBM2', 'HBM3', 'HBM4', 'LPDDR5', 'LPDDR6']

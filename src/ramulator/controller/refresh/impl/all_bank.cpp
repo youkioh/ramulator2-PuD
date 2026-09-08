@@ -15,10 +15,11 @@
 namespace Ramulator {
 namespace {
 
-constexpr std::array<std::pair<std::string_view, std::string_view>, 12> all_bank_refresh_scopes = {{
+constexpr std::array<std::pair<std::string_view, std::string_view>, 13> all_bank_refresh_scopes = {{
     {"DDR3", "Rank"},
     {"DDR4", "Rank"},
     {"DDR4_PuD", "Rank"},
+    {"DDR4_PuD_Movement", "Rank"},
     {"DDR5", "Rank"},
     {"LPDDR5", "Rank"},
     {"LPDDR6", "Rank"},
