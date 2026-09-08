@@ -1530,3 +1530,28 @@ controller_plugins=[
 ```
 
 The browser connects via WebSocket and displays commands as they arrive.
+
+## PuD Functional Simulator
+
+The sequential, value-only interpreter checks PuD request sequences using sparse,
+explicitly initialized rows of configurable bit lanes. It is separate from
+Ramulator2 timing/energy simulation and directly consumes `const Ramulator::Request&`.
+It supports **RowCopy, MAJ3, MAJ5, NOT, and NOT_COPY**.
+
+Implementation: `src/ramulator/base/pud_functional.{h,cpp}`.
+Tests: `tests/unit_tests/pud_functional_test.cpp`, including the exact 11-step
+PRADA Table 2 two-bit ADD sequence checked against host addition for all 16 input pairs.
+
+From the repository root, with the build dependencies described above installed:
+
+```shell
+cmake -S . -B build -DRAMULATOR_PYTHON_BINDINGS=ON
+cmake --build build --target pud_functional_test -j 2
+./build/pud_functional_test
+./build/pud_functional_test -v  # actual/expected values for each check
+```
+
+LC-MOV/GB-MOV timing simulation exists; functional movement interpretation is
+deferred until an accepted movement Column-to-data mapping is defined.
+Higher-level INT8/FP8 ADD/MUL and GEMV/GEMM generation, allocation, automatic
+bitslice transposition, and FP8 numerical semantics are outside this component.

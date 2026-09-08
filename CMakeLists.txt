@@ -84,6 +84,11 @@ target_link_libraries(
 
 add_subdirectory(src/ramulator)
 
+add_executable(pud_functional_test EXCLUDE_FROM_ALL
+  tests/unit_tests/pud_functional_test.cpp
+)
+target_link_libraries(pud_functional_test PRIVATE ramulator)
+
 add_executable(ddr4_pud_microbenchmark EXCLUDE_FROM_ALL
   examples/ddr4_pud_microbenchmark.cpp
 )

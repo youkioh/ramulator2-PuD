@@ -13,6 +13,7 @@ logger.h    logger.cpp
   config.h    config.cpp
   stats.h
   request.h   request.cpp
+  pud_functional.h pud_functional.cpp
 )
 
 target_link_libraries(
