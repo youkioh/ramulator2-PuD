@@ -95,6 +95,7 @@ int main(int argc, char* argv[]) {
          {address(120), address(121), address(122), address(123), address(124)},
          76},
         {"NOT", Request::Type::NOT, 103, {address(130)}, 99},
+        {"NOT-and-Copy fused sequence", Request::Type::NOT_COPY, 104, {address(140), address(141)}, 104},
     };
 
     std::vector<Completion> completions;

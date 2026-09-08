@@ -139,7 +139,8 @@ struct DRAMSpec {
     return supports_controller_sequenced_request(Request::Type::RowCopy) &&
            supports_controller_sequenced_request(Request::Type::MAJ3) &&
            supports_controller_sequenced_request(Request::Type::MAJ5) &&
-           supports_controller_sequenced_request(Request::Type::NOT);
+           supports_controller_sequenced_request(Request::Type::NOT) &&
+           supports_controller_sequenced_request(Request::Type::NOT_COPY);
   }
   bool supports_movement_requests() const {
     return supports_inherited_pud_requests() &&

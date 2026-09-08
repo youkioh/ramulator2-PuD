@@ -107,6 +107,7 @@ class DDR4_PuD : public DRAMSpec {
         DRAMSpec::CONTROLLER_SEQUENCED,  // MAJ3 -> controller sequence
         DRAMSpec::CONTROLLER_SEQUENCED,  // MAJ5 -> controller sequence
         DRAMSpec::CONTROLLER_SEQUENCED,  // NOT -> controller sequence
+        DRAMSpec::CONTROLLER_SEQUENCED,  // NOT_COPY -> controller sequence
     };
 
     // Runtime config (organization, timing values, timing constraints)

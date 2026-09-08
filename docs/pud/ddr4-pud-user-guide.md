@@ -1,7 +1,7 @@
 # DDR4_PuD user guide
 
 DDR4_PuD is a separate DRAM standard built from the DDR4 baseline. Standard
-DDR4 has no PuD requests, commands, states, or timings. DDR4_PuD supports four
+DDR4 has no PuD requests, commands, states, or timings. DDR4_PuD supports five
 request-level operations:
 
 | Request identifier | Primitive | Ordered operands | Lower-level sequence |
@@ -10,6 +10,7 @@ request-level operations:
 | `MAJ3` | TRA (3-input majority) | three rows | `ACT_PUD_OC(X) -> ACT_PUD(Y) -> ACT_PUD_S(Z) -> PREpb` |
 | `MAJ5` | 5RA (5-input majority) | five rows | `ACT_PUD_OC(V) -> ACT_PUD(W) -> ACT_PUD(X) -> ACT_PUD(Y) -> ACT_PUD_S(Z) -> PREpb` |
 | `NOT` | NOT | one source row | `ACT_PUD_S_OC(X) -> N -> PREpb` |
+| `NOT_COPY` | NOT-and-Copy fused sequence | source, destination | `ACT_PUD_S_OC(src) -> N -> ACT_PUD(dst) -> PREpb` |
 
 TRA and 5RA realize 3-input and 5-input majority, respectively. The public
 request identifiers remain the consistent pair `MAJ3` and `MAJ5`. `5RA`
@@ -55,8 +56,8 @@ LD_LIBRARY_PATH=. ./build/ddr4_pud_microbenchmark \
 
 The example submits one request at a time to an initially closed bank, has no
 unrelated traffic or refresh, retries after backpressure, and uses source IDs
-100 through 103. It prints callback/trace-derived latency components, the
-controller and memory-system statistics, and checks the four isolated modeled
+100 through 104. It prints callback/trace-derived latency components, the
+controller and memory-system statistics, and checks the five isolated modeled
 latencies. The command trace is written to
 `build/ddr4_pud_trace.csv.ch0`; its columns are `clock`, `command`, the device
 hierarchy coordinates, `type`, and `source`.
@@ -145,8 +146,9 @@ consume or reorder its request-owned operands. Do not reconstruct or move the
 request between retries.
 
 RowCopy requires a source followed by at least one destination. It has no
-arbitrary primitive-specific destination limit. `MAJ3`, `MAJ5`, and `NOT`
-require exactly three, five, and one operands, respectively. Submitted order
+arbitrary primitive-specific destination limit. `MAJ3`, `MAJ5`, `NOT`, and
+`NOT_COPY` require exactly three, five, one, and two operands, respectively;
+the two `NOT_COPY` operands are source then destination. Submitted order
 is the deterministic traversal and role-assignment convention; it is not a
 claim that permutations of equivalent destinations or intermediate majority
 operands change physical correctness.
@@ -202,11 +204,12 @@ RowCopy with D destinations = 40 + 5*D + 16 CK
 TRA (MAJ3 request)          = 66 CK
 5RA (MAJ5 request)          = 76 CK
 NOT                         = 99 CK
+NOT-and-Copy fused sequence = 104 CK
 ```
 
 ## Statistics
 
-For each operation name `rowcopy`, `maj3`, `maj5`, and `not`, the controller
+For each operation name `rowcopy`, `maj3`, `maj5`, `not`, and `not_copy`, the controller
 exports:
 
 - `num_pud_<operation>_reqs`: successfully accepted requests;
@@ -218,8 +221,8 @@ exports:
 cycles, and `pud_queue_len_avg` is its average. Pending PuD entries are also
 included in `queue_len` and `queue_len_avg`. At memory-system scope,
 `total_num_pud_rowcopy_requests`, `total_num_pud_maj3_requests`,
-`total_num_pud_maj5_requests`, and `total_num_pud_not_requests` count accepted
-operations.
+`total_num_pud_maj5_requests`, `total_num_pud_not_requests`, and
+`total_num_pud_not_copy_requests` count accepted operations.
 
 PuD requests have no accepted byte-transfer or row-buffer-hit semantics, so
 they are excluded from Read/Write throughput, forwarding, write coalescing,

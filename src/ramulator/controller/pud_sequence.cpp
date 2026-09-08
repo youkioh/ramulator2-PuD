@@ -37,6 +37,8 @@ size_t get_pud_sequence_length(const Request& req) {
       return req.operands.size() + 1;
     case Request::Type::NOT:
       return 3;
+    case Request::Type::NOT_COPY:
+      return 4;
     case Request::Type::LCMOV:
       return 6;
     case Request::Type::GBMOV:
@@ -83,6 +85,13 @@ PuDOccurrence describe_pud_occurrence(const Request& req, size_t occurrence_inde
   if (req.type_id == Request::Type::NOT) {
     const char* command = occurrence_index == 0 ? "ACT_PUD_S_OC" : occurrence_index == 1 ? "N" : "PREpb";
     return make_occurrence(spec, command, 0, PuDOccurrenceRole::Operand, occurrence_index, sequence_length);
+  }
+
+  if (req.type_id == Request::Type::NOT_COPY) {
+    static constexpr const char* kCommands[] = {"ACT_PUD_S_OC", "N", "ACT_PUD", "PREpb"};
+    static constexpr size_t kOperands[] = {0, 0, 1, 1};
+    return make_occurrence(spec, kCommands[occurrence_index], kOperands[occurrence_index],
+                           PuDOccurrenceRole::Operand, occurrence_index, sequence_length);
   }
 
   if (occurrence_index + 1 == sequence_length) {

@@ -253,6 +253,21 @@ def test_ddr4_pud_not_uses_aggregate_n_timing_boundaries():
     dut.assert_earliest_ready_at("ACT_PUD_S_OC", source, 99)
 
 
+def test_ddr4_pud_not_copy_uses_n_then_destination_activation_timing():
+    dut = make_dut(ramulator.dram.DDR4_PuD)
+    source = dut.addr_vec(Rank=0, BankGroup=0, Bank=0, Row=150, Column=0)
+    destination = dut.addr_vec(Rank=0, BankGroup=0, Bank=0, Row=151, Column=0)
+
+    dut.issue("ACT_PUD_S_OC", source, clk=0)
+    dut.assert_earliest_ready_at("N", source, 40)
+    dut.issue("N", source, clk=40)
+    dut.assert_earliest_ready_at("ACT_PUD", destination, 83)
+    dut.issue("ACT_PUD", destination, clk=83)
+    dut.assert_earliest_ready_at("PREpb", destination, 88)
+    dut.issue("PREpb", destination, clk=88)
+    dut.assert_earliest_ready_at("ACT_PUD_S_OC", source, 104)
+
+
 @pytest.mark.parametrize("opening_command", ("ACT_PUD_OC", "ACT_PUD_S_OC"))
 @pytest.mark.parametrize("preceding_command", ("PREpb", "PREab", "RDA", "WRA", "REFab"))
 def test_ddr4_pud_opening_inherits_conventional_recovery_boundaries(
@@ -393,7 +408,7 @@ def test_ddr4_pud_mutable_definitions_are_independent():
 
 
 def test_ddr4_pud_uses_named_controller_sequenced_marker():
-    for request_name in ("RowCopy", "MAJ3", "MAJ5", "NOT"):
+    for request_name in ("RowCopy", "MAJ3", "MAJ5", "NOT", "NOT_COPY"):
         assert ramulator.dram.DDR4_PuD.supported_requests[request_name] is CONTROLLER_SEQUENCED
 
 

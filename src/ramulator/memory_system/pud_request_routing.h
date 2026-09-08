@@ -17,6 +17,7 @@ inline void validate_pud_operand_count(const Request& req) {
     case Request::Type::MAJ3: valid = count == 3; break;
     case Request::Type::MAJ5: valid = count == 5; break;
     case Request::Type::NOT: valid = count == 1; break;
+    case Request::Type::NOT_COPY: valid = count == 2; break;
     case Request::Type::LCMOV:
     case Request::Type::GBMOV: valid = count == 2; break;
     default:

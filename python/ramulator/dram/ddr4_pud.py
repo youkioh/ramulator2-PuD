@@ -31,6 +31,7 @@ class DDR4_PuD(DDR4):
             "MAJ3": CONTROLLER_SEQUENCED,
             "MAJ5": CONTROLLER_SEQUENCED,
             "NOT": CONTROLLER_SEQUENCED,
+            "NOT_COPY": CONTROLLER_SEQUENCED,
         }
     )
     timing_constraints = list(DDR4.timing_constraints) + [
@@ -63,7 +64,7 @@ class DDR4_PuD(DDR4):
         TimingConstraint(
             level="Bank",
             preceding=["N"],
-            following=["PREpb"],
+            following=["ACT_PUD", "PREpb"],
             latency="nPUD_N",
         ),
         # Conventional close and refresh recovery before either PuD opening

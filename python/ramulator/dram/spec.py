@@ -33,7 +33,17 @@ class _ControllerSequencedMarker:
 
 CONTROLLER_SEQUENCED = _ControllerSequencedMarker()
 
-REQUEST_TYPE_NAMES = ("Read", "Write", "RowCopy", "MAJ3", "MAJ5", "NOT", "LC-MOV", "GB-MOV")
+REQUEST_TYPE_NAMES = (
+    "Read",
+    "Write",
+    "RowCopy",
+    "MAJ3",
+    "MAJ5",
+    "NOT",
+    "NOT_COPY",
+    "LC-MOV",
+    "GB-MOV",
+)
 REQUEST_TYPE_IDS = {name: type_id for type_id, name in enumerate(REQUEST_TYPE_NAMES)}
 
 

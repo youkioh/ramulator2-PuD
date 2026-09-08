@@ -46,9 +46,10 @@ struct Request {
       MAJ3 = 3,
       MAJ5 = 4,
       NOT = 5,
-      LCMOV = 6,
-      GBMOV = 7,
-      Count = 8,
+      NOT_COPY = 6,
+      LCMOV = 7,
+      GBMOV = 8,
+      Count = 9,
     };
   };
 
@@ -89,7 +90,7 @@ struct Request {
   Request(AddrVec_t addr_vec, Cmd_t, int final_cmd);  // internal commands (refresh, row close, etc.)
 };
 
-inline constexpr size_t kNumLegacyPuDStatisticSlots = 4;
+inline constexpr size_t kNumLegacyPuDStatisticSlots = 5;
 inline constexpr size_t kNumMovementStatisticSlots = 2;
 
 bool is_inherited_pud_request_type(int type_id);

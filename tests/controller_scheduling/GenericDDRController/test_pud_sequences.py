@@ -57,6 +57,12 @@ def operand(dut, *, bank=0, row=0, column=0):
             [11, 5, 5, 5, 34],
         ),
         ("NOT", [50], ["ACT_PUD_S_OC", "N", "PREpb"], [40, 43]),
+        (
+            "NOT_COPY",
+            [60, 61],
+            ["ACT_PUD_S_OC", "N", "ACT_PUD", "PREpb"],
+            [40, 43, 5],
+        ),
     ],
 )
 def test_pud_sequence_progression_and_operand_selection(type_name, rows, commands, gaps):
@@ -68,7 +74,12 @@ def test_pud_sequence_progression_and_operand_selection(type_name, rows, command
     history = dut.run_until_idle(max_ticks=256)
 
     dut.assert_commands(commands, history=history)
-    expected_command_rows = rows if type_name != "NOT" else [rows[0], rows[0]]
+    if type_name == "NOT":
+        expected_command_rows = [rows[0], rows[0]]
+    elif type_name == "NOT_COPY":
+        expected_command_rows = [rows[0], rows[0], rows[1]]
+    else:
+        expected_command_rows = rows
     assert [item.addr_vec[row_level] for item in history[:-1]] == expected_command_rows
     assert history[-1].addr_vec[row_level] == rows[-1]
     assert all(item.source_id == 7 for item in history)

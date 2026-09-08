@@ -26,6 +26,7 @@ T_RowCopy    = 50.32 ns
 T_TRA        = 54.32 ns
 T_5RA        = 62.32 ns
 T_NOT        = 81.32 ns
+T_NOT_COPY   = 85.32 ns
 ```
 
 Evidence classification:
@@ -34,9 +35,11 @@ Evidence classification:
 tOC      : directly reported by PRADA
 tN       : directly reported by PRADA
 tRP      : actual Ramulator2 DDR4_2400R baseline timing (16 CK at 833 ps)
-T_ACT_P  : derived from PRADA's reported temporal-NOT latency
-tCS      : DDR4_PuD timing-model assumption calibrated from PRADA RowCopy
-tSR      : derived from T_ACT_P, tOC, tCS, and DDR4 tRP
+T_ACT_P    : derived from PRADA's reported temporal-NOT latency
+tCS        : DDR4_PuD timing-model assumption calibrated from PRADA RowCopy
+tSR        : derived from T_ACT_P, tOC, tCS, and DDR4 tRP
+T_NOT_COPY : derived from PRADA Table 2's NOT-and-Copy sequence using the
+             same phase timing model
 ```
 
 The model interprets the activation phases as:
@@ -109,6 +112,9 @@ A*(v) -> A(w) -> A(x) -> A(y) -> A_S(z) -> P
 
 NOT:
 A_S*(src) -> N -> P
+
+NOT and Copy (used in PRADA's 2-bit ADD):
+A_S*(src) -> N -> A(dst) -> P
 ```
 
 PRADA states that RowCopy first completes sensing of the source and then
@@ -117,7 +123,11 @@ enables the destination WL.
 For TRA and 5RA, participating WLs are enabled sequentially and final sensing
 is performed only after charge sharing among the participating rows.
 
-**Source:** Shin et al., ICCAD 2024, §4.2.
+PRADA Table 2 uses `A_S*(src) -> N -> A(dst) -> P` as a "NOT and Copy"
+step in its 2-bit ADD sequence. This is a source-described command sequence,
+not a separately introduced DRAM command.
+
+**Source:** Shin et al., ICCAD 2024, §4.1-§4.2 and Table 2.
 
 ---
 
@@ -576,6 +586,10 @@ Thus:
 T_NOT
 = 32.992 + 35.00 + 13.328
 = 81.32 ns
+
+NOT and Copy
+= 32.992 + 35.00 + 4.00 + 13.328
+= 85.32 ns
 ```
 
 This exactly matches PRADA's reported temporal-NOT latency.
@@ -590,6 +604,53 @@ T_NOT
 ```
 
 **Source:** PRADA §6.1-§6.2.
+
+### 8.1 NOT-and-Copy timing
+
+PRADA Table 2 uses the following sequence during its 2-bit ADD example:
+
+```text
+A_S*(src) -> N -> A(dst) -> P
+```
+
+The paper labels this step "NOT and Copy." It does not directly report a
+standalone aggregate latency for this four-command sequence.
+
+Applying the same activation/NOT/precharge phase model used above gives:
+
+```text
+A_S*    = tOC+tCS+tSR = 32.992 ns
+N       = tN          = 35.000 ns
+A       = tCS         =  4.000 ns
+P/tRP   = tRP         = 13.328 ns
+```
+
+Therefore:
+
+```text
+T_NOT_COPY
+= 32.992 + 35.000 + 4.000 + 13.328
+= 85.32 ns
+```
+
+Equivalently:
+
+```text
+T_NOT_COPY
+= T_NOT + tCS
+= 81.32 + 4.00
+= 85.32 ns
+```
+
+`85.32 ns` is a DDR4_PuD timing-model derivation. PRADA directly provides
+the command sequence and the `N` timing, but does not tabulate
+`T_NOT_COPY` as a standalone latency.
+
+The derivation assumes that the destination-only activation following `N`
+incurs the same `tCS` incremental WL-activation interval used for RowCopy.
+It does not add an intermediate precharge or a second sensed activation.
+
+**Source:** PRADA Table 2, §4.1, and §6.1.
 
 ---
 
@@ -627,6 +688,7 @@ T_RowCopy    = 50.32 ns
 T_TRA        = 54.32 ns
 T_5RA        = 62.32 ns
 T_NOT        = 81.32 ns
+T_NOT_COPY   = 85.32 ns
 ```
 
 ### 10.2 Activation-command phase costs
@@ -667,6 +729,7 @@ A     -> A_S     : tCS       =  4.00 ns
 
 A_S*  -> A       : tOC + tCS + tSR = 32.992 ns
 A_S*  -> N       : tOC + tCS + tSR = 32.992 ns
+N     -> A       : tN        = 35.00 ns
 
 A     -> P       : tCS       =  4.00 ns
 A_S   -> P       : tCS + tSR = 27.992 ns
@@ -693,6 +756,10 @@ TRA
 NOT
 = 32.992 + 35.00 + 13.328
 = 81.32 ns
+
+NOT and Copy
+= 32.992 + 35.00 + 4.00 + 13.328
+= 85.32 ns
 ```
 
 ### 10.4 Conversion to Ramulator cycles
@@ -716,6 +783,7 @@ A     -> A_S     : ceil( 4.000 / 0.833) =  5 CK
 
 A_S*  -> A       : ceil(32.992 / 0.833) = 40 CK
 A_S*  -> N       : ceil(32.992 / 0.833) = 40 CK
+N     -> A       : ceil(35.000 / 0.833) = 43 CK
 
 A     -> P       : ceil( 4.000 / 0.833) =  5 CK
 A_S   -> P       : ceil(27.992 / 0.833) = 34 CK
@@ -733,6 +801,7 @@ RowCopy = 40 + 5 + 16                 = 61 CK = 50.813 ns
 TRA     = 11 + 5 + 34 + 16            = 66 CK = 54.978 ns
 5RA     = 11 + 5 + 5 + 5 + 34 + 16    = 76 CK = 63.308 ns
 NOT     = 40 + 43 + 16                 = 99 CK = 82.467 ns
+NOT+Copy = 40 + 43 + 5 + 16            = 104 CK = 86.632 ns
 ```
 
 These cycle totals are simulator discretization results. They do not replace
@@ -757,6 +826,9 @@ A_S     = tCS + tSR
 N       = tN
 P       = target-standard precharge
 ```
+
+Source-described fused sequences such as `A_S* -> N -> A -> P` reuse these
+same phase costs; they do not introduce a new circuit timing phase.
 
 For a future GDDR7_PuD or HBM_PuD model:
 
