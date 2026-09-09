@@ -1,6 +1,6 @@
 # MIMDRAM-based PuD substrate v2 implementation plan
 
-Status: Implementation in progress — Phase 1 complete; W3-W9 not started.
+Status: Implementation in progress — Phase 1 complete; W3 complete; W4-W9 not started.
 
 ## Implementation progress (2026-09-09)
 
@@ -13,8 +13,24 @@ Status: Implementation in progress — Phase 1 complete; W3-W9 not started.
   v2 execution remains disabled.
 - **Phase 1: Completed.** The common placement and submission contract exit
   invariant is satisfied.
-- **W3-W9: Not started.** The work-unit specifications below remain unchanged
+- **W3: Completed.** Explicit range Device contexts retain W2 location identity,
+  phase, activated operands and local recovery; the Request retains the sole
+  cursor and occurrence timing history. V2 dispatch validates exact association
+  before mutation and applies inherited PRADA edges locally while preserving
+  conventional/shared timing. No allocation, transport, completion ownership
+  or public v2 execution is enabled.
+- **W4-W9: Not started.** The work-unit specifications below remain unchanged
   as implementation authority/history.
+
+W3 verification: 96 focused range tests passed, including independent same-operation
+and heterogeneous progress, exact occurrence association/rejection, ready-1/ready
+boundaries, width-independent primitive/recovery anchors, and the ACT upper-envelope
+check. The full Device suite passed (252 tests, including W3); W1/W2 and directly
+affected occurrence, timing, ingress/validation and lifecycle regressions passed
+(598 tests). All test processes exited 0. Codegen and the `ramulator`, `_ramulator`
+and `_ramulator_test` build passed; generated legacy definitions were unchanged.
+Complete W3 diff review and `git diff --check` passed. Phase 2 remains in progress;
+protected recovery/completion and later integration remain W4+ work.
 
 Phase 1 verification: 243 W2 location/request tests, 127 W1 location tests,
 and 184 directly affected ingress/validation/occurrence/classification/lifecycle

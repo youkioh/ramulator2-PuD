@@ -52,6 +52,9 @@ PuDMovementTimingConstraints make_movement_timing_constraints(const DRAMSpec& sp
 bool check_pud_occurrence_timing(
     const Request& req, Clk_t clk,
     const PuDMovementTimingConstraints& constraints);
+// V2 compute interprets the inherited PRADA Bank edge definitions against this
+// Request's occurrence history. Device must not also issue them into Bank history.
+bool check_pud_compute_occurrence_timing(const Request& req, Clk_t clk, const DRAMSpec& spec);
 const char* pud_occurrence_role_name(PuDOccurrenceRole role);
 
 }  // namespace Ramulator

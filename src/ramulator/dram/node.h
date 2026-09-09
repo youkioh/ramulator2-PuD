@@ -38,7 +38,9 @@ struct DRAMNode {
 
   DRAMNode(DRAMSpec* spec, DRAMNode* parent, int level, int id);
 
-  void update_timing(int command, const AddrVec_t& addr_vec, Clk_t clk);
+  // include_children=false updates only this node (v2 compute shares Channel
+  // issue timing while its outgoing phase/recovery edges belong to a range).
+  void update_timing(int command, const AddrVec_t& addr_vec, Clk_t clk, bool include_children = true);
   bool check_timing(int command, const AddrVec_t& addr_vec, Clk_t clk);
 
   // Generic level traversal — visit all descendants at target_level

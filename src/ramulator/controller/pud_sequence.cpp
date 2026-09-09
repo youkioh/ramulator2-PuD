@@ -211,6 +211,29 @@ bool check_pud_occurrence_timing(
   return true;
 }
 
+bool check_pud_compute_occurrence_timing(const Request& req, Clk_t clk, const DRAMSpec& spec) {
+  if (!req.pud_locations || !is_inherited_pud_request_type(req.type_id)) {
+    throw std::logic_error("Range timing requires a located compute request");
+  }
+  const auto next = describe_pud_occurrence(req, req.occurrence_index, spec);
+  const int bank = spec.get_level_id("Bank");
+  // Repeated commands use only this invocation's issue history. Keeping the
+  // declarative edges as the numeric authority also retains timing overrides.
+  for (size_t i = 0; i < req.occurrence_index; ++i) {
+    const auto previous = describe_pud_occurrence(req, i, spec);
+    const auto issued = req.occurrence_issue_history.at(i);
+    if (issued == Request::kOccurrenceNotIssued) {
+      throw std::logic_error("Missing range timing predecessor");
+    }
+    for (const auto& edge : spec.timing_cons[bank][previous.command]) {
+      if (edge.cmd == next.command && !edge.sibling && clk < issued + edge.val) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 const char* pud_occurrence_role_name(PuDOccurrenceRole role) {
   switch (role) {
     case PuDOccurrenceRole::Operand:

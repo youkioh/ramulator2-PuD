@@ -1,5 +1,8 @@
 #include "ramulator/dram/device.h"
 
+#include "ramulator/controller/pud_request_validation.h"
+#include "ramulator/controller/pud_sequence.h"
+
 namespace Ramulator {
 
 void DRAMDevice::init(std::unique_ptr<DRAMSpec> spec) {
@@ -12,6 +15,129 @@ void DRAMDevice::init(std::unique_ptr<DRAMSpec> spec) {
 
 void DRAMDevice::set_channel_id(int channel_id) {
   m_root->m_node_id = channel_id;
+}
+
+std::unique_ptr<PuDComputeContext> DRAMDevice::make_pud_compute_context(const Request& req) const {
+  if (m_spec->standard_name != "DDR4_PuD_Movement" || !req.pud_locations ||
+      !is_inherited_pud_request_type(req.type_id)) {
+    throw std::logic_error("Range context requires a located combined-substrate compute request");
+  }
+  validate_pud_placement(req, *m_spec, m_root->m_node_id, get_pud_placement_levels(*m_spec));
+  if (req.occurrence_index != 0 || req.occurrence_issue_history.size() != get_pud_sequence_length(req)) {
+    throw std::logic_error("Range context requires an initialized, unissued Request sequence");
+  }
+  auto context = std::unique_ptr<PuDComputeContext>(new PuDComputeContext(this, req.pud_locations));
+  validate_pud_command(req, describe_pud_occurrence(req, 0, *m_spec), context.get());
+  return context;
+}
+
+void DRAMDevice::validate_pud_command(const Request& req, const PuDOccurrence& occurrence,
+                                      const PuDComputeContext* context) const {
+  if (!context || context->m_device != this || !req.pud_locations ||
+      req.pud_locations != context->m_locations || occurrence.locations != context->m_locations ||
+      !is_inherited_pud_request_type(req.type_id)) {
+    throw std::logic_error("Wrong or unassociated compute range context");
+  }
+  const auto expected = describe_pud_occurrence(req, req.occurrence_index, *m_spec);
+  if (occurrence.index != expected.index || occurrence.command != expected.command ||
+      occurrence.operand_index != expected.operand_index || occurrence.role != expected.role ||
+      occurrence.terminal != expected.terminal || req.final_command != expected.command ||
+      req.addr_vec != expected.location()->external) {
+    throw std::logic_error("Wrong or stale compute occurrence context");
+  }
+  if (req.occurrence_issue_history.size() != get_pud_sequence_length(req)) {
+    throw std::logic_error("Inconsistent compute occurrence history");
+  }
+  Clk_t last = Request::kOccurrenceNotIssued;
+  std::vector<size_t> activated;
+  for (size_t i = 0; i < req.occurrence_issue_history.size(); ++i) {
+    const auto issued = req.occurrence_issue_history[i];
+    if (i < req.occurrence_index) {
+      if (issued <= last) {
+        throw std::logic_error("Missing or unordered compute occurrence history");
+      }
+      last = issued;
+      const auto prior = describe_pud_occurrence(req, i, *m_spec);
+      if (m_spec->command_meta[prior.command].is_opening) {
+        activated.push_back(prior.operand_index);
+      }
+    } else if (issued != Request::kOccurrenceNotIssued) {
+      throw std::logic_error("Premature compute occurrence history");
+    }
+  }
+  if (last != context->m_last_issue_clk || activated != context->m_activated_operands) {
+    throw std::logic_error("Stale Request does not match range temporal state");
+  }
+
+  using Phase = PuDComputeContext::Phase;
+  const auto phase = context->m_phase;
+  const auto& command = m_spec->command_names[expected.command];
+  bool legal = false;
+  if (command == "ACT_PUD_OC" || command == "ACT_PUD_S_OC") {
+    legal = expected.index == 0 && phase == Phase::Closed;
+  } else if (command == "ACT_PUD") {
+    legal = phase == Phase::ChargeSharing || phase == Phase::Sensed;
+  } else if (command == "ACT_PUD_S") {
+    legal = phase == Phase::ChargeSharing;
+  } else if (command == "N") {
+    legal = phase == Phase::Sensed;
+  } else if (command == "PREpb") {
+    legal = expected.terminal && phase == Phase::Sensed;
+  }
+  if (!legal) {
+    throw std::logic_error("Incompatible compute range phase");
+  }
+  // Ordinary preparation is separate from architectural range dispatch. This
+  // seam never converts a range occurrence to a Bank-wide prerequisite PRE.
+  const auto* bank = m_bank_nodes[get_flat_bank_id(expected.location()->external)];
+  if (bank->m_state != m_spec->get_state_id("Closed") || !bank->m_row_state.empty()) {
+    throw std::logic_error("Compute range requires drained conventional Bank state");
+  }
+}
+
+bool DRAMDevice::check_pud_timing(const Request& req, const PuDOccurrence& occurrence,
+                                 const PuDComputeContext* context, Clk_t clk) {
+  validate_pud_command(req, occurrence, context);
+  return check_pud_compute_occurrence_timing(req, clk, *m_spec) &&
+         m_root->check_timing(occurrence.command, occurrence.location()->external, clk);
+}
+
+void DRAMDevice::issue_pud_command(Request& req, const PuDOccurrence& occurrence,
+                                  PuDComputeContext* context, Clk_t clk) {
+  if (!check_pud_timing(req, occurrence, context, clk)) {
+    throw std::logic_error("Compute range timing not ready");
+  }
+  // Outgoing edge inventory (DDR4_PuD + DDR4_PuD_Movement Python definitions):
+  // - Channel: retain any explicit shared constraints. The existing controller
+  //   serializes one-CK C/A issue; Python omits Device bus edges for one tick.
+  // - Bank ACT_PUD*/N -> compute/PRE: PRADA phases, interpreted only by the
+  //   Request-local timing helper above; no Bank history/deadline update here.
+  // - Terminal PRE -> ACT/compute/ACT_MOV (Bank), -> REFab (Rank): recovery
+  //   belongs to this range. Later whole-scope exclusion is W4/W5, not a shared
+  //   deadline from this PRE. No conventional Bank/Rank state is closed here.
+  // Incoming conventional PREpb/PREab/RDA/WRA/REFab edges are still checked by
+  // the complete hierarchy. Ordinary commands keep their full update path,
+  // including nRRD/nFAW; compute ACTs enter neither activation-current history.
+  // No command-cycle/transport adjustment or second local timing graph.
+  m_root->update_timing(occurrence.command, occurrence.location()->external, clk, false);
+  const auto& command = m_spec->command_names[occurrence.command];
+  using Phase = PuDComputeContext::Phase;
+  if (occurrence.terminal) {
+    context->m_activated_operands.clear();
+    context->m_phase = Phase::Recovering;
+    context->m_recovery_ready_clk = clk + m_spec->get_timing_value("nRP");
+  } else if (command != "N") {
+    context->m_activated_operands.push_back(occurrence.operand_index);
+    if (command == "ACT_PUD_OC") {
+      context->m_phase = Phase::ChargeSharing;
+    } else if (command == "ACT_PUD_S" || command == "ACT_PUD_S_OC") {
+      context->m_phase = Phase::Sensed;
+    }
+  }
+  context->m_last_issue_clk = clk;
+  // Commit the existing sole Request cursor/history together with the action.
+  // Callers must not observe the same occurrence again after this seam returns.
+  observe_pud_command_issue(req, occurrence.command, clk, *m_spec);
 }
 
 void DRAMDevice::issue_command(int command, const AddrVec_t& addr_vec, Clk_t clk) {

@@ -200,7 +200,128 @@ class LocatedSystemUnderTest {
   std::shared_ptr<const PuD::LocationResolver> m_resolver;
 };
 
+// W3 component-only execution: fixtures provide separate ranges directly. No
+// production scheduler, target transport, engine or completion is installed.
+class ComputeRangesUnderTest {
+ public:
+  explicit ComputeRangesUnderTest(nb::dict dram) {
+    auto cfg = py_to_confignode(dram);
+    device.init(DRAMSpec::create(cfg["impl"].as<std::string>(), ConfigNode(ConfigNode::Map{{"dram", cfg}})));
+  }
+  size_t add(Request req) {
+    initialize_pud_sequence(req, *device.m_spec);
+    auto context = device.make_pud_compute_context(req);
+    records.push_back({std::move(req), std::move(context)});
+    return records.size() - 1;
+  }
+  size_t save(size_t id) {
+    const auto& req = records.at(id).req;
+    saved.push_back({req, describe_pud_occurrence(req, req.occurrence_index, *device.m_spec)});
+    return saved.size() - 1;
+  }
+  void corrupt_descriptor(size_t id, const std::string& field) {
+    auto& occurrence = saved.at(id).second;
+    if (field == "wrong_operand") occurrence.operand_index ^= 1;
+    else if (field == "wrong_index") ++occurrence.index;
+    else if (field == "terminal") occurrence.terminal = !occurrence.terminal;
+    else if (field == "unassociated") occurrence.locations.reset();
+    else throw std::invalid_argument("unknown descriptor corruption");
+  }
+  bool dispatch(size_t id, Clk_t clk, bool issue, int context_id, int descriptor,
+                const std::string& command, bool stale_request, bool foreign_device) {
+    auto& record = records.at(id);
+    auto& req = stale_request ? saved.at(descriptor).first : record.req;
+    auto occurrence = descriptor < 0 ? describe_pud_occurrence(req, req.occurrence_index, *device.m_spec)
+                                     : saved.at(descriptor).second;
+    if (!command.empty()) occurrence.command = device.m_spec->get_command_id(command);
+    auto* context = context_id == -2 ? nullptr : records.at(context_id < 0 ? id : context_id).context.get();
+    // A second Device rejects a context minted by the first before any access.
+    DRAMDevice other;
+    auto& target = foreign_device ? other : device;
+    const bool ready = target.check_pud_timing(req, occurrence, context, clk) && clk > last_shared_issue;
+    if (!issue) return ready;
+    if (!ready) throw std::logic_error("Compute range timing not ready (fixture C/A issue slot)");
+    target.issue_pud_command(req, occurrence, context, clk);
+    last_shared_issue = clk;
+    // Exercise Request relocation after every action, retaining one cursor.
+    Request copied = req;
+    req = std::move(copied);
+    return true;
+  }
+  nb::dict state(size_t id, Clk_t clk) const {
+    const auto& record = records.at(id);
+    const auto& context = *record.context;
+    nb::dict out = located_snapshot(record.req, false);
+    static const char* phases[] = {"Closed", "PuDChargeSharing", "PuDSensed", "Recovering"};
+    out["phase"] = phases[static_cast<int>(context.phase())];
+    out["activated_operands"] = context.activated_operands();
+    std::vector<AddrVec_t> rows;
+    for (auto operand : context.activated_operands()) rows.push_back(context.locations()->operands[operand].external);
+    out["activated_rows"] = rows;
+    out["last_issue"] = context.last_issue_clk();
+    out["recovery_clk"] = context.recovery_ready_clk();
+    out["recovery_ready"] = context.recovery_ready(clk);
+    out["same_bundle"] = record.req.pud_locations == context.locations();
+    return out;
+  }
+  nb::list shared() const {
+    nb::list out;
+    for (int level = 0; level <= device.m_bank_level; ++level) {
+      device.m_root->for_each_at_level(level, [&](DRAMNode* node) {
+        nb::dict item;
+        item["level"] = level;
+        item["id"] = node->m_node_id;
+        item["state"] = node->m_state;
+        item["rows"] = std::map<int, int>(node->m_row_state.begin(), node->m_row_state.end());
+        item["ready"] = node->m_cmd_ready_clk;
+        std::vector<std::vector<Clk_t>> history;
+        for (const auto& h : node->m_cmd_history) history.emplace_back(h.begin(), h.end());
+        item["history"] = history;
+        out.append(item);
+      });
+    }
+    return out;
+  }
+  bool raw(const std::string& command, const AddrVec_t& addr, Clk_t clk, bool issue) {
+    int cmd = device.m_spec->get_command_id(command);
+    bool ready = device.get_preq_command(cmd, addr, clk) == cmd && device.check_timing(cmd, addr, clk) &&
+                 clk > last_shared_issue;
+    if (issue) {
+      if (!ready) throw std::logic_error("raw fixture command not ready");
+      device.issue_command(cmd, addr, clk);
+      last_shared_issue = clk;
+    }
+    return ready;
+  }
+  void skip(size_t id) {
+    auto& req = records.at(id).req;
+    observe_pud_command_issue(req, req.final_command, 123, *device.m_spec);
+  }
+
+ private:
+  DRAMDevice device;
+  // Mirror the existing controller's one-command-per-tick arbitration only.
+  // DDR4 intentionally generates no Device C/A edge for a one-tick command.
+  Clk_t last_shared_issue = -1;
+  struct Record { Request req; std::unique_ptr<PuDComputeContext> context; };
+  std::vector<Record> records;
+  std::vector<std::pair<Request, PuDOccurrence>> saved;
+};
+
 inline void bind_pud_request_harness(nb::module_& m) {
+  nb::class_<ComputeRangesUnderTest>(m, "_ComputeRangesUnderTest")
+      .def(nb::init<nb::dict>())
+      .def("add", &ComputeRangesUnderTest::add)
+      .def("save", &ComputeRangesUnderTest::save)
+      .def("corrupt_descriptor", &ComputeRangesUnderTest::corrupt_descriptor)
+      .def("dispatch", &ComputeRangesUnderTest::dispatch, nb::arg("id"), nb::arg("clk"),
+           nb::arg("issue") = false, nb::arg("context_id") = -1, nb::arg("descriptor") = -1,
+           nb::arg("command") = "", nb::arg("stale_request") = false, nb::arg("foreign_device") = false)
+      .def("state", &ComputeRangesUnderTest::state, nb::arg("id"), nb::arg("clk") = 0)
+      .def("shared", &ComputeRangesUnderTest::shared)
+      .def("raw", &ComputeRangesUnderTest::raw, nb::arg("command"), nb::arg("addr"), nb::arg("clk"),
+           nb::arg("issue") = false)
+      .def("skip", &ComputeRangesUnderTest::skip);
   nb::class_<Request>(m, "_LocatedRequest")
       .def("copy", [](const Request& req) { return Request(req); })
       .def("snapshot", &located_snapshot, nb::arg("cells") = false)

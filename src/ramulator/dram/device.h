@@ -11,6 +11,39 @@
 
 namespace Ramulator {
 
+struct PuDOccurrence;
+class DRAMDevice;
+
+// One explicit temporal record per lockstep compute invocation, never per mat.
+// The retained W2 bundle identifies the invocation across Request copies. The
+// Request remains the sole owner of primitive/order/cursor and issue history.
+class PuDComputeContext {
+ public:
+  enum class Phase { Closed, ChargeSharing, Sensed, Recovering };
+  Phase phase() const { return m_phase; }
+  const auto& locations() const { return m_locations; }
+  const auto& activated_operands() const { return m_activated_operands; }
+  Clk_t last_issue_clk() const { return m_last_issue_clk; }
+  Clk_t recovery_ready_clk() const { return m_recovery_ready_clk; }
+  bool recovery_ready(Clk_t clk) const {
+    return m_phase == Phase::Recovering && clk >= m_recovery_ready_clk;
+  }
+  PuDComputeContext(const PuDComputeContext&) = delete;
+  PuDComputeContext& operator=(const PuDComputeContext&) = delete;
+
+ private:
+  friend class DRAMDevice;
+  PuDComputeContext(const DRAMDevice* device, std::shared_ptr<const PuD::RequestLocations> locations)
+      : m_device(device), m_locations(std::move(locations)) {}
+  const DRAMDevice* m_device;
+  std::shared_ptr<const PuD::RequestLocations> m_locations;
+  Phase m_phase = Phase::Closed;
+  std::vector<size_t> m_activated_operands;
+  // Temporal consistency stamp, not another cursor or timing-edge scoreboard.
+  Clk_t m_last_issue_clk = Request::kOccurrenceNotIssued;
+  Clk_t m_recovery_ready_clk = -1;
+};
+
 /**
  * @brief    DRAM Device — owns the DRAMSpec, node tree, and flat bank array.
  *
@@ -37,6 +70,16 @@ class DRAMDevice {
 
   // Timing-only check — hierarchical (walks node tree)
   bool check_timing(int command, const AddrVec_t& addr_vec, Clk_t clk);
+
+  // Internal W3 component seam. Callers establish range protection separately;
+  // this creates no engine/allocation, transport or completion ownership. Public
+  // v2 submission remains disabled. Descriptors are checked against the current
+  // Request before any timing/action; a null, foreign or stale context fails.
+  std::unique_ptr<PuDComputeContext> make_pud_compute_context(const Request& req) const;
+  bool check_pud_timing(const Request& req, const PuDOccurrence& occurrence,
+                        const PuDComputeContext* context, Clk_t clk);
+  void issue_pud_command(Request& req, const PuDOccurrence& occurrence,
+                         PuDComputeContext* context, Clk_t clk);
 
   // Prerequisite check — flat bank dispatch
   int get_preq_command(int command, const AddrVec_t& addr_vec, Clk_t clk);
@@ -95,6 +138,8 @@ class DRAMDevice {
   }
 
  private:
+  void validate_pud_command(const Request& req, const PuDOccurrence& occurrence,
+                            const PuDComputeContext* context) const;
   // Run any command-specific defensive validation across the complete target
   // scope before prerequisite resolution, timing mutation, or state mutation.
   void validate_command(int command, const AddrVec_t& addr_vec, Clk_t clk) const;
