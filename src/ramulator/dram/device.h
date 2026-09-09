@@ -8,6 +8,10 @@
 #include "ramulator/base/type.h"
 #include "ramulator/dram/dram_spec.h"
 #include "ramulator/dram/node.h"
+#include "ramulator/dram/pud_target_queue.h"
+
+class ComputeRangesUnderTest;
+class ComputeLifecycleUnderTest;
 
 namespace Ramulator {
 
@@ -33,6 +37,9 @@ class DRAMDevice;
  *
  * Device registry -- weak --> context (conflict visibility only)
  * DRAMDevice -- owns --> DRAMNode tree (node.h: conventional/shared state)
+ * DRAMDevice -- owns --> PuDTargetQueues (pud_target_queue.h: W6 descriptors)
+ * Controller preparation/issue checks --> Device C/A + atomic queue operations
+ * Queue and C/A state live beside the context, never inside it.
  * NO cursor/history/deadline/activated-row shadow state lives in the context.
  * Request owns sequence/history; Controller owns recovery via delayed completion.
  */
@@ -86,16 +93,11 @@ class DRAMDevice {
   // Timing-only check — hierarchical (walks node tree)
   bool check_timing(int command, const AddrVec_t& addr_vec, Clk_t clk);
 
-  // Internal W3 component seam. Callers establish range protection separately;
-  // this creates no engine/allocation, transport or completion ownership. Public
+  // Internal range construction; this creates no allocation or ownership. Public
   // v2 submission remains disabled. Descriptors are checked against the current
   // authoritative Request before any timing/action. Null/foreign associations
   // and stale descriptors fail; callers must not dispatch divergent Request copies.
   std::unique_ptr<PuDComputeContext> make_pud_compute_context(const Request& req) const;
-  bool check_pud_timing(const Request& req, const PuDOccurrence& occurrence,
-                        const PuDComputeContext* context, Clk_t clk);
-  void issue_pud_command(Request& req, const PuDOccurrence& occurrence,
-                         PuDComputeContext* context, Clk_t clk);
 
   // Non-owning visibility of controller reservations, including pre-ACT and
   // recovery. Controller release remains the sole lifetime authority.
@@ -159,6 +161,28 @@ class DRAMDevice {
   }
 
  private:
+  friend class ControllerBase;
+  friend class ::ComputeRangesUnderTest;
+  friend class ::ComputeLifecycleUnderTest;
+  friend class PuDConflictUnderTest;
+  // W6 queue/transport resources are separate from the minimal Device context.
+  PuDTargetQueues m_pud_targets;
+  Clk_t m_pud_ca_ready = -1;
+  Clk_t m_command_ca_ready = -1;
+  bool pud_ca_available(Clk_t clk) const;
+  void validate_pud_reservation(const Request& req, const PuDComputeContext* context) const;
+  bool check_pud_target_setup(const Request& req, const PuDComputeContext* context, Clk_t clk);
+  void enqueue_pud_initial_target(const Request& req, Clk_t clk);
+  bool check_pud_timing(const Request& req, const PuDOccurrence& occurrence,
+                        const PuDComputeContext* context, Clk_t clk);
+  void issue_pud_command(Request& req, const PuDOccurrence& occurrence,
+                         PuDComputeContext* context, Clk_t clk);
+  // W3 local phase/timing seam, also used by isolated W3-W5 component tests.
+  // Production range issue always goes through the W6 transport check above.
+  bool check_pud_local_timing(const Request& req, const PuDOccurrence& occurrence,
+                              const PuDComputeContext* context, Clk_t clk);
+  void issue_pud_local_command(Request& req, const PuDOccurrence& occurrence,
+                               PuDComputeContext* context, Clk_t clk);
   std::vector<std::weak_ptr<PuDComputeContext>> m_protected_compute;
   void validate_pud_command(const Request& req, const PuDOccurrence& occurrence,
                             const PuDComputeContext* context) const;

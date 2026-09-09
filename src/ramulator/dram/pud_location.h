@@ -15,7 +15,7 @@ struct DRAMSpec;
 namespace PuD {
 
 /*
- * MIMDRAM/PuD v2 source architecture -- W1-W5
+ * MIMDRAM/PuD v2 source architecture -- W1-W6
  * Simulator abstractions, not literal 1:1 MIMDRAM hardware blocks.
  * Paths are relative to src/ramulator/. Unlabeled arrows show data/control use.
  *
@@ -105,7 +105,7 @@ namespace PuD {
  * |                                                        v                         |
  * |                                            completion/accounting -> callback     |
  * |                                                                                  |
- * | Protected resource identity/lifetime exists in W1-W5.                            |
+ * | Protected resource identity/lifetime exists in W1-W6.                            |
  * | Production E=8 engine-pool allocation is W7, NOT implemented here.               |
  * +----------------------------------------------------------------------------------+
  *                                         |
@@ -125,11 +125,27 @@ namespace PuD {
  * | Request owns local history; context owns phase; Controller owns recovery.        |
  * +----------------------------------------------------------------------------------+
  *
+ * +----------------------------------------------------------------------------------+
+ * | 6. TARGET QUEUES / SHARED C/A                         dram/pud_target_queue.h    |
+ * |                                                                                  |
+ * | ProtectedCompute --> Controller preparation/issue --> DRAMDevice                 |
+ * |                                                        | owns                    |
+ * |                                                        v                         |
+ * |                                                  PuDTargetQueues                |
+ * | Request occurrence + W1 segment_range --> per-(Channel, Rank, Chip) FIFO         |
+ * | initial PRE/setup --> descriptor --> ACT consumes ready heads atomically         |
+ * | non-final ACT --> reserved successor at T+1 --> ready at T+2                     |
+ * |                                                                                  |
+ * | Device C/A reservation excludes ordinary/movement issue; no local timing graph. |
+ * | Queue entries retain identity/order/readiness only; NO context shadow state.    |
+ * +----------------------------------------------------------------------------------+
+ *
  * Mental model:
  * pud_location.h     = WHERE modeled data lives
  * request.h          = WHAT request + sequence progress
  * pud_sequence.h     = WHICH occurrence / derived movement view
  * device.h           = invocation association + Device-side phase
+ * pud_target_queue.h = WHICH prepared activation target; shared C/A lives in Device
  * controller_base.h  = WHO owns/protects it and for how long
  * node.h             = conventional/shared DRAM state
  */

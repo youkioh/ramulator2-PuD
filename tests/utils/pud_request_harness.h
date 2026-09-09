@@ -238,10 +238,10 @@ class ComputeRangesUnderTest {
     // A second Device rejects a context minted by the first before any access.
     DRAMDevice other;
     auto& target = foreign_device ? other : device;
-    const bool ready = target.check_pud_timing(req, occurrence, context, clk) && clk > last_shared_issue;
+    const bool ready = target.check_pud_local_timing(req, occurrence, context, clk) && clk > last_shared_issue;
     if (!issue) return ready;
     if (!ready) throw std::logic_error("Compute range timing not ready (fixture C/A issue slot)");
-    target.issue_pud_command(req, occurrence, context, clk);
+    target.issue_pud_local_command(req, occurrence, context, clk);
     last_shared_issue = clk;
     // Exercise Request relocation after every action, retaining one cursor.
     Request copied = req;
@@ -375,7 +375,7 @@ class ComputeLifecycleUnderTest : public ControllerBase {
       throw std::logic_error("fixture C/A slot occupied");
     }
     it->command = occurrence.command;
-    m_device.issue_pud_command(*it, occurrence, &context, m_clk);
+    m_device.issue_pud_local_command(*it, occurrence, &context, m_clk);
     last_issue = clk;
     if (occurrence.terminal) {
       // Diagnostic fixture only: distinguish issue time from retirement time.
@@ -526,7 +526,7 @@ class PuDConflictUnderTest {
     if (!ctrl->is_pud_eligible_before_prerequisite(req)) throw std::logic_error("fixture compute blocked");
     const auto occ = describe_pud_occurrence(req, req.occurrence_index, *ctrl->m_device.m_spec);
     req.command = occ.command;
-    ctrl->m_device.issue_pud_command(req, occ, &ctrl->protected_pud_context(req), clk);
+    ctrl->m_device.issue_pud_local_command(req, occ, &ctrl->protected_pud_context(req), clk);
     last_issue = clk;
     if (occ.terminal) {
       ReqBuffer retiring;
@@ -620,7 +620,89 @@ class PuDConflictUnderTest {
   nb::dict stats() { ctrl->update_stats(); return nb::cast<nb::dict>(confignode_to_py(ctrl->IController::collect_stats())); }
   void capacity(size_t active) { ctrl->m_active_buffer.max_size = active; }
 
+  // W6 uses the production mechanics with explicit W4 fixture reservations.
+  // No test-side bus gate, transport clock, queue mutation or allocation policy.
+  bool transport_dispatch(int source, bool issue) {
+    auto& req = compute.at(source);
+    if (!issue) return ctrl->check_pud_compute_issue(req);
+    const auto occurrence = describe_pud_occurrence(req, req.occurrence_index, *ctrl->m_device.m_spec);
+    ctrl->issue_pud_compute(req);
+    last_issue = ctrl->m_clk;
+    if (occurrence.terminal) retire_transport(req);
+    return true;
+  }
+  bool target_setup(int source, bool issue, int close_source,
+                    const std::string& pre_command, const AddrVec_t& addr) {
+    std::optional<Request> conventional;
+    Request* pre = nullptr;
+    if (close_source >= 0) pre = &compute.at(close_source);
+    else if (!pre_command.empty()) {
+      int command = ctrl->m_device.m_spec->get_command_id(pre_command);
+      conventional.emplace(addr, Request::Cmd, command);
+      conventional->command = command;
+      pre = &*conventional;
+    }
+    auto& req = compute.at(source);
+    if (!issue) return ctrl->check_pud_target_preparation(req, pre);
+    ctrl->prepare_pud_target(req, pre);
+    last_issue = ctrl->m_clk;
+    if (close_source >= 0) retire_transport(*pre);
+    return true;
+  }
+  bool unallocated_setup(Request req, bool issue) {
+    initialize_pud_sequence(req, *ctrl->m_device.m_spec);
+    if (!issue) return ctrl->check_pud_target_preparation(req);
+    ctrl->prepare_pud_target(req);
+    return true;
+  }
+  nb::dict transport_state(int source) const {
+    auto out = located_snapshot(compute.at(source), false);
+    const auto context = compute.at(source).pud_compute_context.lock();
+    out["phase"] = context ? static_cast<int>(context->phase()) : -1;
+    return out;
+  }
+  nb::dict targets(Clk_t clk) const {
+    nb::dict out;
+    nb::list queues;
+    const auto& device = ctrl->m_device;
+    for (const auto& [chip, queue] : device.m_pud_targets.m_queues) {
+      nb::dict q;
+      q["chip"] = std::vector<int>{std::get<0>(chip), std::get<1>(chip), std::get<2>(chip)};
+      nb::list entries;
+      for (const auto& entry : queue) {
+        const auto& d = *entry.descriptor;
+        nb::dict e;
+        int source = -1;
+        for (const auto& [id, req] : compute) {
+          if (req.pud_compute_context.lock() == d.context.lock()) source = id;
+        }
+        e["source"] = source;
+        e["index"] = d.occurrence.index;
+        e["operand"] = d.occurrence.operand_index;
+        e["external"] = d.occurrence.location()->external;
+        e["segment"] = std::vector<int>{entry.segment.chip, entry.segment.first_local_mat, entry.segment.last_local_mat};
+        e["transmit"] = d.ready_at - 1;
+        e["ready_at"] = d.ready_at;
+        e["reserved"] = clk < d.ready_at - 1;
+        e["ready"] = clk >= d.ready_at;
+        entries.append(e);
+      }
+      q["entries"] = entries;
+      queues.append(q);
+    }
+    out["queues"] = queues;
+    out["ca_ready"] = device.m_pud_ca_ready;
+    out["command_ca_ready"] = device.m_command_ca_ready;
+    return out;
+  }
+
  private:
+  void retire_transport(Request& req) {
+    ReqBuffer retiring;
+    retiring.enqueue(req);
+    auto it = retiring.begin();
+    ctrl->retire_request(it, retiring);
+  }
   static nb::dict movement_snapshot(const Request& req) {
     auto out = located_snapshot(req, false);
     auto state = describe_pud_movement_state(req);
@@ -658,7 +740,13 @@ inline void bind_pud_request_harness(nb::module_& m) {
       .def("completions", &PuDConflictUnderTest::completions)
       .def("held", &PuDConflictUnderTest::held)
       .def("stats", &PuDConflictUnderTest::stats)
-      .def("capacity", &PuDConflictUnderTest::capacity);
+      .def("capacity", &PuDConflictUnderTest::capacity)
+      .def("transport_dispatch", &PuDConflictUnderTest::transport_dispatch, nb::arg("source"), nb::arg("issue") = false)
+      .def("target_setup", &PuDConflictUnderTest::target_setup, nb::arg("source"), nb::arg("issue") = false,
+           nb::arg("close_source") = -1, nb::arg("pre_command") = "", nb::arg("addr") = AddrVec_t{})
+      .def("unallocated_setup", &PuDConflictUnderTest::unallocated_setup)
+      .def("transport_state", &PuDConflictUnderTest::transport_state)
+      .def("targets", &PuDConflictUnderTest::targets);
   nb::class_<ComputeLifecycleUnderTest>(m, "_ComputeLifecycleUnderTest")
       .def(nb::init<nb::dict>())
       .def("add", &ComputeLifecycleUnderTest::add, nb::arg("req"), nb::arg("source"),

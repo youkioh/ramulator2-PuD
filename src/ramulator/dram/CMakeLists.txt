@@ -6,6 +6,7 @@ target_sources(
   device.h  device.cpp
   dram_spec.h  dram_spec.cpp
   pud_location.h  pud_location.cpp
+  pud_target_queue.h  pud_target_queue.cpp
   func_types.h
 
   commands/ACT.h  commands/ACT1.h  commands/ACT2.h

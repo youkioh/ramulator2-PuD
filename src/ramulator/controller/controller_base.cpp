@@ -399,6 +399,65 @@ PuDComputeContext& ControllerBase::protected_pud_context(const Request& req) con
   return *context;
 }
 
+bool ControllerBase::check_pud_compute_issue(const Request& req) {
+  const auto& context = protected_pud_context(req);
+  if (!is_pud_eligible_before_prerequisite(req)) return false;
+  const auto occurrence = describe_pud_occurrence(req, req.occurrence_index, *m_device.m_spec);
+  return m_device.check_pud_timing(req, occurrence, &context, m_clk);
+}
+
+void ControllerBase::issue_pud_compute(Request& req) {
+  if (!check_pud_compute_issue(req)) throw std::logic_error("Compute target/transport or local timing not ready");
+  const auto occurrence = describe_pud_occurrence(req, req.occurrence_index, *m_device.m_spec);
+  m_device.issue_pud_command(req, occurrence, &protected_pud_context(req), m_clk);
+}
+
+bool ControllerBase::check_pud_target_preparation(const Request& req, const Request* preceding_pre) {
+  const auto& context = protected_pud_context(req);
+  // Allocated contexts must still drain after maintenance arrives. In
+  // particular, hybrid setup cannot be suppressed merely by a priority head
+  // waiting for this very reservation. Check any proposed PRE independently.
+  if (!is_pud_eligible_before_prerequisite(req) ||
+      !m_device.check_pud_target_setup(req, &context, m_clk)) return false;
+  if (!preceding_pre) return true;
+  const auto& pre = *preceding_pre;
+  const auto& spec = *m_device.m_spec;
+  if (pre.pud_locations && is_inherited_pud_request_type(pre.type_id)) {
+    // A real terminal range PRE is useful, and closes only its own invocation.
+    const auto occurrence = describe_pud_occurrence(pre, pre.occurrence_index, spec);
+    return occurrence.terminal && check_pud_compute_issue(pre);
+  }
+  if (pre.command < 0 || pre.command >= spec.command_count) return false;
+  const auto& name = spec.command_names[pre.command];
+  if (name != "PREpb" && name != "PREab") return false;
+  const bool movement_owner = is_movement_request_type(pre.type_id) && describe_pud_movement_state(pre).owns_bank;
+  if (!m_priority_buffer.buffer.empty() && &pre != &m_priority_buffer.buffer.front() && !movement_owner) return false;
+  // Recheck W5 before prerequisites or mutation, including queued maintenance
+  // policy changes. An empty Bank PRE is never inserted just to carry a target.
+  if (!is_pud_eligible_before_prerequisite(pre) || (!movement_owner && would_close_active(pre)) ||
+      !validate_request_for_issue(pre)) return false;
+  bool useful = false;
+  m_device.for_each_target_bank(pre.command, pre.addr_vec, [&](int bank) {
+    const auto* node = m_device.m_bank_nodes[bank];
+    useful |= !node->m_row_state.empty() || node->m_state != spec.get_state_id("Closed");
+  });
+  return useful;
+}
+
+void ControllerBase::prepare_pud_target(const Request& req, Request* preceding_pre) {
+  if (!check_pud_target_preparation(req, preceding_pre)) {
+    throw std::logic_error("Initial target preparation not ready");
+  }
+  if (preceding_pre) {
+    auto& pre = *preceding_pre;
+    if (pre.pud_locations && is_inherited_pud_request_type(pre.type_id)) issue_pud_compute(pre);
+    else m_device.issue_command(pre.command, pre.addr_vec, m_clk);
+  }
+  // A hybrid setup has only C/A + target-queue effects. A paired PRE already
+  // performed its own close/recovery above, using the same single C/A cycle.
+  m_device.enqueue_pud_initial_target(req, m_clk);
+}
+
 ControllerBase::ProtectedCompute& ControllerBase::protected_pud_record(const Request& req) {
   const auto* context = &protected_pud_context(req);
   return *std::find_if(m_protected_compute.begin(), m_protected_compute.end(),

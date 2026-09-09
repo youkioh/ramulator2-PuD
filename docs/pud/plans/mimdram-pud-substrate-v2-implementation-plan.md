@@ -1,6 +1,6 @@
 # MIMDRAM-based PuD substrate v2 implementation plan
 
-Status: Implementation in progress — Phase 1 complete; W3-W5 complete; W6-W9 not started.
+Status: Implementation in progress — Phase 1 complete; W3-W6 complete; W7-W9 not started.
 
 ## Implementation progress (2026-09-09)
 
@@ -34,8 +34,30 @@ Status: Implementation in progress — Phase 1 complete; W3-W5 complete; W6-W9 n
   cover failed active-buffer promotion. Internal fixtures preserve disjoint
   compute progress; transport, allocation/arbitration and public v2 execution
   remain W6+ work.
-- **W6-W9: Not started.** The work-unit specifications below remain unchanged
+- **W6: Completed.** Device-owned `PuDTargetQueues` provide per-chip Q=8 FIFO
+  descriptors and atomic ready-head consumption. Timestamped successor entries
+  reserve credit at ACT issue for T+1 transport/T+2 readiness; Device shared C/A
+  checks exclude ordinary/movement issue without changing local PRADA anchors.
+  Controller preparation/issue seams require existing protected reservations and
+  recheck W5 eligibility, including independently scoped useful PRE pairing.
+  `PuDComputeContext` remains minimal. W3-W5 local-only test seams are private;
+  W6 fixtures exercise transport-aware dispatch with explicit reservations.
+- **W7-W9: Not started.** The work-unit specifications below remain unchanged
   as implementation authority/history.
+
+W6 verification: 51 focused transport tests and 255 W3-W5 tests passed. Full
+Device and controller regression runs passed (250 and 656 tests respectively);
+the final focused run also includes three subsequently added ordinary-C/A and
+rank-PRE cases. Coverage includes Q=8/credit release independent of engines,
+multi-chip capacity/head rejection without mutation, reserved successors, FIFO
+drain with maintenance arrival, cold/late setup, distinct PRE close/target
+contexts, NOT_COPY across N, replacement-profile targeting, exact successor
+counts and unchanged 61/66/76/99/104 CK local recovery-inclusive anchors.
+LC/GB retained timing and shared C/A contention passed. Build/codegen passed for
+`ramulator`, `_ramulator` and `_ramulator_test`; generated definitions were
+unchanged. Full W6 diff review and `git diff --check` passed. Existing source
+architecture comments now include W6 queues. Production allocation, oldest-first
+admission, scheduler integration and public v2 execution remain W7+ work.
 
 W5 verification: 126 focused conflict/drain tests and the 31 W4 lifecycle plus
 96 W3 range/timing tests passed together (253 tests, exit 0). The complete

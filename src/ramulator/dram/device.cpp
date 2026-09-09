@@ -106,21 +106,21 @@ void DRAMDevice::validate_pud_command(const Request& req, const PuDOccurrence& o
   }
 }
 
-bool DRAMDevice::check_pud_timing(const Request& req, const PuDOccurrence& occurrence,
+bool DRAMDevice::check_pud_local_timing(const Request& req, const PuDOccurrence& occurrence,
                                  const PuDComputeContext* context, Clk_t clk) {
   validate_pud_command(req, occurrence, context);
   return check_pud_compute_occurrence_timing(req, clk, *m_spec) &&
          m_root->check_timing(occurrence.command, occurrence.location()->external, clk);
 }
 
-void DRAMDevice::issue_pud_command(Request& req, const PuDOccurrence& occurrence,
+void DRAMDevice::issue_pud_local_command(Request& req, const PuDOccurrence& occurrence,
                                   PuDComputeContext* context, Clk_t clk) {
-  if (!check_pud_timing(req, occurrence, context, clk)) {
+  if (!check_pud_local_timing(req, occurrence, context, clk)) {
     throw std::logic_error("Compute range timing not ready");
   }
   // Outgoing edge inventory (DDR4_PuD + DDR4_PuD_Movement Python definitions):
   // - Channel: retain any explicit shared constraints. The existing controller
-  //   serializes one-CK C/A issue; Python omits Device bus edges for one tick.
+  //   serializes one-CK C/A issue; W6 reserves transport separately below.
   // - Bank ACT_PUD*/N -> compute/PRE: PRADA phases, interpreted only by the
   //   Request-local timing helper above; no Bank history/deadline update here.
   // - Terminal PRE -> ACT/compute/ACT_MOV (Bank), -> REFab (Rank): recovery
@@ -149,14 +149,77 @@ void DRAMDevice::issue_pud_command(Request& req, const PuDOccurrence& occurrence
   observe_pud_command_issue(req, occurrence.command, clk, *m_spec);
 }
 
+bool DRAMDevice::pud_ca_available(Clk_t clk) const {
+  return clk >= m_pud_ca_ready && clk >= m_command_ca_ready;
+}
+
+void DRAMDevice::validate_pud_reservation(const Request& req, const PuDComputeContext* context) const {
+  if (!context || req.pud_compute_context.lock().get() != context) {
+    throw std::logic_error("Target transport requires allocated compute context");
+  }
+  for (const auto& held : m_protected_compute) {
+    if (held.lock().get() == context) return;
+  }
+  throw std::logic_error("Target transport requires protected compute context");
+}
+
+bool DRAMDevice::check_pud_target_setup(const Request& req, const PuDComputeContext* context, Clk_t clk) {
+  validate_pud_reservation(req, context);
+  const auto first = describe_pud_occurrence(req, req.occurrence_index, *m_spec);
+  validate_pud_command(req, first, context);
+  return req.occurrence_index == 0 && pud_ca_available(clk) && m_pud_targets.can_enqueue(context, first);
+}
+
+void DRAMDevice::enqueue_pud_initial_target(const Request& req, Clk_t clk) {
+  // Controller has rechecked allocation, W5 eligibility and any actual PRE
+  // close before committing. No historical-PRE lookup or Request advancement.
+  m_pud_targets.enqueue(req.pud_compute_context.lock(), describe_pud_occurrence(req, 0, *m_spec), clk + 1);
+  m_pud_ca_ready = clk + 1;
+}
+
+bool DRAMDevice::check_pud_timing(const Request& req, const PuDOccurrence& occurrence,
+                                 const PuDComputeContext* context, Clk_t clk) {
+  validate_pud_reservation(req, context);
+  if (!check_pud_local_timing(req, occurrence, context, clk) || !pud_ca_available(clk)) return false;
+  if (!is_pud_activation(occurrence, *m_spec)) return true;
+  // W2 validates the same complete mat range for every compute operand. Thus
+  // matching ready heads supply exactly one successor credit on every chip,
+  // even at Q=8. No command can have reserved T+1 while T is available: this
+  // localized bus only reserves contiguous current/next cycles at issue.
+  return m_pud_targets.ready(context, occurrence, clk);
+}
+
+void DRAMDevice::issue_pud_command(Request& req, const PuDOccurrence& occurrence,
+                                  PuDComputeContext* context, Clk_t clk) {
+  if (!check_pud_timing(req, occurrence, context, clk)) {
+    throw std::logic_error("Compute target/transport or local timing not ready");
+  }
+  const bool activation = is_pud_activation(occurrence, *m_spec);
+  const auto successor = activation ? next_pud_activation(req, occurrence.index, *m_spec) : std::nullopt;
+  // All checks precede mutation on every chip. Claim the mandatory successor
+  // slot now, using the consumed heads' credit. The immutable entry represents
+  // a reservation until T+1, its transmission at T+1, and readiness at T+2.
+  // Nothing needs a tick callback or a second transport progress machine.
+  if (activation) {
+    m_pud_targets.consume(occurrence);
+    if (successor) m_pud_targets.enqueue(req.pud_compute_context.lock(), *successor, clk + 2);
+  }
+  m_pud_ca_ready = clk + (successor ? 2 : 1);
+  issue_pud_local_command(req, occurrence, context, clk);
+}
+
 void DRAMDevice::issue_command(int command, const AddrVec_t& addr_vec, Clk_t clk) {
   validate_command(command, addr_vec, clk);
+  if (clk < m_pud_ca_ready) throw std::logic_error("C/A reserved for compute command/target transport");
   m_root->update_timing(command, addr_vec, clk);
   apply_action(command, addr_vec, clk);
+  // This observes existing issue occupancy only for W6 events. Legacy timing
+  // checks and non-DDR dual/multi-cycle bus generation retain their behavior.
+  m_command_ca_ready = clk + m_spec->command_cycles.at(command);
 }
 
 bool DRAMDevice::check_timing(int command, const AddrVec_t& addr_vec, Clk_t clk) {
-  return m_root->check_timing(command, addr_vec, clk);
+  return clk >= m_pud_ca_ready && m_root->check_timing(command, addr_vec, clk);
 }
 
 int DRAMDevice::get_preq_command(int command, const AddrVec_t& addr_vec, Clk_t clk) {
