@@ -23,6 +23,8 @@
 #include "ramulator/memory_system/pud_request_routing.h"
 #include "ramulator/python/binding_utils.h"
 
+#include "pud_location_harness.h"
+
 // ---- DeviceUnderTest ----
 
 class DeviceUnderTestCpp {
@@ -489,6 +491,14 @@ class ControllerUnderTestCpp {
   std::vector<std::string> level_names() const { return spec().level_names; }
   std::vector<std::string> command_names() const { return spec().command_names; }
   std::map<std::string, int> timings() const { return timing_map(spec()); }
+
+  AddrVec_t map_address(Addr_t intra_channel_address) const {
+    Request req(intra_channel_address, Request::Type::Read);
+    req.intra_channel_addr = intra_channel_address;
+    m_controller_base->m_addr_mapper->apply(req);
+    req.addr_vec[0] = 0;  // This harness owns controller/channel 0.
+    return req.addr_vec;
+  }
 
   int timing(const std::string& name) const {
     return spec().get_timing_value(name);
@@ -961,6 +971,7 @@ class ControllerUnderTestCpp {
 
 NB_MODULE(_ramulator_test, m) {
   m.doc() = "Ramulator2 test harness bindings";
+  bind_pud_location_harness(m);
 
   nb::class_<DeviceUnderTestCpp>(m, "_DeviceUnderTest")
       .def(nb::init<nb::dict, int>(), nb::arg("dram_config"), nb::arg("channel_id") = 0)
@@ -994,6 +1005,7 @@ NB_MODULE(_ramulator_test, m) {
 
   nb::class_<ControllerUnderTestCpp>(m, "_ControllerUnderTest")
       .def(nb::init<nb::dict, int>(), nb::arg("controller_config"), nb::arg("num_cores") = 1)
+      .def("map_address", &ControllerUnderTestCpp::map_address)
       .def_prop_ro("level_names", &ControllerUnderTestCpp::level_names)
       .def_prop_ro("command_names", &ControllerUnderTestCpp::command_names)
       .def_prop_ro("timings", &ControllerUnderTestCpp::timings)
