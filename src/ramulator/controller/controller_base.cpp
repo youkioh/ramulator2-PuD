@@ -408,8 +408,8 @@ ControllerBase::ProtectedCompute& ControllerBase::protected_pud_record(const Req
 void ControllerBase::release_completed_resources(Request& req) {
   if (!req.pud_locations || !is_inherited_pud_request_type(req.type_id)) return;
   const auto& record = protected_pud_record(req);
-  if (!record.completion_pending || !record.context->recovery_ready(m_clk) ||
-      req.depart != record.context->recovery_ready_clk()) {
+  if (!record.completion_pending || record.context->phase() != PuDComputeContext::Phase::Recovering ||
+      req.depart < 0 || req.depart > m_clk) {
     throw std::logic_error("Compute completion precedes protected recovery");
   }
   const auto* context = record.context.get();
@@ -425,8 +425,9 @@ void ControllerBase::retire_request(ReqBuffer::iterator& req_it, ReqBuffer& buff
     const auto& context = *protected_compute->context;
     if (protected_compute->completion_pending || context.phase() != PuDComputeContext::Phase::Recovering ||
         req_it->occurrence_index != get_pud_sequence_length(*req_it) ||
-        req_it->occurrence_issue_history.empty() ||
-        req_it->occurrence_issue_history.back() != context.last_issue_clk()) {
+        req_it->occurrence_issue_history.size() != get_pud_sequence_length(*req_it) ||
+        req_it->occurrence_issue_history.back() == Request::kOccurrenceNotIssued ||
+        req_it->occurrence_issue_history.back() > m_clk) {
       throw std::logic_error("Compute retirement requires its unretired terminal PRE");
     }
   }
@@ -451,8 +452,10 @@ void ControllerBase::retire_request(ReqBuffer::iterator& req_it, ReqBuffer& buff
     }
     s_num_write_reqs_served++;
   } else if (is_pud_request_type(req_it->type_id)) {
-    req_it->depart = protected_compute ? protected_compute->context->recovery_ready_clk()
-                                      : m_clk + m_device.m_spec->get_timing_value("nRP");
+    // Request history is the sole terminal-issue authority; retirement time
+    // need not be substituted for it. Delayed completion owns recovery release.
+    const Clk_t terminal_clk = protected_compute ? req_it->occurrence_issue_history.back() : m_clk;
+    req_it->depart = terminal_clk + m_device.m_spec->get_timing_value("nRP");
     m_pending.push_back(*req_it);
     if (protected_compute) protected_compute->completion_pending = true;
   } else if (req_it->type_id == -1) {
@@ -463,6 +466,8 @@ void ControllerBase::retire_request(ReqBuffer::iterator& req_it, ReqBuffer& buff
 }
 
 void ControllerBase::promote_to_active(ReqBuffer::iterator& req_it, ReqBuffer& buffer) {
+  // Transfer the sole schedulable progression: successful enqueue erases the
+  // source before scheduling resumes; backpressure leaves only the source.
   if (m_active_buffer.enqueue(*req_it)) {
     m_active_per_bank[m_device.get_flat_bank_id(req_it->addr_vec)]++;
     if (&buffer == &m_write_buffer) {

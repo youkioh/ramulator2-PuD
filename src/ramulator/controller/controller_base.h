@@ -23,6 +23,31 @@ class IFrontEnd;
 class IMemorySystem;
 class PuDConflictUnderTest;
 
+/*
+ * Located Request + explicit reservation
+ *                    |
+ *                    v
+ *        +----------------------------------+
+ *        | ControllerBase::ProtectedCompute | <-- YOU ARE HERE
+ *        +----------------+-----------------+
+ *                         | owns lifetime
+ *                         v
+ *                +-------------------+
+ * Request -weak->| PuDComputeContext |<-weak- Device registry
+ *                +-------------------+       (conflict visibility)
+ *                         |
+ *         terminal PRE -> recovery -> release -> completion/callback
+ *               |
+ *               v
+ *        Request moves to m_pending; protection outlives command scheduling.
+ *
+ * Request owns sequence/history; context (device.h) owns protocol phase.
+ * Delayed completion owns depart = terminal Request timestamp + nRP and releases
+ * protection before accounting/callback.
+ * W1-W5 retain protected resource identity/lifetime via explicit reservations.
+ * Production E=8 engine-pool allocation is W7 and is not implemented here yet.
+ */
+
 // Shared infrastructure for all DRAM controller implementations.
 // Provides buffers, stats, sub-component management, and low-level scheduling
 // helpers. Subclasses own their tick() policy and protocol-specific behavior.

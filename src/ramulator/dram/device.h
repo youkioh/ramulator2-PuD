@@ -14,20 +14,39 @@ namespace Ramulator {
 struct PuDOccurrence;
 class DRAMDevice;
 
-// One explicit temporal record per lockstep compute invocation, never per mat.
-// The retained W2 bundle identifies the invocation across Request copies. The
-// Request remains the sole owner of primitive/order/cursor and issue history.
+/*
+ * Request + PuDOccurrence (request.h / pud_sequence.h)
+ *                      |
+ *                      v
+ *               DRAMDevice dispatch
+ *                      | checks/updates
+ *                      v
+ *           +--------------------------+
+ *           | PuDComputeContext        | <-- YOU ARE HERE
+ *           | Device association       |
+ *           | immutable locations      |
+ *           | Device-side phase        |
+ *           +--------------------------+
+ *                      ^
+ *                      | owns lifetime
+ *           ProtectedCompute (controller_base.h)
+ *
+ * Device registry -- weak --> context (conflict visibility only)
+ * DRAMDevice -- owns --> DRAMNode tree (node.h: conventional/shared state)
+ * NO cursor/history/deadline/activated-row shadow state lives in the context.
+ * Request owns sequence/history; Controller owns recovery via delayed completion.
+ */
+
+// One Device-side protocol phase per lockstep invocation, never per mat.
+// Context identity associates the protected invocation with immutable locations.
+// One allocated invocation has one authoritative schedulable Request progression;
+// Device does not version Request copies. Request owns sequence/timing history,
+// and Controller protection plus delayed completion owns recovery lifetime.
 class PuDComputeContext {
  public:
   enum class Phase { Closed, ChargeSharing, Sensed, Recovering };
   Phase phase() const { return m_phase; }
   const auto& locations() const { return m_locations; }
-  const auto& activated_operands() const { return m_activated_operands; }
-  Clk_t last_issue_clk() const { return m_last_issue_clk; }
-  Clk_t recovery_ready_clk() const { return m_recovery_ready_clk; }
-  bool recovery_ready(Clk_t clk) const {
-    return m_phase == Phase::Recovering && clk >= m_recovery_ready_clk;
-  }
   PuDComputeContext(const PuDComputeContext&) = delete;
   PuDComputeContext& operator=(const PuDComputeContext&) = delete;
 
@@ -38,10 +57,6 @@ class PuDComputeContext {
   const DRAMDevice* m_device;
   std::shared_ptr<const PuD::RequestLocations> m_locations;
   Phase m_phase = Phase::Closed;
-  std::vector<size_t> m_activated_operands;
-  // Temporal consistency stamp, not another cursor or timing-edge scoreboard.
-  Clk_t m_last_issue_clk = Request::kOccurrenceNotIssued;
-  Clk_t m_recovery_ready_clk = -1;
 };
 
 /**
@@ -74,7 +89,8 @@ class DRAMDevice {
   // Internal W3 component seam. Callers establish range protection separately;
   // this creates no engine/allocation, transport or completion ownership. Public
   // v2 submission remains disabled. Descriptors are checked against the current
-  // Request before any timing/action; a null, foreign or stale context fails.
+  // authoritative Request before any timing/action. Null/foreign associations
+  // and stale descriptors fail; callers must not dispatch divergent Request copies.
   std::unique_ptr<PuDComputeContext> make_pud_compute_context(const Request& req) const;
   bool check_pud_timing(const Request& req, const PuDOccurrence& occurrence,
                         const PuDComputeContext* context, Clk_t clk);

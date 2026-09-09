@@ -70,9 +70,7 @@ def test_isolated_anchors_phases_rows_and_request_cursor(name, mats):
         assert s["history"] == TIMELINES[name][:index+1] + [-1]*(len(TIMELINES[name])-index-1)
         # Every non-Channel state/history/deadline remains untouched.
         assert d.shared()[1:] == shared[1:]
-    assert d.state(i, TOTALS[name]-1)["recovery_ready"] is False
-    assert d.state(i, TOTALS[name])["recovery_ready"] is True
-    assert d.state(i)["recovery_clk"] == TOTALS[name]
+    # Controller lifecycle tests enforce the terminal-PRE-to-depart boundary.
 
 
 @pytest.mark.parametrize("destinations", [2, 5, 32])
@@ -82,9 +80,8 @@ def test_multi_destination_rowcopy(destinations, mats):
     i = add(d, r, "RowCopy", mats, count=destinations+1)
     for clk in [0] + [40+5*j for j in range(destinations+1)]:
         issue(d, i, clk)
-    ready = 40+5*destinations+16
-    assert not d.state(i, ready-1)["recovery_ready"]
-    assert d.state(i, ready)["recovery_ready"]
+    assert d.state(i)["cursor"] == destinations + 2
+    assert d.state(i)["activated_rows"] == []
 
 
 @pytest.mark.parametrize("names", [(n, n) for n in COMPUTE] +
@@ -99,10 +96,6 @@ def test_independent_interleaving_and_range_close(names):
         other = d.state(ids[1-i])
         issue(d, ids[i], clk, boundary=clk != 2)
         assert d.state(ids[1-i]) == other
-    for i, name in enumerate(names):
-        ready = TOTALS[name]+2*i
-        assert not d.state(ids[i], ready-1)["recovery_ready"]
-        assert d.state(ids[i], ready)["recovery_ready"]
 
 
 def test_one_range_recovery_does_not_delay_new_disjoint_start():
@@ -117,7 +110,7 @@ def test_one_range_recovery_does_not_delay_new_disjoint_start():
 
 
 @pytest.mark.parametrize("issue_command", [False, True])
-@pytest.mark.parametrize("bad", ["wrong_range", "null", "foreign", "command", "stale_descriptor", "stale_request"])
+@pytest.mark.parametrize("bad", ["wrong_range", "null", "foreign", "command", "stale_descriptor"])
 def test_rejected_dispatch_is_atomic(issue_command, bad):
     d, r = _ComputeRangesUnderTest(dram_config()), resolver()
     a = add(d, r, "NOT_COPY", (0, 0))
@@ -131,7 +124,6 @@ def test_rejected_dispatch_is_atomic(issue_command, bad):
     else:
         issue(d, a, 0)
         kwargs["descriptor"] = saved
-        kwargs["stale_request"] = bad == "stale_request"
     before = d.state(a), d.state(b), d.shared()
     with pytest.raises(RuntimeError):
         d.dispatch(a, 100, issue=issue_command, **kwargs)
@@ -155,7 +147,7 @@ def test_device_does_not_follow_a_cursor_advanced_without_its_action():
     a = add(d, r, "MAJ3")
     d.skip(a)  # Fabricated controller progress cannot establish charge sharing.
     before = d.state(a), d.shared()
-    with pytest.raises(RuntimeError, match="Stale Request"):
+    with pytest.raises(RuntimeError, match="Incompatible compute range phase"):
         d.dispatch(a, 200, issue=True)
     assert (d.state(a), d.shared()) == before
 
@@ -211,7 +203,7 @@ def test_replacement_profile_uses_retained_rows_and_ranges():
     d = _ComputeRangesUnderTest(config)
     a = add(d, r, "NOT_COPY", (7, 8), 1022)
     for clk in TIMELINES["NOT_COPY"]: issue(d, a, clk)
-    assert d.state(a)["recovery_clk"] == 104
+    assert d.state(a)["history"] == TIMELINES["NOT_COPY"]
     assert all(o["range"] == [7, 8] for o in d.state(a)["locations"])
 
 
@@ -242,15 +234,15 @@ def test_each_act_n_and_pre_keeps_exact_occurrence_association(index, bad):
         assert (d.state(a), d.state(b), d.shared()) == before
 
 
-def test_stale_sensed_request_cannot_repeat_n():
+def test_stale_sensed_descriptor_cannot_repeat_n():
     d, r = _ComputeRangesUnderTest(dram_config()), resolver()
     a = add(d, r, "NOT_COPY")
     issue(d, a, 0)
     saved = d.save(a)  # Sensed, N is next.
-    issue(d, a, 40)   # Still sensed; phase alone cannot reject stale N.
+    issue(d, a, 40)   # Still sensed; descriptor must match the current Request.
     before = d.state(a), d.shared()
-    with pytest.raises(RuntimeError, match="Stale Request"):
-        d.dispatch(a, 100, descriptor=saved, stale_request=True, issue=True)
+    with pytest.raises(RuntimeError, match="Wrong or stale compute occurrence"):
+        d.dispatch(a, 100, descriptor=saved, issue=True)
     assert (d.state(a), d.shared()) == before
 
 

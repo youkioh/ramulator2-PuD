@@ -10,6 +10,28 @@ namespace Ramulator {
 
 class DRAMSpec;
 
+/*
+ * Request cursor/history + operands (request.h)
+ *                  |
+ *                  v
+ *        +-------------------------+
+ *        | PuDOccurrence           | <-- YOU ARE HERE
+ *        | current descriptor/view |
+ *        +------------+------------+
+ *                     |
+ *                     v
+ *        Device dispatch + PuDComputeContext (device.h)
+ *
+ * Movement Request history ---> +-------------------------+
+ *                               | PuDMovementState        |
+ *                               | derived view only       |
+ *                               +-------------------------+
+ * Views retain placement, never independent progress. Request owns the cursor;
+ * context owns only protocol phase; Controller owns recovery. Movement owns_bank
+ * covers sequence activity,
+ * not the recovery exclusion enforced by controller/Device checks.
+ */
+
 enum class PuDOccurrenceRole {
   Operand,
   Source,

@@ -58,8 +58,8 @@ def test_terminal_retirement_preserves_protection_until_recovery(name, mats):
         s = d.snapshot()
         assert s["pending"] == s["active"] == 0 and not any(s["active_per_bank"])
         assert s["delayed"] == 1
-        assert s["held"] == [dict(engine=0, phase=3, recovery=ready,
-                                   completion_pending=True, rows=[])]
+        assert s["held"] == [dict(engine=0, phase=3, depart=ready,
+                                  completion_pending=True)]
         assert not d.available(overlap, 1) and not d.available(compute(r, bank=1), 0)
         assert d.completions() == []
         assert s["counters"][f"num_pud_{name.lower()}_reqs_completed"] == 0
@@ -116,7 +116,7 @@ def test_disjoint_context_progresses_during_another_recovery(names):
     drained(d)
 
 
-def test_enqueue_retry_promotion_backpressure_and_stale_copies():
+def test_enqueue_retry_preserves_single_progression_through_promotion():
     d, r = fixture()
     a = compute(r)
     b = compute(r, mats=(16, 17), row=30)
@@ -135,8 +135,9 @@ def test_enqueue_retry_promotion_backpressure_and_stale_copies():
     assert s["pending"] == 1 and s["active"] == 0 and len(s["held"]) == 1
     assert d.state(1)["cursor"] == 1
     assert not d.add(b.copy(), 2)
-    with pytest.raises(RuntimeError, match="Stale Request"):
-        d.stale_dispatch(stale)
+    # The retained source is the only schedulable progression; a saved copy
+    # is used only to observe invocation expiry, never as a second dispatcher.
+    assert d.state(1)["history"] == [20, -1, -1]
     d.capacity(1, 1)
     d.dispatch(1, 60)  # Retry promotion with the authoritative Request progress.
     assert d.snapshot()["active"] == 1 and d.snapshot()["pending"] == 0
@@ -261,4 +262,42 @@ def test_two_recoveries_ready_together_release_exactly_once_with_reentrant_growt
     d.advance(130)
     assert [e["source"] for e in d.completions()] == [1, 2, 4, 3]
     assert d.snapshot()["counters"]["num_pud_rowcopy_reqs_completed"] == 3
+    drained(d)
+
+
+@pytest.mark.parametrize("destinations", [2, 5, 32])
+def test_multi_destination_recovery_uses_terminal_request_history(destinations):
+    d, r = fixture()
+    req = request(r, "RowCopy", [descriptor(10+i, (0, 0))
+                                for i in range(destinations+1)])
+    assert d.add(req, 1) and d.reserve(1, 0)
+    times = [0] + [40+5*j for j in range(destinations+1)]
+    for clk in times:
+        d.dispatch(1, clk)
+    depart = times[-1] + 16
+    assert d.snapshot()["held"][0]["depart"] == depart
+    d.advance(depart-1)
+    assert len(d.snapshot()["held"]) == 1 and d.completions() == []
+    d.advance(depart)
+    event, = d.completions()
+    assert event["depart"] == event["callback_clk"] == depart
+    assert event["history"] == times
+    drained(d)
+
+
+def test_depart_uses_issue_timestamp_not_later_retirement_clock():
+    d, r = fixture()
+    assert d.add(compute(r), 1) and d.reserve(1, 0)
+    d.dispatch(1, 0)
+    d.dispatch(1, 40)
+    # Fixture-only delay separates the two clocks; production retires at PRE.
+    d.dispatch(1, 45, retirement_delay=5)
+    assert d.snapshot()["clk"] == 50
+    assert d.snapshot()["held"][0]["depart"] == 61
+    d.advance(60)
+    assert len(d.snapshot()["held"]) == 1 and d.completions() == []
+    d.advance(61)
+    event, = d.completions()
+    assert event["history"] == [0, 40, 45]
+    assert event["depart"] == event["callback_clk"] == 61
     drained(d)

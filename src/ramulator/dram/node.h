@@ -11,6 +11,26 @@
 
 namespace Ramulator {
 
+/*
+ * DRAMDevice (device.h) -- owns --> root
+ *                                   |
+ *                                   v
+ *                     +---------------------------+
+ * command/timing ---->| DRAMNode tree             | <-- YOU ARE HERE
+ * checks              | conventional state        |
+ *                     | shared timing history     |
+ *                     +---------------------------+
+ * DRAMDevice borrows Bank pointers; each node owns its children.
+ *
+ * V2 compute-local authority stays outside this tree:
+ *   Request (request.h) ------> PRADA occurrence history
+ *   PuDComputeContext -------> protocol phase (device.h)
+ *   Controller --------------> recovery via Request.depart / delayed completion
+ * ProtectedCompute (controller_base.h) guards conflicting work through recovery.
+ * V2 dispatch checks shared deadlines and updates Channel timing; local PRADA
+ * history and range PRE recovery do not become Bank-global node state.
+ */
+
 /**
  * @brief     DRAM Device Node — represents one level in the DRAM hierarchy
  *

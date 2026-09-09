@@ -16,6 +16,31 @@ namespace Ramulator {
 
 class PuDComputeContext;
 
+/*
+ * LocationResolver + PairedOperands (pud_location.h)
+ *                        |
+ *                        v
+ *           +---------------------------+
+ *           | RequestLocations          |
+ *           | immutable placement       |
+ *           +-------------+-------------+
+ *                         | shared const, retained by
+ *                         v
+ *           +---------------------------+
+ *           | Request                   | <-- YOU ARE HERE
+ *           | sole mutable cursor       |
+ *           | sole issue history        |
+ *           +-------------+-------------+
+ *                         |
+ *                         +--> occurrence/movement views (pud_sequence.h)
+ *                         +-- weak --> PuDComputeContext (device.h)
+ *                                      ^
+ *                                      | owns lifetime
+ *                                ProtectedCompute (controller_base.h)
+ * Copies/retries share placement; each allocated invocation has one authoritative
+ * schedulable Request progression. Controller buffer transfers preserve it.
+ */
+
 namespace PuD {
 // Immutable placement only. Request owns the sole mutable occurrence cursor
 // and issue history. Copies, retries, and completion/occurrence descriptors

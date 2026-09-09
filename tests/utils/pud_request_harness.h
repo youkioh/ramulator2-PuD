@@ -216,11 +216,11 @@ class ComputeRangesUnderTest {
   }
   size_t save(size_t id) {
     const auto& req = records.at(id).req;
-    saved.push_back({req, describe_pud_occurrence(req, req.occurrence_index, *device.m_spec)});
+    saved.push_back(describe_pud_occurrence(req, req.occurrence_index, *device.m_spec));
     return saved.size() - 1;
   }
   void corrupt_descriptor(size_t id, const std::string& field) {
-    auto& occurrence = saved.at(id).second;
+    auto& occurrence = saved.at(id);
     if (field == "wrong_operand") occurrence.operand_index ^= 1;
     else if (field == "wrong_index") ++occurrence.index;
     else if (field == "terminal") occurrence.terminal = !occurrence.terminal;
@@ -228,11 +228,11 @@ class ComputeRangesUnderTest {
     else throw std::invalid_argument("unknown descriptor corruption");
   }
   bool dispatch(size_t id, Clk_t clk, bool issue, int context_id, int descriptor,
-                const std::string& command, bool stale_request, bool foreign_device) {
+                const std::string& command, bool foreign_device) {
     auto& record = records.at(id);
-    auto& req = stale_request ? saved.at(descriptor).first : record.req;
+    auto& req = record.req;
     auto occurrence = descriptor < 0 ? describe_pud_occurrence(req, req.occurrence_index, *device.m_spec)
-                                     : saved.at(descriptor).second;
+                                     : saved.at(descriptor);
     if (!command.empty()) occurrence.command = device.m_spec->get_command_id(command);
     auto* context = context_id == -2 ? nullptr : records.at(context_id < 0 ? id : context_id).context.get();
     // A second Device rejects a context minted by the first before any access.
@@ -248,19 +248,27 @@ class ComputeRangesUnderTest {
     req = std::move(copied);
     return true;
   }
-  nb::dict state(size_t id, Clk_t clk) const {
+  nb::dict state(size_t id) const {
     const auto& record = records.at(id);
     const auto& context = *record.context;
     nb::dict out = located_snapshot(record.req, false);
     static const char* phases[] = {"Closed", "PuDChargeSharing", "PuDSensed", "Recovering"};
     out["phase"] = phases[static_cast<int>(context.phase())];
-    out["activated_operands"] = context.activated_operands();
+    // Observation only: active identities come from the authoritative issued
+    // prefix. Terminal PRE closes that view without erasing Request history.
+    std::vector<size_t> activated;
     std::vector<AddrVec_t> rows;
-    for (auto operand : context.activated_operands()) rows.push_back(context.locations()->operands[operand].external);
+    if (context.phase() != PuDComputeContext::Phase::Recovering) {
+      for (size_t i = 0; i < record.req.occurrence_index; ++i) {
+        if (record.req.occurrence_issue_history.at(i) == Request::kOccurrenceNotIssued) continue;
+        const auto occurrence = describe_pud_occurrence(record.req, i, *device.m_spec);
+        if (!device.m_spec->command_meta[occurrence.command].is_opening) continue;
+        activated.push_back(occurrence.operand_index);
+        rows.push_back(occurrence.location()->external);
+      }
+    }
+    out["activated_operands"] = activated;
     out["activated_rows"] = rows;
-    out["last_issue"] = context.last_issue_clk();
-    out["recovery_clk"] = context.recovery_ready_clk();
-    out["recovery_ready"] = context.recovery_ready(clk);
     out["same_bundle"] = record.req.pud_locations == context.locations();
     return out;
   }
@@ -305,7 +313,7 @@ class ComputeRangesUnderTest {
   Clk_t last_shared_issue = -1;
   struct Record { Request req; std::unique_ptr<PuDComputeContext> context; };
   std::vector<Record> records;
-  std::vector<std::pair<Request, PuDOccurrence>> saved;
+  std::vector<PuDOccurrence> saved;
 };
 
 // W4 drives the same ControllerBase buffers/retirement/completion inherited by
@@ -356,7 +364,7 @@ class ComputeLifecycleUnderTest : public ControllerBase {
   bool available(const Request& req, int engine) const {
     return pud_compute_resources_available(req, engine);
   }
-  void dispatch(int source, Clk_t clk, bool coincident_terminal) {
+  void dispatch(int source, Clk_t clk, bool coincident_terminal, Clk_t retirement_delay) {
     advance(clk);
     auto [buffer, it] = find(source);
     auto& context = protected_pud_context(*it);
@@ -369,8 +377,14 @@ class ComputeLifecycleUnderTest : public ControllerBase {
     it->command = occurrence.command;
     m_device.issue_pud_command(*it, occurrence, &context, m_clk);
     last_issue = clk;
-    if (occurrence.terminal) retire_request(it, *buffer);
-    else if (buffer != &m_active_buffer) promote_to_active(it, *buffer);
+    if (occurrence.terminal) {
+      // Diagnostic fixture only: distinguish issue time from retirement time.
+      // Normal controller sequencing retires immediately at terminal PRE.
+      if (retirement_delay != 0) advance(clk + retirement_delay);
+      retire_request(it, *buffer);
+    } else if (buffer != &m_active_buffer) {
+      promote_to_active(it, *buffer);
+    }
   }
   void capacity(size_t pending, size_t active) {
     m_pud_buffer.max_size = pending;
@@ -453,9 +467,10 @@ class ComputeLifecycleUnderTest : public ControllerBase {
       nb::dict item;
       item["engine"] = record.engine;
       item["phase"] = static_cast<int>(record.context->phase());
-      item["recovery"] = record.context->recovery_ready_clk();
+      const auto pending = std::find_if(m_pending.begin(), m_pending.end(),
+          [&](const Request& req) { return req.pud_compute_context.lock() == record.context; });
+      item["depart"] = pending == m_pending.end() ? nb::none() : nb::cast(pending->depart);
       item["completion_pending"] = record.completion_pending;
-      item["rows"] = record.context->activated_operands();
       held.append(item);
     }
     out["held"] = held;
@@ -651,7 +666,7 @@ inline void bind_pud_request_harness(nb::module_& m) {
       .def("reserve", &ComputeLifecycleUnderTest::reserve)
       .def("available", &ComputeLifecycleUnderTest::available)
       .def("dispatch", &ComputeLifecycleUnderTest::dispatch, nb::arg("source"), nb::arg("clk"),
-           nb::arg("coincident_terminal") = false)
+           nb::arg("coincident_terminal") = false, nb::arg("retirement_delay") = 0)
       .def("advance", &ComputeLifecycleUnderTest::advance)
       .def("capacity", &ComputeLifecycleUnderTest::capacity)
       .def("save", &ComputeLifecycleUnderTest::save)
@@ -671,8 +686,8 @@ inline void bind_pud_request_harness(nb::module_& m) {
       .def("corrupt_descriptor", &ComputeRangesUnderTest::corrupt_descriptor)
       .def("dispatch", &ComputeRangesUnderTest::dispatch, nb::arg("id"), nb::arg("clk"),
            nb::arg("issue") = false, nb::arg("context_id") = -1, nb::arg("descriptor") = -1,
-           nb::arg("command") = "", nb::arg("stale_request") = false, nb::arg("foreign_device") = false)
-      .def("state", &ComputeRangesUnderTest::state, nb::arg("id"), nb::arg("clk") = 0)
+           nb::arg("command") = "", nb::arg("foreign_device") = false)
+      .def("state", &ComputeRangesUnderTest::state, nb::arg("id"))
       .def("shared", &ComputeRangesUnderTest::shared)
       .def("raw", &ComputeRangesUnderTest::raw, nb::arg("command"), nb::arg("addr"), nb::arg("clk"),
            nb::arg("issue") = false)

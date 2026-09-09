@@ -1,0 +1,304 @@
+diff --git a/src/ramulator/base/request.h b/src/ramulator/base/request.h
+index 54d4560..5c64cdd 100644
+--- a/src/ramulator/base/request.h
++++ b/src/ramulator/base/request.h
+@@ -16,6 +16,30 @@ namespace Ramulator {
+ 
+ class PuDComputeContext;
+ 
++/*
++ * LocationResolver + PairedOperands (pud_location.h)
++ *                        |
++ *                        v
++ *           +---------------------------+
++ *           | RequestLocations          |
++ *           | immutable placement       |
++ *           +-------------+-------------+
++ *                         | shared const, retained by
++ *                         v
++ *           +---------------------------+
++ *           | Request                   | <-- YOU ARE HERE
++ *           | sole mutable cursor       |
++ *           | sole issue history        |
++ *           +-------------+-------------+
++ *                         |
++ *                         +--> occurrence/movement views (pud_sequence.h)
++ *                         +-- weak --> PuDComputeContext (device.h)
++ *                                      ^
++ *                                      | owns lifetime
++ *                                ProtectedCompute (controller_base.h)
++ * Copies/retries share placement; sequence progress stays Request-owned.
++ */
++
+ namespace PuD {
+ // Immutable placement only. Request owns the sole mutable occurrence cursor
+ // and issue history. Copies, retries, and completion/occurrence descriptors
+diff --git a/src/ramulator/controller/controller_base.h b/src/ramulator/controller/controller_base.h
+index c8211ef..a43c9cc 100644
+--- a/src/ramulator/controller/controller_base.h
++++ b/src/ramulator/controller/controller_base.h
+@@ -23,6 +23,29 @@ class IFrontEnd;
+ class IMemorySystem;
+ class PuDConflictUnderTest;
+ 
++/*
++ * Located Request + explicit reservation
++ *                    |
++ *                    v
++ *        +----------------------------------+
++ *        | ControllerBase::ProtectedCompute | <-- YOU ARE HERE
++ *        +----------------+-----------------+
++ *                         | owns lifetime
++ *                         v
++ *                +-------------------+
++ * Request -weak->| PuDComputeContext |<-weak- Device registry
++ *                +-------------------+       (conflict visibility)
++ *                         |
++ *         terminal PRE -> recovery -> release -> completion/callback
++ *               |
++ *               v
++ *        Request moves to m_pending; protection outlives command scheduling.
++ *
++ * Request owns sequence progress; context (device.h) owns temporal state.
++ * W1-W5 retain protected resource identity/lifetime via explicit reservations.
++ * Production E=8 engine-pool allocation is W7 and is not implemented here yet.
++ */
++
+ // Shared infrastructure for all DRAM controller implementations.
+ // Provides buffers, stats, sub-component management, and low-level scheduling
+ // helpers. Subclasses own their tick() policy and protocol-specific behavior.
+diff --git a/src/ramulator/controller/pud_sequence.h b/src/ramulator/controller/pud_sequence.h
+index 9dce628..a556679 100644
+--- a/src/ramulator/controller/pud_sequence.h
++++ b/src/ramulator/controller/pud_sequence.h
+@@ -10,6 +10,27 @@ namespace Ramulator {
+ 
+ class DRAMSpec;
+ 
++/*
++ * Request cursor/history + operands (request.h)
++ *                  |
++ *                  v
++ *        +-------------------------+
++ *        | PuDOccurrence           | <-- YOU ARE HERE
++ *        | current descriptor/view |
++ *        +------------+------------+
++ *                     |
++ *                     v
++ *        Device dispatch + PuDComputeContext (device.h)
++ *
++ * Movement Request history ---> +-------------------------+
++ *                               | PuDMovementState        |
++ *                               | derived view only       |
++ *                               +-------------------------+
++ * Views retain placement, never independent progress. Request owns the cursor;
++ * context owns phase/recovery. Movement owns_bank covers sequence activity,
++ * not the recovery exclusion enforced by controller/Device checks.
++ */
++
+ enum class PuDOccurrenceRole {
+   Operand,
+   Source,
+diff --git a/src/ramulator/dram/device.h b/src/ramulator/dram/device.h
+index 1155408..010f0b6 100644
+--- a/src/ramulator/dram/device.h
++++ b/src/ramulator/dram/device.h
+@@ -14,6 +14,27 @@ namespace Ramulator {
+ struct PuDOccurrence;
+ class DRAMDevice;
+ 
++/*
++ * Request + PuDOccurrence (request.h / pud_sequence.h)
++ *                      |
++ *                      v
++ *               DRAMDevice dispatch
++ *                      | checks/updates
++ *                      v
++ *           +--------------------------+
++ *           | PuDComputeContext        | <-- YOU ARE HERE
++ *           | phase / activated IDs    |
++ *           | recovery; NO cursor      |
++ *           +--------------------------+
++ *                      ^
++ *                      | owns lifetime
++ *           ProtectedCompute (controller_base.h)
++ *
++ * Device registry -- weak --> context (conflict visibility only)
++ * DRAMDevice -- owns --> DRAMNode tree (node.h: conventional/shared state)
++ * Request owns sequence/history; context retains locations for one lockstep range.
++ */
++
+ // One explicit temporal record per lockstep compute invocation, never per mat.
+ // The retained W2 bundle identifies the invocation across Request copies. The
+ // Request remains the sole owner of primitive/order/cursor and issue history.
+diff --git a/src/ramulator/dram/node.h b/src/ramulator/dram/node.h
+index 93b6417..070d5b1 100644
+--- a/src/ramulator/dram/node.h
++++ b/src/ramulator/dram/node.h
+@@ -11,6 +11,25 @@
+ 
+ namespace Ramulator {
+ 
++/*
++ * DRAMDevice (device.h) -- owns --> root
++ *                                   |
++ *                                   v
++ *                     +---------------------------+
++ * command/timing ---->| DRAMNode tree             | <-- YOU ARE HERE
++ * checks              | conventional state        |
++ *                     | shared timing history     |
++ *                     +---------------------------+
++ * DRAMDevice borrows Bank pointers; each node owns its children.
++ *
++ * V2 compute-local authority stays outside this tree:
++ *   Request (request.h) ------> PRADA occurrence history
++ *   PuDComputeContext -------> phase / recovery (device.h)
++ * ProtectedCompute (controller_base.h) guards conflicting work through recovery.
++ * V2 dispatch checks shared deadlines and updates Channel timing; local PRADA
++ * history and range PRE recovery do not become Bank-global node state.
++ */
++
+ /**
+  * @brief     DRAM Device Node — represents one level in the DRAM hierarchy
+  *
+diff --git a/src/ramulator/dram/pud_location.h b/src/ramulator/dram/pud_location.h
+index 1503049..e871ca3 100644
+--- a/src/ramulator/dram/pud_location.h
++++ b/src/ramulator/dram/pud_location.h
+@@ -14,6 +14,136 @@ struct DRAMSpec;
+ 
+ namespace PuD {
+ 
++/*
++ * MIMDRAM/PuD v2 source architecture -- W1-W5
++ * Simulator abstractions, not literal 1:1 MIMDRAM hardware blocks.
++ * Paths are relative to src/ramulator/. Unlabeled arrows show data/control use.
++ *
++ * +----------------------------------------------------------------------------------+
++ * | 1. PLACEMENT / GEOMETRY                                     dram/pud_location.h  |
++ * |                                                                                  |
++ * | PhysicalBit / LayoutRegion          +----------------------+                     |
++ * |             |                       | PlacementProfile     |                     |
++ * |             |                       | MappingContext       |                     |
++ * |             |                       +-----------+----------+                     |
++ * |             |                                   |                                |
++ * |             v                                   v                                |
++ * |       +------------------+ <--- profile/routing + DRAMSpec                       |
++ * |       | LocationResolver |                                                       |
++ * |       +-----+--------+---+                                                       |
++ * |             |        |                                                           |
++ * |             v        v                                                           |
++ * |           CellID   ResolvedRegion                                                |
++ * |                      |                                                           |
++ * |                      v                                                           |
++ * |                 PairedOperand (region + checked external projection)             |
++ * |                                                                                  |
++ * | WHERE modeled data lives; no timing, execution state, or payload values.         |
++ * +----------------------------------------------------------------------------------+
++ *                                         |
++ *                                         v
++ * +----------------------------------------------------------------------------------+
++ * | 2. REQUEST / SEQUENCE                                          base/request.h    |
++ * |                                                   controller/pud_sequence.h      |
++ * |                                                                                  |
++ * |           +-------------------------+                                            |
++ * |           | RequestLocations        |                                            |
++ * |           | immutable placement     |                                            |
++ * |           +------------+------------+                                            |
++ * |                        | retained by (shared const)                              |
++ * |                        v                                                         |
++ * |           +-------------------------+                                            |
++ * |           | Request                 |                                            |
++ * |           | primitive + operands    |                                            |
++ * |           | sole mutable cursor     | <-- sequence authority                     |
++ * |           | sole issue history      |                                            |
++ * |           +------------+------------+                                            |
++ * |                        | describes current index                                 |
++ * |                        v                                                         |
++ * |                  PuDOccurrence (current descriptor/view)                         |
++ * |                                                                                  |
++ * | Movement Request cursor/history ---> +-------------------------+                 |
++ * |                                      | PuDMovementState        |                 |
++ * |                                      | derived view only       |                 |
++ * |                                      | NO independent state    |                 |
++ * |                                      +-------------------------+                 |
++ * +----------------------------------------------------------------------------------+
++ *                                         |
++ *                                         v
++ * +----------------------------------------------------------------------------------+
++ * | 3. COMPUTE TEMPORAL STATE                                       dram/device.h    |
++ * |                                                                                  |
++ * | Request + PuDOccurrence ---> DRAMDevice dispatch                                 |
++ * |                                      | checks/updates                            |
++ * |                                      v                                           |
++ * |                         +--------------------------+                             |
++ * |                         | PuDComputeContext        |                             |
++ * |                         | retained locations       |                             |
++ * |                         | phase                    |                             |
++ * |                         | activated operand IDs    |                             |
++ * |                         | consistency stamp        |                             |
++ * |                         | recovery deadline        |                             |
++ * |                         +--------------------------+                             |
++ * |                          NO occurrence cursor here.                              |
++ * +----------------------------------------------------------------------------------+
++ *                                         |
++ *                                         v
++ * +----------------------------------------------------------------------------------+
++ * | 4. OWNERSHIP / PROTECTED LIFETIME                controller/controller_base.h    |
++ * |                                                                                  |
++ * |                    +----------------------------------+                          |
++ * |                    | ControllerBase::ProtectedCompute |                          |
++ * |                    +----------------+-----------------+                          |
++ * |                                     | owns                                       |
++ * |                                     v                                            |
++ * |                          +---------------------+                                 |
++ * | Request ------ weak ---->| PuDComputeContext   |<---- weak ----+                 |
++ * |                          +---------------------+               |                 |
++ * |                                                DRAMDevice registry               |
++ * |                                                (conflict visibility only)        |
++ * |                                                                                  |
++ * | reservation -> active -> terminal PRE -> recovery -> release                     |
++ * |                                                        |                         |
++ * |                                                        v                         |
++ * |                                            completion/accounting -> callback     |
++ * |                                                                                  |
++ * | Protected resource identity/lifetime exists in W1-W5.                            |
++ * | Production E=8 engine-pool allocation is W7, NOT implemented here.               |
++ * +----------------------------------------------------------------------------------+
++ *                                         |
++ *                         conflict guards |
++ *                                         v
++ * +----------------------------------------------------------------------------------+
++ * | 5. CONVENTIONAL / SHARED DRAM STATE                               dram/node.h    |
++ * |                                                                                  |
++ * | DRAMDevice -- owns -> +----------------------------------------+                 |
++ * |                       | DRAMNode tree                          |                 |
++ * | command/timing ------>| Channel -> Rank -> ... -> Bank         |                 |
++ * | checks                | m_state / m_row_state                  |                 |
++ * |                       | shared timing history                  |                 |
++ * |                       +----------------------------------------+                 |
++ * |                                                                                  |
++ * | DRAMNode does NOT own v2 compute-local PRADA state/timing.                       |
++ * | Request history + PuDComputeContext retain that local authority.                 |
++ * +----------------------------------------------------------------------------------+
++ *
++ * Mental model:
++ * pud_location.h     = WHERE modeled data lives
++ * request.h          = WHAT request + sequence progress
++ * pud_sequence.h     = WHICH occurrence / derived movement view
++ * device.h           = invocation-local temporal state
++ * controller_base.h  = WHO owns/protects it and for how long
++ * node.h             = conventional/shared DRAM state
++ */
++
++/*
++ * Local placement contract:
++ * Resolver / resolved results -- share --> immutable LocationAssociation
++ *                                          (owns profile/routing data)
++ * PairedOperand retains the region and checked external projection.
++ * BurstColumn and Group are distinct. Modeled placement is not vendor wiring.
++ */
++
+ // External compact Column and internal ordered group are deliberately distinct.
+ struct BurstColumn {
+   int value;

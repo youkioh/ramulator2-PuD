@@ -68,7 +68,6 @@ void DRAMDevice::validate_pud_command(const Request& req, const PuDOccurrence& o
     throw std::logic_error("Inconsistent compute occurrence history");
   }
   Clk_t last = Request::kOccurrenceNotIssued;
-  std::vector<size_t> activated;
   for (size_t i = 0; i < req.occurrence_issue_history.size(); ++i) {
     const auto issued = req.occurrence_issue_history[i];
     if (i < req.occurrence_index) {
@@ -76,16 +75,9 @@ void DRAMDevice::validate_pud_command(const Request& req, const PuDOccurrence& o
         throw std::logic_error("Missing or unordered compute occurrence history");
       }
       last = issued;
-      const auto prior = describe_pud_occurrence(req, i, *m_spec);
-      if (m_spec->command_meta[prior.command].is_opening) {
-        activated.push_back(prior.operand_index);
-      }
     } else if (issued != Request::kOccurrenceNotIssued) {
       throw std::logic_error("Premature compute occurrence history");
     }
-  }
-  if (last != context->m_last_issue_clk || activated != context->m_activated_operands) {
-    throw std::logic_error("Stale Request does not match range temporal state");
   }
 
   using Phase = PuDComputeContext::Phase;
@@ -142,18 +134,16 @@ void DRAMDevice::issue_pud_command(Request& req, const PuDOccurrence& occurrence
   const auto& command = m_spec->command_names[occurrence.command];
   using Phase = PuDComputeContext::Phase;
   if (occurrence.terminal) {
-    context->m_activated_operands.clear();
+    // Recovery time is recorded by the terminal Request occurrence below;
+    // Controller retirement derives depart and retains protection until then.
     context->m_phase = Phase::Recovering;
-    context->m_recovery_ready_clk = clk + m_spec->get_timing_value("nRP");
   } else if (command != "N") {
-    context->m_activated_operands.push_back(occurrence.operand_index);
     if (command == "ACT_PUD_OC") {
       context->m_phase = Phase::ChargeSharing;
     } else if (command == "ACT_PUD_S" || command == "ACT_PUD_S_OC") {
       context->m_phase = Phase::Sensed;
     }
   }
-  context->m_last_issue_clk = clk;
   // Commit the existing sole Request cursor/history together with the action.
   // Callers must not observe the same occurrence again after this seam returns.
   observe_pud_command_issue(req, occurrence.command, clk, *m_spec);
