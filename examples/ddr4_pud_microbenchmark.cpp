@@ -12,6 +12,7 @@
 #include "ramulator/base/request.h"
 #include "ramulator/frontend/i_frontend.h"
 #include "ramulator/memory_system/i_memory_system.h"
+#include "pud_v2_microbenchmark.h"
 
 namespace {
 
@@ -81,6 +82,9 @@ int main(int argc, char* argv[]) {
     const std::string trace_path = argc > 2 ? argv[2] : "build/ddr4_pud_trace.csv.ch0";
 
     auto config = Ramulator::Config::parse_config_file(config_path);
+    if (argc > 3 && std::string(argv[3]) == "v2") {
+      return PuDV2Benchmark::run(config, trace_path, false);
+    }
     std::unique_ptr<Ramulator::IFrontEnd> frontend(Ramulator::Factory::create_frontend(config));
     std::unique_ptr<Ramulator::IMemorySystem> memory_system(Ramulator::Factory::create_memory_system(config));
     frontend->connect_memory_system(memory_system.get());
@@ -102,6 +106,9 @@ int main(int argc, char* argv[]) {
     for (const auto& workload : workloads) {
       bool completed = false;
       Request request(workload.operands, workload.type);
+      if (workload.source_id < 0 || workload.source_id >= frontend->get_num_cores()) {
+        throw std::runtime_error("Benchmark source_id exceeds configured num_cores");
+      }
       request.source_id = workload.source_id;
       request.size_bytes = memory_system->get_tx_bytes();
       request.callback = [&](Request& done) {

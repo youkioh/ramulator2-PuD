@@ -91,8 +91,8 @@ class DRAMDevice {
   // Timing-only check — hierarchical (walks node tree)
   bool check_timing(int command, const AddrVec_t& addr_vec, Clk_t clk);
 
-  // Internal range construction; this creates no allocation or ownership. Public
-  // v2 submission remains disabled. Occurrences are checked against the current
+  // Range construction creates no ownership; GenericDDR allocates protection
+  // before public compute issue. Occurrences are checked against the current
   // authoritative Request before any timing/action. Null/foreign associations
   // and stale occurrences fail; callers must not dispatch divergent Request copies.
   std::unique_ptr<PuDComputeContext> make_pud_compute_context(const Request& req) const;

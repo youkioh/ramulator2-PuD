@@ -8,6 +8,8 @@
 // Test-only access to W1's location component, with no v2 execution capability.
 class LocationResolverUnderTest {
  public:
+  explicit LocationResolverUnderTest(std::shared_ptr<const PuD::LocationResolver> resolver)
+      : m_resolver(std::move(resolver)) {}
   LocationResolverUnderTest(nb::dict dram, nb::dict routing, nb::dict overrides) {
     ConfigNode cfg = py_to_confignode(dram);
     auto spec = DRAMSpec::create(cfg["impl"].as<std::string>(), ConfigNode(ConfigNode::Map{{"dram", cfg}}));

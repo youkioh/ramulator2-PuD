@@ -1,6 +1,6 @@
 # MIMDRAM-based PuD substrate v2 implementation plan
 
-Status: Implementation in progress — Phase 1 and W3-W7 complete, including W6 baseline alignment; W8-W9 not started.
+Status: Implementation in progress — Phases 1 and 2 (W1-W8) complete, including W6 baseline alignment; W9 not started.
 
 ## Implementation progress (2026-09-09)
 
@@ -58,8 +58,44 @@ Status: Implementation in progress — Phase 1 and W3-W7 complete, including W6 
   with active work before priority and ordinary/movement pending arbitration.
   The local candidate path leaves both generic schedulers unchanged. W4 releases
   engine/range before completion accounting/callback; public v2 ingress stays closed.
-- **W8-W9: Not started.** Public v2 integration, microbenchmarks and final
-  integration closure remain future work.
+- **W8: Completed.** Explicit GenericDDR profile selection installs the W1/W2
+  shared resolver and validates setup compatibility. Normal GenericDRAM/controller
+  ingress accepts paired compute and movement Requests; compute enters the
+  existing PuD buffer and W7 allocation/protection/arbitration path. Priority and
+  unallocated direct compute issue remain closed. Both existing benchmarks now
+  have explicit v2 scenarios and profile-backed export configurations, preserving
+  legacy invocations. Results retain immutable RequestLocations and use existing
+  traces/callbacks. External core counts bound all benchmark source IDs; the
+  shared W5-W7 fixture configures twelve cores for W6's sources 0..11 and W7's
+  ninth request, with explicit source bounds checks. Live architecture comments
+  describe W1-W8 and the T-A baseline.
+- **Phase 2: Completed.** Public v2 substrate integration and the W8 exit checks
+  are complete. **W9 is not started.**
+
+W8 verification: final public/paired-boundary run passed 309 tests (66 W8 and
+243 W2, exit 0). Public cases cover all five 61/66/76/99/104 CK anchors,
+multi-destination 40+5D+16, widths including chip crossings/full range, E=1/2/8,
+same-operation/heterogeneous progress, first fit and ninth-engine waiting,
+pre-ACT ownership, actual C/A contention, movement exclusion through recovery,
+LC/GB 130/75, callback dependency joins, enqueue backpressure and exact-once
+recovery accounting. Both schedulers drain the 6000-CK AllBank mixed stream.
+Malformed direct movement issue probes reject before prerequisite indexing.
+The controller regression run passed 783 tests (exit 0); the final focused
+run additionally covers two subsequently added public contention cases.
+Device/location/smoke regressions passed 395 tests (exit 0).
+After the final source-ID fixture correction, all 237 directly affected W5-W7
+tests passed again (exit 0).
+
+Both documented legacy export/run commands and both v2 benchmarks at E=1/2/8
+passed. Codegen and builds of `ramulator`, `_ramulator`, `_ramulator_test`,
+`ddr4_pud_microbenchmark` and `mimdram_movement_microbenchmark` passed.
+Generated DRAM definitions and both generic scheduler implementations are
+unchanged. Phase 2 production diff and the complete W8 diff were reviewed for
+ingress bypass, legacy compute fallback, duplicate authoritative state,
+transport resurrection and excluded workload scope; `git diff --check` passed.
+Reproducible usage and T-A fidelity limits are in the existing
+[user guide](../ddr4-pud-user-guide.md#explicit-v2-substrate-runs).
+No W8 blocker remains; the W9 fresh-context integration audit remains deferred.
 
 W7 verification: 63 focused tests passed, including both schedulers, E=1/2/8,
 pre-ACT and recovery capacity, pool scope, homogeneous/heterogeneous interleaving,
@@ -997,4 +1033,5 @@ transport-abstraction update records T-A, narrowly updates C-T and this plan,
 and leaves code, source references, AGENTS.md and W7 execution unchanged.
 The separately authorized W6 baseline alignment and W7 allocation/arbitration
 are now implemented and validated as recorded above, including the recorded
-native-regression limitations. W8 remains unstarted.
+native-regression limitations. W8 is now implemented and validated as recorded
+above; W9 remains unstarted.

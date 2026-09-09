@@ -9,11 +9,14 @@ class ExternalFrontEnd : public IFrontEnd, public Implementation {
  public:
   void init() override {
     RAMULATOR_PARSE_PARAM(m_clock_ratio, unsigned int, "clock_ratio").required();
+    RAMULATOR_PARSE_PARAM(m_num_cores, int, "num_cores").default_val(1);
+    if (m_num_cores <= 0) throw std::runtime_error("External num_cores must be positive");
   }
 
   void tick() override {}
 
   bool is_finished() override { return false; }
+  int get_num_cores() override { return m_num_cores; }
 
   bool receive_external_requests(int req_type_id, Addr_t addr, int source_id,
                                  std::function<void(Request&)> callback,
@@ -31,6 +34,8 @@ class ExternalFrontEnd : public IFrontEnd, public Implementation {
     req.size_bytes = size_bytes;
     return m_memory_system->send(req);
   }
+ private:
+  int m_num_cores = 1;
 };
 
 }  // namespace Ramulator

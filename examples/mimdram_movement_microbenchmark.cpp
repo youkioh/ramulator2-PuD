@@ -13,6 +13,7 @@
 #include "ramulator/base/request.h"
 #include "ramulator/frontend/i_frontend.h"
 #include "ramulator/memory_system/i_memory_system.h"
+#include "pud_v2_microbenchmark.h"
 
 namespace {
 
@@ -155,6 +156,8 @@ Result run_case(const ConfigNode& base_config, const Scenario& scenario, const s
   Clk_t arrive = -1;
   Clk_t depart = -1;
   Request request({address(100, 3), address(101, 5)}, scenario.type);
+  require(scenario.source_id >= 0 && scenario.source_id < frontend->get_num_cores(),
+          "Benchmark source_id exceeds configured num_cores");
   request.source_id = scenario.source_id;
   request.size_bytes = Request::kMovementSizeBytesNotApplicable;
   if (scenario.type == Request::Type::LCMOV) {
@@ -278,6 +281,9 @@ int main(int argc, char* argv[]) {
     const std::string config_path = argc > 1 ? argv[1] : "build/mimdram_movement_microbenchmark.yaml";
     const std::string trace_prefix = argc > 2 ? argv[2] : "build/mimdram_movement_trace";
     const auto config = Ramulator::Config::parse_config_file(config_path);
+    if (argc > 3 && std::string(argv[3]) == "v2") {
+      return PuDV2Benchmark::run(config, trace_prefix + ".ch0", true);
+    }
 
     const std::vector<std::string> lc_commands = {"ACT_MOV", "RD_MOV", "PREpb", "ACT_MOV", "WR_MOV", "PREpb"};
     const std::vector<Clk_t> lc_cycles = {0, 16, 39, 55, 94, 114};

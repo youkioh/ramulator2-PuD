@@ -47,6 +47,15 @@ class GenericDRAMSystem final : public IMemorySystem, public Implementation {
     // Setup channel mapper with controller info
     m_tx_bytes = m_controllers[0]->get_tx_bytes();
     m_channel_mapper->setup(static_cast<int>(m_controllers.size()), calc_log2(m_tx_bytes));
+    for (const auto* controller : m_controllers) {
+      if (const auto resolver = controller->location_resolver()) {
+        const auto& routing = resolver->association().routing;
+        if (routing.channels != static_cast<int>(m_controllers.size()) ||
+            routing.channel_mapper != m_channel_mapper->m_impl->get_name()) {
+          throw std::runtime_error("memory-system routing disagrees with location profile");
+        }
+      }
+    }
 
     m_stats.add("total_num_read_requests", s_num_read_requests);
     m_stats.add("total_num_write_requests", s_num_write_requests);
@@ -76,6 +85,10 @@ class GenericDRAMSystem final : public IMemorySystem, public Implementation {
   void setup(IFrontEnd* frontend, IMemorySystem* memory_system) override {
   }
 
+  std::shared_ptr<const PuD::LocationResolver> location_resolver() const override {
+    return m_controllers.front()->location_resolver();
+  }
+
   bool send(Request& req) override {
     if (!is_valid_external_request_size(req.type_id, req.size_bytes, m_tx_bytes)) {
       if (is_movement_request_type(req.type_id)) {
@@ -90,7 +103,7 @@ class GenericDRAMSystem final : public IMemorySystem, public Implementation {
     }
 
     int channel_id = -1;
-    const auto* resolver = m_controllers[0]->location_resolver();
+    const auto resolver = location_resolver();
     if (resolver) {
       const auto& routing = resolver->association().routing;
       if (routing.channels != static_cast<int>(m_controllers.size()) ||
@@ -98,7 +111,7 @@ class GenericDRAMSystem final : public IMemorySystem, public Implementation {
         throw std::runtime_error("memory-system routing disagrees with location profile");
       }
       if (is_pud_request_type(req.type_id)) {
-        validate_pud_pairs(req, resolver);
+        validate_pud_pairs(req, resolver.get());
       } else {
         // Resolve before channel compaction; req.addr preserves this origin
         // for the controller's final conventional-mapper consistency check.

@@ -15,136 +15,44 @@ struct DRAMSpec;
 namespace PuD {
 
 /*
- * MIMDRAM/PuD v2 source architecture -- W1-W7
- * Simulator abstractions, not literal 1:1 MIMDRAM hardware blocks.
- * Paths are relative to src/ramulator/. Unlabeled arrows show data/control use.
+ * MIMDRAM/PuD v2 source architecture -- W1-W8
+ * Simulator abstractions; no payload values or physical target transport.
  *
- * +----------------------------------------------------------------------------------+
- * | 1. PLACEMENT / GEOMETRY                                     dram/pud_location.h  |
- * |                                                                                  |
- * | PhysicalBit / LayoutRegion          +----------------------+                     |
- * |             |                       | PlacementProfile     |                     |
- * |             |                       | MappingContext       |                     |
- * |             |                       +-----------+----------+                     |
- * |             |                                   |                                |
- * |             v                                   v                                |
- * |       +------------------+ <--- profile/routing + DRAMSpec                       |
- * |       | LocationResolver |                                                       |
- * |       +-----+--------+---+                                                       |
- * |             |        |                                                           |
- * |             v        v                                                           |
- * |           CellID   ResolvedRegion                                                |
- * |                      |                                                           |
- * |                      v                                                           |
- * |                 PairedOperand (region + checked external projection)             |
- * |                                                                                  |
- * | WHERE modeled data lives; no timing, execution state, or payload values.         |
- * +----------------------------------------------------------------------------------+
- *                                         |
- *                                         v
- * +----------------------------------------------------------------------------------+
- * | 2. REQUEST / SEQUENCE                                          base/request.h    |
- * |                                                   controller/pud_sequence.h      |
- * |                                                                                  |
- * |           +-------------------------+                                            |
- * |           | RequestLocations        |                                            |
- * |           | immutable placement     |                                            |
- * |           +------------+------------+                                            |
- * |                        | retained by (shared const)                              |
- * |                        v                                                         |
- * |           +-------------------------+                                            |
- * |           | Request                 |                                            |
- * |           | primitive + operands    |                                            |
- * |           | sole mutable cursor     | <-- sequence authority                     |
- * |           | sole issue history      |                                            |
- * |           +------------+------------+                                            |
- * |                        | describes current index                                 |
- * |                        v                                                         |
- * |                  PuDOccurrence (current occurrence view)                         |
- * |                                                                                  |
- * | Movement Request cursor/history ---> +-------------------------+                 |
- * |                                      | PuDMovementState        |                 |
- * |                                      | derived view only       |                 |
- * |                                      | NO independent state    |                 |
- * |                                      +-------------------------+                 |
- * +----------------------------------------------------------------------------------+
- *                                         |
- *                                         v
- * +----------------------------------------------------------------------------------+
- * | 3. COMPUTE TEMPORAL STATE                                       dram/device.h    |
- * |                                                                                  |
- * | Request + PuDOccurrence ---> DRAMDevice dispatch                                 |
- * |                                      | checks/updates                            |
- * |                                      v                                           |
- * |                         +--------------------------+                             |
- * |                         | PuDComputeContext        |                             |
- * |                         | Device association       |                             |
- * |                         | immutable locations      |                             |
- * |                         | Device-side phase        |                             |
- * |                         +--------------------------+                             |
- * | No cursor/history/deadline/activated-row shadow state lives here.                |
- * +----------------------------------------------------------------------------------+
- *                                         |
- *                                         v
- * +----------------------------------------------------------------------------------+
- * | 4. ALLOCATION / PROTECTED LIFETIME              controller/controller_base.h    |
- * |                                         controller/impl/generic_ddr_controller.cpp |
- * |                                                                                  |
- * | GenericDDR owns configurable E (default 8), shared across channel Banks/Ranks.    |
- * | m_pud_buffer retains both pending and allocated compute Requests.                |
- * | Unallocated Requests -- oldest-to-newest first fit -- reserve engine + range     |
- * |                                                       |                          |
- * |                                                       v                          |
- * |                                                                                  |
- * |                    +----------------------------------+                          |
- * |                    | ControllerBase::ProtectedCompute |                          |
- * |                    | engine + complete range ownership |                         |
- * |                    +----------------+-----------------+                          |
- * |                                     | owns                                       |
- * |                                     v                                            |
- * |                          +---------------------+                                 |
- * | Request ------ weak ---->| PuDComputeContext   |<---- weak ----+                 |
- * |                          +---------------------+               |                 |
- * |                                                DRAMDevice registry               |
- * |                                                (conflict visibility only)        |
- * |                                                                                  |
- * | Allocation derives from the Request/context association above.                  |
- * | Issue-ready allocated Requests -> narrow GenericDDR candidate path -> issue     |
- * |                                                                                  |
- * | reservation -> ACT wait/execution -> terminal PRE -> recovery -> release         |
- * |                                                        |                         |
- * |                                                        v                         |
- * |                                            completion/accounting -> callback     |
- * |                                                                                  |
- * | Engine/range stay protected through recovery; release at depart before callback. |
- * | No separate allocated-request container, allocator range table or target queue. |
- * | Active-buffer membership does not own or limit compute engines/ranges.           |
- * +----------------------------------------------------------------------------------+
- *                                         |
- *                         conflict guards |
- *                                         v
- * +----------------------------------------------------------------------------------+
- * | 5. CONVENTIONAL / SHARED DRAM STATE                               dram/node.h    |
- * |                                                                                  |
- * | DRAMDevice -- owns -> +----------------------------------------+                 |
- * |                       | DRAMNode tree                          |                 |
- * | command/timing ------>| Channel -> Rank -> ... -> Bank         |                 |
- * | checks                | m_state / m_row_state                  |                 |
- * |                       | shared timing history                  |                 |
- * |                       +----------------------------------------+                 |
- * |                                                                                  |
- * | DRAMNode does NOT own v2 compute-local PRADA state/timing.                       |
- * | Request owns local history; context owns phase; Controller owns recovery.        |
- * +----------------------------------------------------------------------------------+
+ * PhysicalBit / LayoutRegion + profile/routing + DRAMSpec
+ *                  |
+ *                  v
+ * LocationResolver (this file): canonical CellID / ResolvedRegion / PairedOperand
+ *                  |
+ *                  v
+ * RequestLocations (shared const) -> Request (base/request.h)
+ *                                  sole cursor + occurrence issue history
+ *                  |
+ * Public GenericDRAM::send -> GenericDDR::send -> m_pud_buffer
+ *                  |
+ * Oldest-to-newest first fit reserves engine + complete resolved MatRange.
+ * E=8 by default, shared across this controller/channel's Banks and Ranks.
+ * Pending and allocated compute Requests stay in the same PuD buffer.
+ *                  |
+ * Ready allocated compute competes with active work before priority/pending.
+ *                  |
+ * Controller issue -> Device consumes the current resolved PuDOccurrence.
+ *   ProtectedCompute -- owns --> PuDComputeContext (Device-side phase)
+ *   Request          -- weak --> context <-- weak -- Device conflict registry
+ *                  |
+ * terminal PRE -> Request moves to m_pending -> nRP recovery
+ *                  |
+ * release engine/range -> exact-once completion/accounting -> callback
  *
- * Mental model:
- * pud_location.h     = WHERE modeled data lives
- * request.h          = WHAT request + sequence progress
- * pud_sequence.h     = WHICH occurrence / derived movement view
- * device.h           = resolved-occurrence issue + phase + shared command occupancy
- * controller_base.h  = WHO owns/protects it and for how long
- * generic_ddr_controller.cpp = first-fit allocation + ready-compute arbitration
- * node.h             = conventional/shared DRAM state
+ * Request/context retain the W1/W2 location authority; no shadow range,
+ * request, cursor or local history. Allocation is independent of ACT readiness
+ * and active-buffer capacity. No separate allocated-request container.
+ *
+ * DRAMNode tree (Channel -> Rank -> ... -> Bank) owns conventional/shared
+ * state and timing. Compute timing uses Request-local history; range PRE
+ * cannot reset another context. Movement keeps its Bank lifecycle and derives
+ * endpoint/phase views from its paired Request and occurrence history.
+ * T-A consumes resolved targets at issue; ordinary shared command occupancy
+ * remains in Device. Physical target-delivery costs are omitted.
  */
 
 /*
@@ -259,9 +167,8 @@ struct PairedOperand {
   AddrVec_t external;
 };
 
-// W1 location-only support. Construction validates the proposed v2 placement
-// against an actual DRAMSpec and explicitly supplied mapping context. This does
-// not enable v2 requests or install anything in legacy mapping/execution paths.
+// Validates placement against an actual DRAMSpec and explicit mapping context.
+// GenericDDR installs this shared authority when its v2 profile is selected.
 class LocationResolver {
  public:
   LocationResolver(PlacementProfile profile, const DRAMSpec& spec, MappingContext context);

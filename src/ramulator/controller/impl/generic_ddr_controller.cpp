@@ -31,6 +31,17 @@ class GenericDDRController : public ControllerBase {
     if (m_device.m_spec->supports_movement_requests()) {
       m_movement_timing = make_movement_timing_constraints(*m_device.m_spec);
     }
+    std::string placement_profile;
+    RAMULATOR_PARSE_PARAM(placement_profile, std::string, "pud_placement_profile").default_val("");
+    if (!placement_profile.empty()) {
+      if (placement_profile != "MIMDRAM_DDR4_8Gb_x8_v1" || !supports_pud_v2()) {
+        throw std::runtime_error("Unsupported PuD placement profile or incomplete v2 capability");
+      }
+      set_location_resolver(std::make_shared<PuD::LocationResolver>(
+          PuD::PlacementProfile::mimdram_ddr4_8gb_x8_v1(), *m_device.m_spec,
+          PuD::MappingContext{"physical", 1, "CacheLineInterleave",
+                              m_addr_mapper->m_impl->get_name(), false, 0}));
+    }
   }
   void setup(IFrontEnd* frontend, IMemorySystem* memory_system) override {
     setup_base(frontend, memory_system);
@@ -48,6 +59,7 @@ class GenericDDRController : public ControllerBase {
   Candidate pick_allocated_compute();
 
   std::optional<bool> try_send_special_request(Request& req) override;
+  bool supports_pud_v2() const override { return m_device.m_spec->supports_movement_requests(); }
   bool is_pud_eligible_before_prerequisite(const Request& candidate) const override;
   bool is_retained_movement_owner(const Request& req) const;
 };

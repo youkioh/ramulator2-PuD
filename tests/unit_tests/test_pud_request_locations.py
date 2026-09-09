@@ -1,4 +1,4 @@
-"""W2 paired submission/consumer contract; v2 command execution stays disabled."""
+"""W2 paired submission/consumer contract and public ingress guards."""
 
 import gc
 
@@ -294,13 +294,17 @@ def test_real_memory_system_routing_retry_and_acceptance(name):
 @pytest.mark.parametrize("name", ALL)
 @pytest.mark.parametrize("path", ["system", "controller", "priority", "issue"])
 @pytest.mark.parametrize("install", [False, True])
-def test_incomplete_v2_never_enters_legacy_execution(name, path, install):
+def test_v2_requires_profile_and_cannot_bypass_normal_ingress(name, path, install):
     r = resolver()
     system = _LocatedSystemUnderTest(controller(), r, install=install)
     before = system.stats()
-    with pytest.raises(RuntimeError, match="execution is unavailable"):
-        system.send(request(r, name), path)
-    assert system.pending == 0 and system.stats() == before
+    if install and path in ("system", "controller"):
+        assert system.send(request(r, name), path)
+        assert system.pending == 1
+    else:
+        with pytest.raises(RuntimeError, match="execution is unavailable"):
+            system.send(request(r, name), path)
+        assert system.pending == 0 and system.stats() == before
 
 
 def test_invalid_ingress_acquires_nothing_and_changes_no_acceptance():

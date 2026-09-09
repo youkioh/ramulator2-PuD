@@ -32,7 +32,10 @@ bool ControllerBase::check_request_timing(const Request& req) {
 }
 
 bool ControllerBase::validate_request_for_issue(const Request& req) {
-  if (req.pud_locations || (m_location_resolver && is_pud_request_type(req.type_id))) {
+  if ((req.pud_locations && (!m_location_resolver || !supports_pud_v2() ||
+                            is_inherited_pud_request_type(req.type_id) ||
+                            req.command < 0 || req.final_command < 0)) ||
+      (m_location_resolver && is_pud_request_type(req.type_id) && !req.pud_locations)) {
     throw std::runtime_error("v2 PuD execution is unavailable");
   }
   if (!is_pud_eligible_before_prerequisite(req) ||
@@ -213,9 +216,11 @@ bool ControllerBase::send(Request& req) {
     validate_pud_routing(req, m_location_resolver ? m_location_resolver->association().routing.channels : 1);
     validate_pud_placement(req, *m_device.m_spec, m_channel_id,
                            get_pud_placement_levels(*m_device.m_spec), m_location_resolver.get());
-    // W2 validates/retains locations only. Never enqueue into legacy Bank-wide
-    // PuD execution, even if the selected standard recognizes the type id.
-    throw std::runtime_error("v2 PuD execution is unavailable");
+    if (!m_location_resolver || !supports_pud_v2()) {
+      throw std::runtime_error("v2 PuD execution is unavailable");
+    }
+    // Normal special-request admission retains the paired Request in the PuD
+    // buffer. Only GenericDDR's allocator may acquire compute protection.
   }
   if (req.type_id < 0 || req.type_id >= static_cast<int>(m_device.m_spec->supported_requests.size())) {
     throw std::runtime_error(fmt::format(

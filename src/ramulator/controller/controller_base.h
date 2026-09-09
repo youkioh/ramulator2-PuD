@@ -15,6 +15,8 @@
 #include "ramulator/controller/scheduler/i_scheduler.h"
 #include "ramulator/dram/device.h"
 
+class LocatedSystemUnderTest;
+
 namespace Ramulator {
 
 class IRefreshManager;
@@ -24,6 +26,7 @@ class IMemorySystem;
 class PuDConflictUnderTest;
 
 /*
+ * W1-W8: public GenericDRAM -> GenericDDR admission -> existing PuD buffer.
  * GenericDDR: E=8 default, shared across this channel's Banks/Ranks
  * m_pud_buffer: pending + allocated compute Requests (sole schedulable copies)
  *                    |
@@ -76,8 +79,9 @@ class ControllerBase : public IController, public Implementation {
   int get_num_levels() const override;
   float get_tCK() const override;
   bool supports_movement_requests() const override;
-  const PuD::LocationResolver* location_resolver() const override { return m_location_resolver.get(); }
-  // Setup-only location support. This does not enable v2 PuD execution.
+  std::shared_ptr<const PuD::LocationResolver> location_resolver() const override { return m_location_resolver; }
+  // Install the shared placement authority before traffic; execution also
+  // requires the derived controller's complete v2 capability.
   void set_location_resolver(std::shared_ptr<const PuD::LocationResolver> resolver);
 
   bool send(Request& req) override;
@@ -91,6 +95,7 @@ class ControllerBase : public IController, public Implementation {
 
  protected:
   friend class PuDConflictUnderTest;
+  friend class ::LocatedSystemUnderTest;
   ControllerBase(const ConfigNode& config, Implementation* parent)
       : Implementation(config, "controller", "ControllerBase", parent) {
   }
@@ -106,6 +111,7 @@ class ControllerBase : public IController, public Implementation {
   virtual std::optional<bool> try_send_special_request(Request& req) {
     return std::nullopt;
   }
+  virtual bool supports_pud_v2() const { return false; }
 
   // Sub-components
   IScheduler* m_scheduler = nullptr;

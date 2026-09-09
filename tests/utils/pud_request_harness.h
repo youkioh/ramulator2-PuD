@@ -79,6 +79,7 @@ inline Request located_request(const LocationResolverUnderTest& fixture, int typ
     operands.push_back(fixture.resolver()->pair(fixture.region(kind, row, mats[0], mats[1], group), column));
   }
   Request req(fixture.resolver(), std::move(operands), type);
+  req.source_id = 0;
   req.size_bytes = size;
   return req;
 }
@@ -90,8 +91,18 @@ class LocationHarnessObserver final : public IControllerPlugin, public Implement
 
  public:
   inline static ControllerBase* created_controller = nullptr;
+  nb::list events;
   void init() override {
     created_controller = cast_parent<ControllerBase>();
+  }
+  void on_issue(const Request& req) override {
+    auto out = located_snapshot(req, false);
+    auto* controller = cast_parent<ControllerBase>();
+    out["clk"] = controller->m_clk;
+    out["command"] = controller->m_device.m_spec->command_names.at(req.command);
+    out["source_id"] = req.source_id;
+    out["allocated"] = !req.pud_compute_context.expired();
+    events.append(out);
   }
 };
 
@@ -99,9 +110,12 @@ class LocatedSystemUnderTest {
  public:
   LocatedSystemUnderTest(nb::dict controller, const LocationResolverUnderTest& fixture,
                          const std::string& channel_mapper, bool install)
-      : m_frontend(std::make_unique<HarnessFrontEnd>(1)), m_resolver(fixture.resolver()) {
+      : m_frontend(std::make_unique<HarnessFrontEnd>(64)), m_resolver(fixture.resolver()) {
     auto config = py_to_confignode(controller);
-    config.set("controller_plugins", ConfigNode::Seq{ConfigNode::Map{{"impl", "LocationHarnessObserver"}}});
+    auto plugins = config["controller_plugins"];
+    if (!plugins.is_sequence()) plugins = ConfigNode(ConfigNode::Seq{});
+    plugins.push_back(ConfigNode::Map{{"impl", "LocationHarnessObserver"}});
+    config.set("controller_plugins", std::move(plugins));
     LocationHarnessObserver::created_controller = nullptr;
     ConfigNode sys(ConfigNode::Map{{"impl", "GenericDRAM"},
                                    {"clock_ratio", 1},
@@ -115,7 +129,9 @@ class LocatedSystemUnderTest {
     }
     m_frontend->connect_memory_system(m_system);
     m_system->connect_frontend(m_frontend.get());
-    if (install) {
+    if (m_system->location_resolver()) {
+      m_resolver = m_system->location_resolver();
+    } else if (install) {
       m_controller->set_location_resolver(m_resolver);
     }
   }
@@ -131,8 +147,64 @@ class LocatedSystemUnderTest {
     }
     return m_system->send(req);
   }
+  Request request(int type, nb::list descriptors, int size) const {
+    return located_request(LocationResolverUnderTest(m_resolver), type, descriptors, size);
+  }
+  bool submit(Request req, int source, nb::object callback) {
+    if (source < 0 || source >= m_frontend->get_num_cores()) throw std::invalid_argument("invalid fixture source_id");
+    req.source_id = source;
+    req.callback = [this, callback](Request& done) {
+      auto out = located_snapshot(done, false);
+      out["source_id"] = done.source_id;
+      out["arrive"] = done.arrive;
+      out["depart"] = done.depart;
+      out["held"] = m_controller->m_protected_compute.size();
+      completed.append(out);
+      if (!callback.is_none()) callback(out);
+    };
+    return m_system->send(req);
+  }
+  bool submit_ordinary(Addr_t addr, int type, int source) {
+    Request req(addr, type);
+    req.size_bytes = m_system->get_tx_bytes();
+    return submit(std::move(req), source, nb::none());
+  }
+  void advance(Clk_t clk) {
+    while (m_controller->m_clk < clk) m_system->tick();
+  }
+  nb::list issued() const {
+    for (auto* plugin : m_controller->m_plugins) {
+      if (auto* observer = dynamic_cast<LocationHarnessObserver*>(plugin)) return observer->events;
+    }
+    throw std::logic_error("missing observer");
+  }
+  nb::list completions() const { return completed; }
+  nb::dict scheduling() const {
+    nb::dict out;
+    nb::list pending, recovering;
+    auto snapshot = [&](const Request& req) {
+      auto item = located_snapshot(req, false);
+      item["source_id"] = req.source_id;
+      item["arrive"] = req.arrive;
+      const auto context = req.pud_compute_context.lock();
+      item["phase"] = context ? static_cast<int>(context->phase()) : -1;
+      item["engine"] = -1;
+      for (const auto& held : m_controller->m_protected_compute) {
+        if (held.context == context) item["engine"] = held.engine;
+      }
+      return item;
+    };
+    for (const auto& req : m_controller->m_pud_buffer.buffer) pending.append(snapshot(req));
+    for (const auto& req : m_controller->m_pending) recovering.append(snapshot(req));
+    out["pending"] = pending;
+    out["recovering"] = recovering;
+    out["held"] = m_controller->m_protected_compute.size();
+    out["active_size"] = m_controller->m_active_buffer.size();
+    return out;
+  }
   nb::dict ordinary(Addr_t address, int type, int size, bool cells, std::optional<Addr_t> wrong_intra) {
     Request req(address, type);
+    req.source_id = 0;
     req.size_bytes = size;
     bool callback_had_locations = false;
     req.callback = [&](Request& completed) { callback_had_locations |= bool(completed.pud_locations); };
@@ -165,6 +237,7 @@ class LocatedSystemUnderTest {
     return out;
   }
   nb::dict stats() const {
+    m_system->update_stats_recursive();
     return nb::cast<nb::dict>(confignode_to_py(m_system->collect_stats()));
   }
   nb::dict forwarding() {
@@ -172,6 +245,7 @@ class LocatedSystemUnderTest {
     bool retained = false;
     for (int type : {Request::Type::Write, Request::Type::Write, Request::Type::Read}) {
       Request req(7, type);
+      req.source_id = 0;
       req.size_bytes = 1;
       req.callback = [&](Request& completed) {
         ++callbacks;
@@ -200,6 +274,7 @@ class LocatedSystemUnderTest {
   IMemorySystem* m_system = nullptr;
   ControllerBase* m_controller = nullptr;
   std::shared_ptr<const PuD::LocationResolver> m_resolver;
+  nb::list completed;
 };
 
 // W3 component-only execution: fixtures provide separate ranges directly. No
@@ -507,10 +582,12 @@ class ComputeLifecycleUnderTest : public ControllerBase {
 namespace Ramulator {
 class PuDConflictUnderTest {
  public:
-  explicit PuDConflictUnderTest(nb::dict config) : dut(config, 8), ctrl(dut.m_controller_base) {}
+  // W6's explicit-reservation fixture uses sources 0..11; W7 uses 0..8.
+  explicit PuDConflictUnderTest(nb::dict config) : dut(config, 12), ctrl(dut.m_controller_base) {}
   // W7 only: bypass public ingress, but exercise the real GenericDDR buffer,
   // allocator, arbitration and completion. No fixture engine assignment.
   bool enqueue(Request req, int source, nb::object callback) {
+    check_source(source);
     if (!req.pud_locations || !is_inherited_pud_request_type(req.type_id)) {
       throw std::logic_error("W7 fixture enqueue requires located compute");
     }
@@ -583,6 +660,7 @@ class PuDConflictUnderTest {
     ctrl->m_rowpolicy = upgrade.original;
   }
   bool add(Request req, int source, int engine) {
+    check_source(source);
     initialize_pud_sequence(req, *ctrl->m_device.m_spec);
     req.source_id = source;
     req.arrive = ctrl->m_clk;
@@ -613,6 +691,7 @@ class PuDConflictUnderTest {
     }
   }
   void movement(Request req, int source) {
+    check_source(source);
     validate_pud_placement(req, *ctrl->m_device.m_spec, 0,
                            get_pud_placement_levels(*ctrl->m_device.m_spec));
     // Explicit legacy fixture conversion; this is not a v2 dispatch path. The
@@ -645,7 +724,10 @@ class PuDConflictUnderTest {
     }
     throw std::logic_error("fixture movement not retained");
   }
-  void send(int type, const AddrVec_t& addr, int source) { dut.send_request(type, addr, source); }
+  void send(int type, const AddrVec_t& addr, int source) {
+    check_source(source);
+    dut.send_request(type, addr, source);
+  }
   void priority(const std::string& command, const AddrVec_t& addr) { dut.priority_send(command, addr); }
   nb::dict probe(const std::string& final, const std::string& command, const AddrVec_t& addr) {
     const auto& spec = *ctrl->m_device.m_spec;
@@ -770,6 +852,11 @@ class PuDConflictUnderTest {
     return out;
   }
   ControllerUnderTestCpp dut;
+  void check_source(int source) const {
+    if (source < 0 || source >= dut.m_frontend->get_num_cores()) {
+      throw std::invalid_argument("invalid fixture source_id");
+    }
+  }
   ControllerBase* ctrl;
   std::map<int, Request> compute;
   nb::list history;
@@ -965,6 +1052,13 @@ inline void bind_pud_request_harness(nb::module_& m) {
       .def(nb::init<nb::dict, const LocationResolverUnderTest&, const std::string&, bool>(), nb::arg("controller"),
            nb::arg("resolver"), nb::arg("channel_mapper") = "CacheLineInterleave", nb::arg("install") = true)
       .def("send", &LocatedSystemUnderTest::send, nb::arg("request"), nb::arg("path") = "system")
+      .def("request", &LocatedSystemUnderTest::request)
+      .def("submit", &LocatedSystemUnderTest::submit, nb::arg("request"), nb::arg("source"), nb::arg("callback") = nb::none())
+      .def("submit_ordinary", &LocatedSystemUnderTest::submit_ordinary)
+      .def("advance", &LocatedSystemUnderTest::advance)
+      .def("issued", &LocatedSystemUnderTest::issued)
+      .def("completions", &LocatedSystemUnderTest::completions)
+      .def("scheduling", &LocatedSystemUnderTest::scheduling)
       .def("ordinary", &LocatedSystemUnderTest::ordinary, nb::arg("address"), nb::arg("type"), nb::arg("size") = 1,
            nb::arg("cells") = true, nb::arg("wrong_intra") = nb::none())
       .def("stats", &LocatedSystemUnderTest::stats)

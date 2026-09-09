@@ -1,4 +1,4 @@
-"""W7 internal admission on real GenericDDR; public v2 submission stays closed."""
+"""W7 internal admission isolates allocation/arbitration on real GenericDDR."""
 
 import pytest
 

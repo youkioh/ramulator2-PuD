@@ -62,6 +62,70 @@ latencies. The command trace is written to
 `build/ddr4_pud_trace.csv.ch0`; its columns are `clock`, `command`, the device
 hierarchy coordinates, `type`, and `source`.
 
+## Explicit v2 substrate runs
+
+Select `GenericDDR(pud_placement_profile="MIMDRAM_DDR4_8Gb_x8_v1")` with
+`DDR4_PuD_Movement`, `RoBaRaCoCh` and `CacheLineInterleave`. Setup validates
+the coordinated profile and rejects incompatible geometry, mapping and
+remapping plugins. An empty profile preserves legacy execution. The public
+`IMemorySystem::location_resolver()` returns the installed shared authority
+for constructing paired requests, for example:
+
+```cpp
+auto resolver = memory_system->location_resolver();
+std::vector<Ramulator::PuD::PairedOperand> operands;
+for (int row : {100, 101}) {
+  operands.push_back(resolver->pair(resolver->compute_footprint(
+      {0, 0, 0, 0, row}, {15, 16})));
+}
+Ramulator::Request req(resolver, std::move(operands), Ramulator::Request::Type::RowCopy);
+req.source_id = 0;
+req.size_bytes = memory_system->get_tx_bytes();
+// Attach a completion callback and retry send after ticking on backpressure.
+bool accepted = memory_system->send(req);
+```
+
+Movement uses the same resolver's `group_footprint` and N/A `size_bytes=-1`;
+see the shared [v2 benchmark scenarios](../../examples/pud_v2_microbenchmark.h).
+Bare legacy vectors are rejected under v2. Public compute admission enters
+the existing PuD buffer and W7 allocation/protection path. Pending-buffer
+capacity and compute-engine count remain independent.
+
+The existing export scripts explicitly select v2 with `RAMULATOR_PUD_V2=1`.
+Their default E is 8; run the serialized and overlap controls as follows:
+
+```bash
+cmake --build build --target ddr4_pud_microbenchmark mimdram_movement_microbenchmark -j2
+for engines in 1 2 8; do
+  RAMULATOR_PUD_V2=1 RAMULATOR_PUD_ENGINES=$engines PYTHONPATH=python python3 -m ramulator export \
+    examples/ddr4_pud_microbenchmark_config.py -o build/pud_v2_compute.yaml
+  LD_LIBRARY_PATH=. ./build/ddr4_pud_microbenchmark \
+    build/pud_v2_compute.yaml build/ddr4_pud_trace.csv.ch0 v2
+  RAMULATOR_PUD_V2=1 RAMULATOR_PUD_ENGINES=$engines PYTHONPATH=python python3 -m ramulator export \
+    examples/mimdram_movement_microbenchmark_config.py -o build/pud_v2_movement.yaml
+  LD_LIBRARY_PATH=. ./build/mimdram_movement_microbenchmark \
+    build/pud_v2_movement.yaml build/mimdram_movement_trace v2
+done
+```
+
+These controlled `NoRefresh` runs report profile/E, paired primitive/range
+identity, arrival, first ACT, every issued occurrence, terminal PRE and
+recovery/departure. They check 61/66/76/99/104 CK compute anchors,
+multi-destination RowCopy, several range widths, LC/GB 130/75 CK, and compute
+overlap/serialization. The dependent NOT consumes both producers' destination
+ranges only after both callbacks. Unique source IDs are bounded by the
+exported `External.num_cores`; the trace schema is unchanged and does not
+reconstruct arbitrary concurrent request histories. Traces are overwritten
+on each run.
+
+Local totals already include terminal nRP. Pre-ACT waiting and observed
+execution are reported separately from those anchors. The T-A baseline
+omits transport latency, mat-queue stalls and target-delivery C/A contention;
+these costs are **omitted, not physically zero**. These are substrate timing
+and state checks, with no stored values, arithmetic macros or speedup claim.
+Longer AllBank mixed-traffic drain and recovery/accounting checks are in
+the [public-path tests](../../tests/controller_scheduling/GenericDDRController/test_pud_public.py).
+
 ## MIMDRAM movement latency validation
 
 The combined `DDR4_PuD_Movement` standard has a separate reproducible
