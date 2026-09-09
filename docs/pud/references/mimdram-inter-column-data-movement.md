@@ -115,6 +115,13 @@ MIMDRAM's control unit avoids maintaining execution state independently for
 every DRAM mat by allowing the contiguous range of DRAM mats selected for one
 PUD operation to share the same `ACT`-`PRE` sequence and state.
 
+MIMDRAM reports that mat isolation transistors and row-decoder latches add
+less than 0.5% ACT latency in its CACTI-based evaluation. This is a reported
+nonzero overhead bound for MIMDRAM, not a measured PRADA-hybrid delay or a
+prescription for rounding simulator intervals.
+
+**Source:** MIMDRAM section 7, methodology preceding Table 2.
+
 #### General mat-information transport
 
 MIMDRAM §4.2 introduces a per-chip mat queue and three command variants for
@@ -135,7 +142,10 @@ activation would allow the full DRAM row to be activated. In the described
 PUD μProgram mechanism, MIMDRAM uses the available `ACT`-to-`ACT` and
 `PRE`-to-`ACT` command-latency intervals to overlap mat-information
 communication with command latency. The evaluated MIMDRAM configuration uses
-an eight-entry mat queue.
+an eight-entry mat queue. Specifically, the range sent after the first ACT
+of an AAP prepares the second ACT; the first activation's range is sent with
+the preceding PRE. This does not allow an activation to select its target
+retroactively.
 
 These facts define MIMDRAM's general mat-information transport mechanism. The
 AAP/AP-specific transport walkthrough must not be generalized into an
@@ -175,13 +185,20 @@ description; MIMDRAM §8.4; MIMDRAM §8.5.
 #### MIMD concurrency boundary
 
 MIMDRAM schedules independent PUD bbops across available mat ranges. Its mat
-scheduler scans buffered bbops, checks each target range against the mat
+scheduler scans buffered bbops oldest-to-newest using online first fit,
+checks each target range against the mat
 scoreboard, marks an available range busy, and assigns the bbop to a free
 μProgram processing engine. Multiple engines can execute allocated bbops and
 maintain their command timing concurrently. When an engine finishes, it frees
 the corresponding mats in the scoreboard. This establishes general MIMDRAM
 support for concurrent independent PUD operations on available, nonoverlapping
 mat ranges.
+
+Table 2's evaluated setup specifies eight microprogram processing engines,
+an eight-entry mat queue, and a 2 kB bbop buffer. Engine count and queue
+capacity describe different resources. These evaluation parameters do not
+specify the simulator's control-unit-to-channel association or recovery-time
+release boundary.
 
 For data movement, the MIMDRAM control unit derives the targeted mat range for
 `bbop_mov` and translates the instruction to `LC-MOV` when the source and
