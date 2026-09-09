@@ -106,6 +106,20 @@ class ControllerBase : public IController, public Implementation {
   // Maintained by promote_to_active / retire_request.
   std::vector<int> m_active_per_bank;
 
+  // V2 lifetime only: explicit reservations, with admission/engine selection
+  // left to GenericDDR W7. Neither this store nor the context owns a cursor.
+  struct ProtectedCompute {
+    int engine;
+    std::shared_ptr<PuDComputeContext> context;
+    bool completion_pending = false;
+  };
+  std::vector<ProtectedCompute> m_protected_compute;
+  bool reserve_pud_compute(Request& req, int engine);
+  bool pud_compute_resources_available(const Request& req, int engine) const;
+  PuDComputeContext& protected_pud_context(const Request& req) const;
+  ProtectedCompute& protected_pud_record(const Request& req);
+  void release_completed_resources(Request& req);
+
   // Stats
   Clk_t m_measured_clk = 0;
 

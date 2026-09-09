@@ -308,7 +308,198 @@ class ComputeRangesUnderTest {
   std::vector<std::pair<Request, PuDOccurrence>> saved;
 };
 
+// W4 drives the same ControllerBase buffers/retirement/completion inherited by
+// GenericDDR. Scheduling and allocation are explicit fixture actions: no W5
+// exclusion, W6 transport or W7 allocator/arbitration is supplied by this test.
+class ComputeLifecycleUnderTest : public ControllerBase {
+ public:
+  explicit ComputeLifecycleUnderTest(nb::dict config)
+      : ControllerBase(py_to_confignode(config), nullptr) {
+    IController::m_impl = this;
+    init_base();
+    set_channel_id(0);
+    HarnessFrontEnd frontend(1);
+    setup_base(&frontend, nullptr);
+  }
+  std::string get_name() const override { return "ComputeLifecycleFixture"; }
+  std::string get_ifce_name() const override { return "controller"; }
+  void init() override {}
+  void tick() override { tick_prologue(); }
+  void advance(Clk_t clk) {
+    if (clk < m_clk) throw std::logic_error("fixture clock cannot go backwards");
+    while (m_clk < clk) tick();
+    serve_completed_requests();
+  }
+  bool add(Request req, int source, nb::object callback) {
+    initialize_pud_sequence(req, *m_device.m_spec);
+    req.source_id = source;
+    req.arrive = m_clk;
+    req.callback = [this, callback](Request& completed) {
+      nb::dict event = located_snapshot(completed, false);
+      event["source"] = completed.source_id;
+      event["arrive"] = completed.arrive;
+      event["depart"] = completed.depart;
+      event["callback_clk"] = m_clk;
+      event["context_expired"] = completed.pud_compute_context.expired();
+      event["stats"] = snapshot();
+      events.append(event);
+      if (!callback.is_none()) callback(event);
+    };
+    if (!m_pud_buffer.enqueue(req)) return false;
+    ++s_num_pud_reqs[*legacy_pud_statistic_slot(req.type_id)];
+    return true;
+  }
+  bool reserve(int source, int engine) {
+    auto [buffer, it] = find(source);
+    return reserve_pud_compute(*it, engine);
+  }
+  bool available(const Request& req, int engine) const {
+    return pud_compute_resources_available(req, engine);
+  }
+  void dispatch(int source, Clk_t clk, bool coincident_terminal) {
+    advance(clk);
+    auto [buffer, it] = find(source);
+    auto& context = protected_pud_context(*it);
+    const auto occurrence = describe_pud_occurrence(*it, it->occurrence_index, *m_device.m_spec);
+    // A synthetic completion-queue tie fixture may give two terminal PREs the
+    // same clock. This tests simultaneous recovery release, not C/A scheduling.
+    if (clk <= last_issue && !(coincident_terminal && occurrence.terminal && clk == last_issue)) {
+      throw std::logic_error("fixture C/A slot occupied");
+    }
+    it->command = occurrence.command;
+    m_device.issue_pud_command(*it, occurrence, &context, m_clk);
+    last_issue = clk;
+    if (occurrence.terminal) retire_request(it, *buffer);
+    else if (buffer != &m_active_buffer) promote_to_active(it, *buffer);
+  }
+  void capacity(size_t pending, size_t active) {
+    m_pud_buffer.max_size = pending;
+    m_active_buffer.max_size = active;
+  }
+  size_t save(int source) {
+    auto [buffer, it] = find(source);
+    saved.push_back(*it);
+    return saved.size() - 1;
+  }
+  bool saved_expired(size_t id) const { return saved.at(id).pud_compute_context.expired(); }
+  bool reserve_saved(size_t id, int engine) { return reserve_pud_compute(saved.at(id), engine); }
+  void stale_dispatch(size_t id) {
+    auto req = saved.at(id);
+    auto& context = protected_pud_context(req);
+    const auto occurrence = describe_pud_occurrence(req, req.occurrence_index, *m_device.m_spec);
+    m_device.issue_pud_command(req, occurrence, &context, m_clk);
+  }
+  void retire_copy(int source) {
+    Request req;
+    auto pending = std::find_if(m_pending.begin(), m_pending.end(),
+        [&](const Request& r) { return r.source_id == source; });
+    if (pending != m_pending.end()) req = *pending;
+    else req = *find(source).second;
+    ReqBuffer copy;
+    copy.enqueue(req);
+    auto it = copy.begin();
+    retire_request(it, copy);
+  }
+  // Real ordinary retirement and forwarding, without mixed-traffic scheduling.
+  void retire_read(int source, Clk_t clk) {
+    advance(clk);
+    Request req(AddrVec_t{0, 0, 0, 1, 10, 0}, Request::Type::Read);
+    req.source_id = source;
+    req.arrive = m_clk;
+    req.callback = [this](Request& r) {
+      nb::dict event;
+      event["source"] = r.source_id;
+      event["depart"] = r.depart;
+      event["callback_clk"] = m_clk;
+      events.append(event);
+    };
+    m_read_buffer.enqueue(req);
+    ++s_num_read_reqs;
+    auto it = m_read_buffer.begin();
+    retire_request(it, m_read_buffer);
+  }
+  void forwarded_read(int source) {
+    Request write(AddrVec_t{0, 0, 0, 1, 11, 0}, Request::Type::Write);
+    write.addr = 1234;
+    if (!send(write)) throw std::logic_error("fixture write enqueue failed");
+    Request read(write.addr_vec, Request::Type::Read);
+    read.addr = write.addr;
+    read.source_id = source;
+    read.callback = [this](Request& r) {
+      nb::dict event;
+      event["source"] = r.source_id;
+      event["depart"] = r.depart;
+      event["callback_clk"] = m_clk;
+      events.append(event);
+    };
+    if (!send(read) || read.depart != m_clk + 1) throw std::logic_error("fixture read not forwarded");
+    auto it = m_write_buffer.begin();
+    retire_request(it, m_write_buffer);
+  }
+  nb::dict state(int source) {
+    auto [buffer, it] = find(source);
+    return located_snapshot(*it, false);
+  }
+  nb::dict snapshot() {
+    nb::dict out;
+    out["clk"] = m_clk;
+    out["pending"] = m_pud_buffer.size();
+    out["active"] = m_active_buffer.size();
+    out["active_per_bank"] = m_active_per_bank;
+    out["delayed"] = m_pending.size();
+    out["rw_buffered"] = m_read_buffer.size() + m_write_buffer.size();
+    nb::list held;
+    for (const auto& record : m_protected_compute) {
+      nb::dict item;
+      item["engine"] = record.engine;
+      item["phase"] = static_cast<int>(record.context->phase());
+      item["recovery"] = record.context->recovery_ready_clk();
+      item["completion_pending"] = record.completion_pending;
+      item["rows"] = record.context->activated_operands();
+      held.append(item);
+    }
+    out["held"] = held;
+    update_stats();
+    out["counters"] = confignode_to_py(IController::collect_stats());
+    return out;
+  }
+  nb::list completions() const { return events; }
+
+ private:
+  std::pair<ReqBuffer*, ReqBuffer::iterator> find(int source) {
+    for (auto* buffer : {&m_pud_buffer, &m_active_buffer}) {
+      auto it = std::find_if(buffer->begin(), buffer->end(),
+          [&](const Request& req) { return req.source_id == source; });
+      if (it != buffer->end()) return {buffer, it};
+    }
+    throw std::logic_error("fixture invocation is not schedulable");
+  }
+  Clk_t last_issue = -1;
+  std::vector<Request> saved;
+  nb::list events;
+};
+
 inline void bind_pud_request_harness(nb::module_& m) {
+  nb::class_<ComputeLifecycleUnderTest>(m, "_ComputeLifecycleUnderTest")
+      .def(nb::init<nb::dict>())
+      .def("add", &ComputeLifecycleUnderTest::add, nb::arg("req"), nb::arg("source"),
+           nb::arg("callback") = nb::none())
+      .def("reserve", &ComputeLifecycleUnderTest::reserve)
+      .def("available", &ComputeLifecycleUnderTest::available)
+      .def("dispatch", &ComputeLifecycleUnderTest::dispatch, nb::arg("source"), nb::arg("clk"),
+           nb::arg("coincident_terminal") = false)
+      .def("advance", &ComputeLifecycleUnderTest::advance)
+      .def("capacity", &ComputeLifecycleUnderTest::capacity)
+      .def("save", &ComputeLifecycleUnderTest::save)
+      .def("saved_expired", &ComputeLifecycleUnderTest::saved_expired)
+      .def("reserve_saved", &ComputeLifecycleUnderTest::reserve_saved)
+      .def("stale_dispatch", &ComputeLifecycleUnderTest::stale_dispatch)
+      .def("retire_copy", &ComputeLifecycleUnderTest::retire_copy)
+      .def("retire_read", &ComputeLifecycleUnderTest::retire_read)
+      .def("forwarded_read", &ComputeLifecycleUnderTest::forwarded_read)
+      .def("state", &ComputeLifecycleUnderTest::state)
+      .def("snapshot", &ComputeLifecycleUnderTest::snapshot)
+      .def("completions", &ComputeLifecycleUnderTest::completions);
   nb::class_<ComputeRangesUnderTest>(m, "_ComputeRangesUnderTest")
       .def(nb::init<nb::dict>())
       .def("add", &ComputeRangesUnderTest::add)

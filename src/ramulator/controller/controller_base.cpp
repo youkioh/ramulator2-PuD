@@ -9,6 +9,7 @@
 #include "ramulator/controller/rowpolicy/i_row_policy.h"
 #include "ramulator/controller/scheduler/i_scheduler.h"
 #include "ramulator/controller/pud_request_validation.h"
+#include "ramulator/controller/pud_sequence.h"
 #include "ramulator/dram/dram_spec.h"
 #include "ramulator/frontend/i_frontend.h"
 #include "ramulator/memory_system/pud_request_routing.h"
@@ -320,7 +321,87 @@ void ControllerBase::tick_prologue() {
 
 // ── Request lifecycle ────────────────────────────────────────────────────
 
+bool ControllerBase::pud_compute_resources_available(const Request& req, int engine) const {
+  if (engine < 0 || !req.pud_locations || !is_inherited_pud_request_type(req.type_id)) {
+    throw std::logic_error("Compute reservation requires a located compute request and engine");
+  }
+  validate_pud_placement(req, *m_device.m_spec, m_channel_id,
+                         get_pud_placement_levels(*m_device.m_spec), m_location_resolver.get());
+  const auto& target = req.pud_locations->operands.front().location.origin;
+  const auto segments = req.pud_locations->resolver->segment_range(target.mats);
+  for (const auto& record : m_protected_compute) {
+    if (record.engine == engine) return false;
+    const auto& locations = *record.context->locations();
+    const auto& owner = locations.operands.front().location.origin;
+    if (target.channel != owner.channel || target.rank != owner.rank ||
+        target.bank_group != owner.bank_group || target.bank != owner.bank ||
+        target.subarray != owner.subarray) continue;
+    for (const auto& a : segments) {
+      for (const auto& b : locations.resolver->segment_range(owner.mats)) {
+        if (a.chip == b.chip && a.first_local_mat <= b.last_local_mat &&
+            b.first_local_mat <= a.last_local_mat) return false;
+      }
+    }
+  }
+  // This is only occupied-resource intersection, not W5 eligibility or W7
+  // subarray/admission policy. In particular, no command readiness is tested.
+  return true;
+}
+
+bool ControllerBase::reserve_pud_compute(Request& req, int engine) {
+  const std::weak_ptr<PuDComputeContext> empty;
+  if (req.pud_compute_context.owner_before(empty) || empty.owner_before(req.pud_compute_context)) {
+    throw std::logic_error("Request already has a current or stale compute reservation");
+  }
+  auto context = m_device.make_pud_compute_context(req);
+  if (!pud_compute_resources_available(req, engine)) return false;
+  // Commit both resources together; a failed reservation changes no Request.
+  m_protected_compute.push_back({engine, std::move(context), false});
+  req.pud_compute_context = m_protected_compute.back().context;
+  return true;
+}
+
+PuDComputeContext& ControllerBase::protected_pud_context(const Request& req) const {
+  const auto context = req.pud_compute_context.lock();
+  const auto it = std::find_if(m_protected_compute.begin(), m_protected_compute.end(),
+      [&](const auto& record) { return record.context == context; });
+  if (!context || it == m_protected_compute.end() || context->locations() != req.pud_locations) {
+    throw std::logic_error("Missing, foreign or stale protected compute context");
+  }
+  return *context;
+}
+
+ControllerBase::ProtectedCompute& ControllerBase::protected_pud_record(const Request& req) {
+  const auto* context = &protected_pud_context(req);
+  return *std::find_if(m_protected_compute.begin(), m_protected_compute.end(),
+      [&](const auto& record) { return record.context.get() == context; });
+}
+
+void ControllerBase::release_completed_resources(Request& req) {
+  if (!req.pud_locations || !is_inherited_pud_request_type(req.type_id)) return;
+  const auto& record = protected_pud_record(req);
+  if (!record.completion_pending || !record.context->recovery_ready(m_clk) ||
+      req.depart != record.context->recovery_ready_clk()) {
+    throw std::logic_error("Compute completion precedes protected recovery");
+  }
+  const auto* context = record.context.get();
+  std::erase_if(m_protected_compute,
+      [&](const auto& held) { return held.context.get() == context; });
+  req.pud_compute_context.reset();
+}
+
 void ControllerBase::retire_request(ReqBuffer::iterator& req_it, ReqBuffer& buffer) {
+  ProtectedCompute* protected_compute = nullptr;
+  if (req_it->pud_locations && is_inherited_pud_request_type(req_it->type_id)) {
+    protected_compute = &protected_pud_record(*req_it);
+    const auto& context = *protected_compute->context;
+    if (protected_compute->completion_pending || context.phase() != PuDComputeContext::Phase::Recovering ||
+        req_it->occurrence_index != get_pud_sequence_length(*req_it) ||
+        req_it->occurrence_issue_history.empty() ||
+        req_it->occurrence_issue_history.back() != context.last_issue_clk()) {
+      throw std::logic_error("Compute retirement requires its unretired terminal PRE");
+    }
+  }
   if (&buffer == &m_active_buffer) {
     m_active_per_bank[m_device.get_flat_bank_id(req_it->addr_vec)]--;
   }
@@ -342,8 +423,10 @@ void ControllerBase::retire_request(ReqBuffer::iterator& req_it, ReqBuffer& buff
     }
     s_num_write_reqs_served++;
   } else if (is_pud_request_type(req_it->type_id)) {
-    req_it->depart = m_clk + m_device.m_spec->get_timing_value("nRP");
+    req_it->depart = protected_compute ? protected_compute->context->recovery_ready_clk()
+                                      : m_clk + m_device.m_spec->get_timing_value("nRP");
     m_pending.push_back(*req_it);
+    if (protected_compute) protected_compute->completion_pending = true;
   } else if (req_it->type_id == -1) {
     s_num_maintenance_reqs_served++;
   }
@@ -506,6 +589,10 @@ void ControllerBase::serve_completed_requests() {
 
     Request completed = std::move(*it);
     m_pending.erase(it);
+
+    // Recovery protection outlives command retirement. Erase its engine/range
+    // record before accounting/callback, so reentrant successors can reuse it.
+    release_completed_resources(completed);
 
     const size_t latency = static_cast<size_t>(completed.depart - completed.arrive);
     if (completed.type_id == Request::Type::Read) {

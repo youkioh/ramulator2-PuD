@@ -1,6 +1,6 @@
 # MIMDRAM-based PuD substrate v2 implementation plan
 
-Status: Implementation in progress — Phase 1 complete; W3 complete; W4-W9 not started.
+Status: Implementation in progress — Phase 1 complete; W3-W4 complete; W5-W9 not started.
 
 ## Implementation progress (2026-09-09)
 
@@ -19,8 +19,36 @@ Status: Implementation in progress — Phase 1 complete; W3 complete; W4-W9 not 
   before mutation and applies inherited PRADA edges locally while preserving
   conventional/shared timing. No allocation, transport, completion ownership
   or public v2 execution is enabled.
-- **W4-W9: Not started.** The work-unit specifications below remain unchanged
+- **W4: Completed.** Controller-owned protected records retain explicit engine
+  reservations and W3 range contexts through recovery, independently of command
+  buffers. Request copies carry weak invocation associations; the shared delayed
+  completion path releases protection before exact-once accounting/callback.
+  Fixture reservations exercise this internal lifecycle; public v2 execution,
+  admission policy, mixed-traffic exclusion and transport remain disabled/deferred.
+- **W5-W9: Not started.** The work-unit specifications below remain unchanged
   as implementation authority/history.
+
+W4 verification: 31 focused lifecycle tests, 96 W3 range/timing tests and 370
+W1/W2 location/retention tests passed together (497 tests, exit 0). The focused
+checks cover terminal-PRE/recovery boundaries, pre-ACT protection, intersecting
+reuse, disjoint progress, buffer backpressure/copies/retries, stale associations,
+release-before-callback, exact-once accounting, simultaneous recoveries and
+mixed departure ordering with reentrant successor/forwarded-read submission.
+The simultaneous-recovery fixture supplies equal terminal timestamps solely
+to test completion handling; it does not model multi-command C/A issue.
+Directly affected legacy lifecycle/statistics/occurrence/ingress regressions
+passed (139 tests, exit 0), as did legacy PuD/movement Device tests (119, exit 0).
+Codegen and the `ramulator`, `_ramulator` and `_ramulator_test` builds passed;
+generated legacy definitions were unchanged. Full W4 diff review and
+`git diff --check` passed. W5+ policy/transport/public integration is unimplemented.
+
+W4 broader-suite limitation: both full controller runs passed all 478 assertions
+then aborted at shutdown with `munmap_chunk(): invalid pointer` (exit 134).
+A freshly built, clean W3 HEAD `99f7879` reproduced the same failure form after
+447 passing assertions (exit 134). The unchanged 447-test selection also passed
+on the W4 build with exit 0. These observations reproduce the existing
+intermittent limitation; they do not establish an identical allocator root cause
+or make the aborting runs clean passes. Allocator diagnosis remains deferred.
 
 W3 verification: 96 focused range tests passed, including independent same-operation
 and heterogeneous progress, exact occurrence association/rejection, ready-1/ready
@@ -29,8 +57,8 @@ check. The full Device suite passed (252 tests, including W3); W1/W2 and directl
 affected occurrence, timing, ingress/validation and lifecycle regressions passed
 (598 tests). All test processes exited 0. Codegen and the `ramulator`, `_ramulator`
 and `_ramulator_test` build passed; generated legacy definitions were unchanged.
-Complete W3 diff review and `git diff --check` passed. Phase 2 remains in progress;
-protected recovery/completion and later integration remain W4+ work.
+Complete W3 diff review and `git diff --check` passed. At W3 exit, protected
+recovery/completion and later integration remained W4+ work.
 
 Phase 1 verification: 243 W2 location/request tests, 127 W1 location tests,
 and 184 directly affected ingress/validation/occurrence/classification/lifecycle

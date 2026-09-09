@@ -14,6 +14,8 @@
 
 namespace Ramulator {
 
+class PuDComputeContext;
+
 namespace PuD {
 // Immutable placement only. Request owns the sole mutable occurrence cursor
 // and issue history. Copies, retries, and completion/occurrence descriptors
@@ -78,6 +80,9 @@ struct Request {
   std::vector<AddrVec_t> operands{};
   MovementMetadata movement{};
   std::shared_ptr<const PuD::RequestLocations> pud_locations;
+  // Non-owning invocation identity. Controller protection, not Request copies
+  // or command-buffer membership, retains the temporal context until recovery.
+  std::weak_ptr<PuDComputeContext> pud_compute_context;
 
   int command = -1;        // Current command to issue to progress the request
   int final_command = -1;  // Terminal command, or next controller-sequenced command
