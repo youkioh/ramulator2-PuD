@@ -1,6 +1,6 @@
 # MIMDRAM-based PuD substrate v2 implementation plan
 
-Status: Implementation in progress — Phase 1 and W3-W6 complete, including W6 baseline alignment; W7-W9 not started.
+Status: Implementation in progress — Phase 1 and W3-W7 complete, including W6 baseline alignment; W8-W9 not started.
 
 ## Implementation progress (2026-09-09)
 
@@ -41,8 +41,80 @@ Status: Implementation in progress — Phase 1 and W3-W6 complete, including W6 
   pairing and successor transport are removed. W3-W5 fixtures share the single
   baseline compute timing/issue path. `PuDComputeContext` remains minimal;
   actual ordinary/movement and compute command-cycle occupancy is retained.
-- **W7-W9: Not started.** Production engine allocation, first-fit admission,
-  compute arbitration and public v2 execution remain future work.
+- **W7: Completed.** GenericDDR allocates configurable `pud_compute_engines`
+  (positive E, default 8) from the existing protected records, shared across
+  its Banks/Ranks. A stable oldest-first view of the PuD buffer skips blocked
+  requests and reserves an engine plus the complete canonical range atomically.
+  Disjoint same-subarray ranges overlap; intersecting ranges and same-Bank
+  different subarrays conflict through recovery. Allocation does not test first
+  ACT command readiness. No allocator ownership table or context field was added.
+  Pending and allocated compute Requests remain in the existing PuD buffer,
+  without active-buffer promotion or another schedulable container, as selected
+  by the user. E is the modeled compute-engine capacity; `pud_buffer_size`
+  independently bounds resident-request admission. Configuring `pud_buffer_size`
+  below E can limit attainable concurrent allocations without redefining E.
+  The defaults (`pud_buffer_size=32`, E=8) do not impose that limitation.
+  Completion/refresh/hooks precede allocation; ready allocated compute competes
+  with active work before priority and ordinary/movement pending arbitration.
+  The local candidate path leaves both generic schedulers unchanged. W4 releases
+  engine/range before completion accounting/callback; public v2 ingress stays closed.
+- **W8-W9: Not started.** Public v2 integration, microbenchmarks and final
+  integration closure remain future work.
+
+W7 verification: 63 focused tests passed, including both schedulers, E=1/2/8,
+pre-ACT and recovery capacity, pool scope, homogeneous/heterogeneous interleaving,
+first fit with distinct arrivals and equal-age queue ties, complete-range atomicity,
+profile replacement, local gaps, maintenance generation/FIFO/drain, conventional
+preparation/recovery, active-buffer backpressure, callback reuse and late issue
+revalidation. All 308 affected W3-W6 tests passed, including W3's unchanged
+61/66/76/99/104 CK anchors and W4's simultaneous-recovery/reentrant completion
+fixtures. Device, W1/W2 public-boundary/location and smoke regressions passed
+(638 tests, exit 0). Codegen and `ramulator`, `_ramulator`, `_ramulator_test`
+builds passed; generated DRAM definitions are unchanged. Only the generated
+GenericDDR wrapper gains the engine-count parameter.
+
+Controller regression limitation: an earlier complete run passed 718 tests
+(exit 0) with `getpass` imported before pytest. Later normal and pre-import
+runs aborted during tests (exit 134); pre-importing is not a reliable fix.
+The final per-file run passed 691 tests in 26 files (each exit 0), while the
+28-test movement-local-timing file aborted, also on retry. An in-process
+diagnostic override of that file's default fixture `num_cores` to 8 passed all
+28 tests (exit 0), without changing repository code/tests. Source inspection
+shows legacy tests supplying source IDs up to 4 to a default one-core fixture,
+while per-core statistics index by source ID without bounds checks. This is
+pre-existing source evidence, not a diagnosis of every recorded heap failure.
+A freshly built clean pre-W7 HEAD `44a830a` passed all 656 controller assertions
+then aborted at shutdown with `munmap_chunk(): invalid pointer` (exit 134); its
+isolated movement-local-timing run passed 28 tests. These observations preserve
+the known native-instability limitation and do not establish an identical root
+cause or attribute it to W7. No allocator/legacy-fixture fix was attempted in
+that initial verification.
+
+Narrow W7 closure investigation: a temporary statistics-entry bounds guard,
+outside the repository, intercepted the same four invalid Read accesses on W7
+and clean pre-W7 `44a830a`: `(CK, source ID, command)` = `(2, 2, ACT)`,
+`(33, 2, RD)`, `(18, 1, ACT)`, `(16, 2, ACT)`, each with one per-core entry.
+Both guarded runs reported the same four failing cases and 24 passing cases.
+The existing ordinary selection/final-validation path calls `update_request_stats`
+before issue; these requests have no resolved PuD locations and do not enter
+W7 compute allocation/arbitration. Thus the invalid fixture already executes
+out-of-bounds statistics accesses before W7; it is not newly reachable through
+W7. This concrete memory-corrupting defect is distinct from claiming a common
+root cause for every earlier native abort. With user approval, only the two
+fixture core counts were corrected: 3 for `make_movement_dut()` and 5 for the
+ClosedCAP multi-source test. The corrected file passed all 28 tests normally
+and all 28 with the bounds guard enabled (both exit 0). Executable production
+code and Accepted semantics were unchanged; no broad suite or W7 test rerun
+was needed for this fixture/comment-only closure. Live W1-W7 architecture
+comments and the independent E/resident-buffer capacity wording were updated;
+closure diff and changed-file whitespace checks passed. W7 remains complete;
+W8 remains unstarted. This resolves the identified movement-fixture defect,
+not every historical allocator failure.
+
+Full W7 diff review covered public ingress, transport resurrection, canonical
+geometry, sole Request/context authority, recovery release, first-fit priority
+and probe purity. Changed-file whitespace checks pass. W7 adds no W8 execution
+entry point or microbenchmark and no physical mat-target transport costs.
 
 W6 baseline verification: 48 resolved-target tests and 260 W3-W5 tests passed
 (exit 0), covering exact row/range/occurrence association, copies/retries,
@@ -263,10 +335,8 @@ W1 -> W2 -> W3 -> W4 -> W5 -> W6 -> W7 -> W8 -> W9
 ```
 
 W6 consumes W2/W3 resolved occurrences and preserves W4/W5 protection and
-eligibility. Its baseline alignment is implemented and validated; W7 has not
-started. W7 must consume
-finished W3–W6 contracts; it must
-not relax ownership first and retrofit safety later. W8 is integration and
+eligibility. W7 consumes those completed contracts for allocation/arbitration,
+with implementation and verification recorded above. W8 is integration and
 reproducibility, not deferred implementation of fundamental conflict rules.
 
 During W3–W7, use focused test seams for incomplete components; do not advertise
@@ -925,5 +995,6 @@ return the modeling question to the user before changing semantics.
 The original plan-creation task changed only this plan. The 2026-09-09
 transport-abstraction update records T-A, narrowly updates C-T and this plan,
 and leaves code, source references, AGENTS.md and W7 execution unchanged.
-The separately authorized W6 baseline alignment is now implemented and validated
-as recorded above; W7 remains unstarted.
+The separately authorized W6 baseline alignment and W7 allocation/arbitration
+are now implemented and validated as recorded above, including the recorded
+native-regression limitations. W8 remains unstarted.

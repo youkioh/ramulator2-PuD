@@ -343,8 +343,10 @@ bool ControllerBase::pud_compute_resources_available(const Request& req, int eng
     const auto& locations = *record.context->locations();
     const auto& owner = locations.operands.front().location.origin;
     if (target.channel != owner.channel || target.rank != owner.rank ||
-        target.bank_group != owner.bank_group || target.bank != owner.bank ||
-        target.subarray != owner.subarray) continue;
+        target.bank_group != owner.bank_group || target.bank != owner.bank) continue;
+    // Disjoint ranges may overlap only within the same subarray. Protected
+    // records include pre-ACT allocations and recovery; neither permits SALP.
+    if (target.subarray != owner.subarray) return false;
     for (const auto& a : segments) {
       for (const auto& b : locations.resolver->segment_range(owner.mats)) {
         if (a.chip == b.chip && a.first_local_mat <= b.last_local_mat &&
@@ -352,8 +354,8 @@ bool ControllerBase::pud_compute_resources_available(const Request& req, int eng
       }
     }
   }
-  // This is only occupied-resource intersection, not W5 eligibility or W7
-  // subarray/admission policy. In particular, no command readiness is tested.
+  // This is occupied-resource availability, not W5 start eligibility or
+  // command readiness. Geometry is supplied solely by the retained resolver.
   return true;
 }
 

@@ -1,6 +1,8 @@
 #ifndef RAMULATOR_TESTS_PUD_REQUEST_HARNESS_H
 #define RAMULATOR_TESTS_PUD_REQUEST_HARNESS_H
 
+#include "ramulator/controller/rowpolicy/i_row_policy.h"
+
 // W2 component fixtures exercise retention without enabling execution.
 inline std::vector<std::vector<int>> region_cells(const PuD::LocationResolver& resolver,
                                                   const PuD::ResolvedRegion& region) {
@@ -506,6 +508,80 @@ namespace Ramulator {
 class PuDConflictUnderTest {
  public:
   explicit PuDConflictUnderTest(nb::dict config) : dut(config, 8), ctrl(dut.m_controller_base) {}
+  // W7 only: bypass public ingress, but exercise the real GenericDDR buffer,
+  // allocator, arbitration and completion. No fixture engine assignment.
+  bool enqueue(Request req, int source, nb::object callback) {
+    if (!req.pud_locations || !is_inherited_pud_request_type(req.type_id)) {
+      throw std::logic_error("W7 fixture enqueue requires located compute");
+    }
+    validate_pud_placement(req, *ctrl->m_device.m_spec, 0,
+                           get_pud_placement_levels(*ctrl->m_device.m_spec));
+    initialize_pud_sequence(req, *ctrl->m_device.m_spec);
+    req.source_id = source;
+    req.arrive = ctrl->m_clk;
+    req.callback = [this, callback](Request& r) {
+      nb::dict event = located_snapshot(r, false);
+      event["source"] = r.source_id;
+      event["depart"] = r.depart;
+      event["held"] = held();
+      event["stats"] = stats();
+      completed.append(event);
+      if (!callback.is_none()) callback(event);
+    };
+    if (!ctrl->m_pud_buffer.enqueue(req)) return false;
+    ctrl->s_num_pud_reqs[*legacy_pud_statistic_slot(req.type_id)]++;
+    dut.m_command_outstanding++;
+    return true;
+  }
+  nb::dict scheduling() const {
+    nb::dict out;
+    std::vector<int> unallocated, allocated, recovering;
+    for (const auto& req : ctrl->m_pud_buffer.buffer) {
+      if (!req.pud_locations || !is_inherited_pud_request_type(req.type_id)) continue;
+      (req.pud_compute_context.expired() ? unallocated : allocated).push_back(req.source_id);
+    }
+    for (const auto& req : ctrl->m_pending) {
+      if (req.pud_locations && is_inherited_pud_request_type(req.type_id)) recovering.push_back(req.source_id);
+    }
+    out["unallocated"] = unallocated;
+    out["allocated"] = allocated;
+    out["recovering"] = recovering;
+    out["active_size"] = ctrl->m_active_buffer.size();
+    out["pud_size"] = ctrl->m_pud_buffer.size();
+    return out;
+  }
+  bool scheduled_probe(int source) {
+    return ctrl->check_request_timing(find_compute(source));
+  }
+  bool allocation_probe(Request req, int engine) const {
+    initialize_pud_sequence(req, *ctrl->m_device.m_spec);
+    return ctrl->pud_compute_resources_available(req, engine) && ctrl->pud_compute_start_eligible(req);
+  }
+  void block_command_bus(Clk_t until) { ctrl->m_device.m_command_ca_ready = until; }
+  // Interpose for one real tick after selection, without a production hook.
+  void recheck_tick(const std::string& command, nb::object callback) {
+    struct Upgrade final : IRowPolicy {
+      IRowPolicy* original;
+      std::function<void(Request&)> change;
+      void pre_schedule() override { original->pre_schedule(); }
+      void try_upgrade_command(Request& req) override { original->try_upgrade_command(req); change(req); }
+      void on_issue(const Request& req) override { original->on_issue(req); }
+      void post_schedule() override { original->post_schedule(); }
+    } upgrade;
+    upgrade.original = ctrl->m_rowpolicy;
+    upgrade.change = [&](Request& req) {
+      if (!command.empty()) req.command = ctrl->m_device.m_spec->get_command_id(command);
+      if (!callback.is_none()) callback();
+    };
+    ctrl->m_rowpolicy = &upgrade;
+    try {
+      advance(ctrl->m_clk + 1);
+    } catch (...) {
+      ctrl->m_rowpolicy = upgrade.original;
+      throw;
+    }
+    ctrl->m_rowpolicy = upgrade.original;
+  }
   bool add(Request req, int source, int engine) {
     initialize_pud_sequence(req, *ctrl->m_device.m_spec);
     req.source_id = source;
@@ -627,10 +703,15 @@ class PuDConflictUnderTest {
     return true;
   }
   nb::dict compute_state(int source) const {
-    const auto& req = compute.at(source);
+    const auto& req = find_compute(source);
     auto out = located_snapshot(req, false);
     const auto context = req.pud_compute_context.lock();
     out["phase"] = context ? static_cast<int>(context->phase()) : -1;
+    int engine = -1;
+    for (const auto& held : ctrl->m_protected_compute) {
+      if (held.context == context) engine = held.engine;
+    }
+    out["engine"] = engine;
     nb::list occurrences;
     // Observation derived from the sole Request history, not retained target state.
     for (size_t i = 0; i < get_pud_sequence_length(req); ++i) {
@@ -667,6 +748,12 @@ class PuDConflictUnderTest {
   }
 
  private:
+  const Request& find_compute(int source) const {
+    if (const auto it = compute.find(source); it != compute.end()) return it->second;
+    for (const auto& req : ctrl->m_pud_buffer.buffer) if (req.source_id == source) return req;
+    for (const auto& req : ctrl->m_pending) if (req.source_id == source) return req;
+    throw std::logic_error("fixture compute not retained");
+  }
   void retire_compute(Request& req) {
     ReqBuffer retiring;
     retiring.enqueue(req);
@@ -694,6 +781,13 @@ class PuDConflictUnderTest {
 inline void bind_pud_request_harness(nb::module_& m) {
   nb::class_<PuDConflictUnderTest>(m, "_PuDConflictUnderTest")
       .def(nb::init<nb::dict>())
+      .def("enqueue", &PuDConflictUnderTest::enqueue, nb::arg("req"), nb::arg("source"), nb::arg("callback") = nb::none())
+      .def("scheduling", &PuDConflictUnderTest::scheduling)
+      .def("scheduled_probe", &PuDConflictUnderTest::scheduled_probe)
+      .def("allocation_probe", &PuDConflictUnderTest::allocation_probe)
+      .def("block_command_bus", &PuDConflictUnderTest::block_command_bus)
+      .def("recheck_tick", &PuDConflictUnderTest::recheck_tick,
+           nb::arg("command") = "", nb::arg("callback") = nb::none())
       .def("add", &PuDConflictUnderTest::add)
       .def("start", &PuDConflictUnderTest::start)
       .def("dispatch", &PuDConflictUnderTest::dispatch)

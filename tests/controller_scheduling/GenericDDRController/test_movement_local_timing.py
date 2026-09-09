@@ -18,6 +18,7 @@ def make_movement_dut(*, scheduler=None):
         scheduler=scheduler,
         refresh_manager=ramulator.refresh_manager.NoRefresh(),
         row_policy=ramulator.row_policy.Open(),
+        num_cores=3,  # This fixture uses source IDs through 2.
     )
 
 
@@ -259,6 +260,7 @@ def test_final_validation_rechecks_active_close_protection_after_closedcap_upgra
         dram,
         refresh_manager=ramulator.refresh_manager.NoRefresh(),
         row_policy=ramulator.row_policy.ClosedCAP(cap=1),
+        num_cores=5,  # The traffic below intentionally uses source IDs 1..4.
     )
     other_bank = operand(dut, bank=1, row=10)
     protected_bank = operand(dut, bank=0, row=20)

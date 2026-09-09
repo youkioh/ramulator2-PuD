@@ -24,7 +24,10 @@ class IMemorySystem;
 class PuDConflictUnderTest;
 
 /*
- * Located Request + explicit reservation
+ * GenericDDR: E=8 default, shared across this channel's Banks/Ranks
+ * m_pud_buffer: pending + allocated compute Requests (sole schedulable copies)
+ *                    |
+ *       oldest-to-newest first fit: engine + complete range
  *                    |
  *                    v
  *        +----------------------------------+
@@ -44,9 +47,12 @@ class PuDConflictUnderTest;
  * Request owns sequence/history; context (device.h) owns protocol phase.
  * Delayed completion owns depart = terminal Request timestamp + nRP and releases
  * protection before accounting/callback.
- * W1-W6 retain protected resource identity/lifetime via explicit reservations.
+ * Protected records retain resource identity/lifetime via explicit reservations.
  * Compute issue --> Device consumes the current resolved occurrence (device.h).
- * Production E=8 engine-pool allocation is W7 and is not implemented here yet.
+ * GenericDDR derives free engines/ranges from this store (E=8 by default).
+ * Allocation derives from the Request/context association. Ready allocated
+ * compute uses GenericDDR's narrow candidate path; no active-buffer ownership,
+ * separate allocated-request container, allocator range table or target queue.
  */
 
 // Shared infrastructure for all DRAM controller implementations.
@@ -135,8 +141,8 @@ class ControllerBase : public IController, public Implementation {
   // Maintained by promote_to_active / retire_request.
   std::vector<int> m_active_per_bank;
 
-  // V2 lifetime only: explicit reservations, with admission/engine selection
-  // left to GenericDDR W7. Neither this store nor the context owns a cursor.
+  // V2 lifetime: GenericDDR selects free engines using these reservations.
+  // Neither this store nor the context owns a cursor or duplicates mat geometry.
   struct ProtectedCompute {
     int engine;
     std::shared_ptr<PuDComputeContext> context;
@@ -150,8 +156,8 @@ class ControllerBase : public IController, public Implementation {
   ProtectedCompute& protected_pud_record(const Request& req);
   void release_completed_resources(Request& req);
 
-  // W6 mechanics for explicitly allocated contexts. W7 will select callers;
-  // these methods neither allocate engines nor select/schedule pending work.
+  // Issue mechanics for explicitly allocated contexts. These methods neither
+  // allocate engines nor select/schedule pending work.
   bool check_pud_compute_issue(const Request& req);
   void issue_pud_compute(Request& req);
 

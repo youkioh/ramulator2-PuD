@@ -15,7 +15,7 @@ struct DRAMSpec;
 namespace PuD {
 
 /*
- * MIMDRAM/PuD v2 source architecture -- W1-W6
+ * MIMDRAM/PuD v2 source architecture -- W1-W7
  * Simulator abstractions, not literal 1:1 MIMDRAM hardware blocks.
  * Paths are relative to src/ramulator/. Unlabeled arrows show data/control use.
  *
@@ -87,10 +87,18 @@ namespace PuD {
  *                                         |
  *                                         v
  * +----------------------------------------------------------------------------------+
- * | 4. OWNERSHIP / PROTECTED LIFETIME                controller/controller_base.h    |
+ * | 4. ALLOCATION / PROTECTED LIFETIME              controller/controller_base.h    |
+ * |                                         controller/impl/generic_ddr_controller.cpp |
+ * |                                                                                  |
+ * | GenericDDR owns configurable E (default 8), shared across channel Banks/Ranks.    |
+ * | m_pud_buffer retains both pending and allocated compute Requests.                |
+ * | Unallocated Requests -- oldest-to-newest first fit -- reserve engine + range     |
+ * |                                                       |                          |
+ * |                                                       v                          |
  * |                                                                                  |
  * |                    +----------------------------------+                          |
  * |                    | ControllerBase::ProtectedCompute |                          |
+ * |                    | engine + complete range ownership |                         |
  * |                    +----------------+-----------------+                          |
  * |                                     | owns                                       |
  * |                                     v                                            |
@@ -100,13 +108,17 @@ namespace PuD {
  * |                                                DRAMDevice registry               |
  * |                                                (conflict visibility only)        |
  * |                                                                                  |
- * | reservation -> active -> terminal PRE -> recovery -> release                     |
+ * | Allocation derives from the Request/context association above.                  |
+ * | Issue-ready allocated Requests -> narrow GenericDDR candidate path -> issue     |
+ * |                                                                                  |
+ * | reservation -> ACT wait/execution -> terminal PRE -> recovery -> release         |
  * |                                                        |                         |
  * |                                                        v                         |
  * |                                            completion/accounting -> callback     |
  * |                                                                                  |
- * | Protected resource identity/lifetime exists in W1-W6.                            |
- * | Production E=8 engine-pool allocation is W7, NOT implemented here.               |
+ * | Engine/range stay protected through recovery; release at depart before callback. |
+ * | No separate allocated-request container, allocator range table or target queue. |
+ * | Active-buffer membership does not own or limit compute engines/ranges.           |
  * +----------------------------------------------------------------------------------+
  *                                         |
  *                         conflict guards |
@@ -131,6 +143,7 @@ namespace PuD {
  * pud_sequence.h     = WHICH occurrence / derived movement view
  * device.h           = resolved-occurrence issue + phase + shared command occupancy
  * controller_base.h  = WHO owns/protects it and for how long
+ * generic_ddr_controller.cpp = first-fit allocation + ready-compute arbitration
  * node.h             = conventional/shared DRAM state
  */
 
