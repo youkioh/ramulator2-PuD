@@ -45,7 +45,7 @@ class PuDConflictUnderTest;
  * Delayed completion owns depart = terminal Request timestamp + nRP and releases
  * protection before accounting/callback.
  * W1-W6 retain protected resource identity/lifetime via explicit reservations.
- * W6 preparation/issue --> Device target queues + shared C/A (pud_target_queue.h).
+ * Compute issue --> Device consumes the current resolved occurrence (device.h).
  * Production E=8 engine-pool allocation is W7 and is not implemented here yet.
  */
 
@@ -152,10 +152,6 @@ class ControllerBase : public IController, public Implementation {
 
   // W6 mechanics for explicitly allocated contexts. W7 will select callers;
   // these methods neither allocate engines nor select/schedule pending work.
-  // A paired PRE is issued now, with its own scope. The caller retains normal
-  // retirement/notification handling for that PRE's Request.
-  bool check_pud_target_preparation(const Request& req, const Request* preceding_pre = nullptr);
-  void prepare_pud_target(const Request& req, Request* preceding_pre = nullptr);
   bool check_pud_compute_issue(const Request& req);
   void issue_pud_compute(Request& req);
 

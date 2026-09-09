@@ -201,7 +201,7 @@ class LocatedSystemUnderTest {
 };
 
 // W3 component-only execution: fixtures provide separate ranges directly. No
-// production scheduler, target transport, engine or completion is installed.
+// production scheduler, engine allocation or completion is installed.
 class ComputeRangesUnderTest {
  public:
   explicit ComputeRangesUnderTest(nb::dict dram) {
@@ -210,7 +210,9 @@ class ComputeRangesUnderTest {
   }
   size_t add(Request req) {
     initialize_pud_sequence(req, *device.m_spec);
-    auto context = device.make_pud_compute_context(req);
+    std::shared_ptr<PuDComputeContext> context = device.make_pud_compute_context(req);
+    device.protect_pud_compute(context);
+    req.pud_compute_context = context;
     records.push_back({std::move(req), std::move(context)});
     return records.size() - 1;
   }
@@ -219,30 +221,31 @@ class ComputeRangesUnderTest {
     saved.push_back(describe_pud_occurrence(req, req.occurrence_index, *device.m_spec));
     return saved.size() - 1;
   }
-  void corrupt_descriptor(size_t id, const std::string& field) {
+  void corrupt_occurrence(size_t id, const std::string& field) {
     auto& occurrence = saved.at(id);
     if (field == "wrong_operand") occurrence.operand_index ^= 1;
+    else if (field == "wrong_role") occurrence.role = occurrence.role == PuDOccurrenceRole::Source
+        ? PuDOccurrenceRole::Destination : PuDOccurrenceRole::Source;
     else if (field == "wrong_index") ++occurrence.index;
     else if (field == "terminal") occurrence.terminal = !occurrence.terminal;
     else if (field == "unassociated") occurrence.locations.reset();
-    else throw std::invalid_argument("unknown descriptor corruption");
+    else throw std::invalid_argument("unknown occurrence corruption");
   }
-  bool dispatch(size_t id, Clk_t clk, bool issue, int context_id, int descriptor,
+  bool dispatch(size_t id, Clk_t clk, bool issue, int context_id, int saved_occurrence,
                 const std::string& command, bool foreign_device) {
     auto& record = records.at(id);
     auto& req = record.req;
-    auto occurrence = descriptor < 0 ? describe_pud_occurrence(req, req.occurrence_index, *device.m_spec)
-                                     : saved.at(descriptor);
+    auto occurrence = saved_occurrence < 0 ? describe_pud_occurrence(req, req.occurrence_index, *device.m_spec)
+                                     : saved.at(saved_occurrence);
     if (!command.empty()) occurrence.command = device.m_spec->get_command_id(command);
     auto* context = context_id == -2 ? nullptr : records.at(context_id < 0 ? id : context_id).context.get();
     // A second Device rejects a context minted by the first before any access.
     DRAMDevice other;
     auto& target = foreign_device ? other : device;
-    const bool ready = target.check_pud_local_timing(req, occurrence, context, clk) && clk > last_shared_issue;
+    const bool ready = target.check_pud_timing(req, occurrence, context, clk);
     if (!issue) return ready;
-    if (!ready) throw std::logic_error("Compute range timing not ready (fixture C/A issue slot)");
-    target.issue_pud_local_command(req, occurrence, context, clk);
-    last_shared_issue = clk;
+    if (!ready) throw std::logic_error("Compute range timing not ready");
+    target.issue_pud_command(req, occurrence, context, clk);
     // Exercise Request relocation after every action, retaining one cursor.
     Request copied = req;
     req = std::move(copied);
@@ -278,6 +281,8 @@ class ComputeRangesUnderTest {
       device.m_root->for_each_at_level(level, [&](DRAMNode* node) {
         nb::dict item;
         item["level"] = level;
+        if (level == 0) item["command_occupancy"] =
+            std::vector<Clk_t>{device.m_compute_ca_ready, device.m_command_ca_ready};
         item["id"] = node->m_node_id;
         item["state"] = node->m_state;
         item["rows"] = std::map<int, int>(node->m_row_state.begin(), node->m_row_state.end());
@@ -292,12 +297,10 @@ class ComputeRangesUnderTest {
   }
   bool raw(const std::string& command, const AddrVec_t& addr, Clk_t clk, bool issue) {
     int cmd = device.m_spec->get_command_id(command);
-    bool ready = device.get_preq_command(cmd, addr, clk) == cmd && device.check_timing(cmd, addr, clk) &&
-                 clk > last_shared_issue;
+    bool ready = device.get_preq_command(cmd, addr, clk) == cmd && device.check_timing(cmd, addr, clk);
     if (issue) {
       if (!ready) throw std::logic_error("raw fixture command not ready");
       device.issue_command(cmd, addr, clk);
-      last_shared_issue = clk;
     }
     return ready;
   }
@@ -308,17 +311,14 @@ class ComputeRangesUnderTest {
 
  private:
   DRAMDevice device;
-  // Mirror the existing controller's one-command-per-tick arbitration only.
-  // DDR4 intentionally generates no Device C/A edge for a one-tick command.
-  Clk_t last_shared_issue = -1;
-  struct Record { Request req; std::unique_ptr<PuDComputeContext> context; };
+  struct Record { Request req; std::shared_ptr<PuDComputeContext> context; };
   std::vector<Record> records;
   std::vector<PuDOccurrence> saved;
 };
 
 // W4 drives the same ControllerBase buffers/retirement/completion inherited by
-// GenericDDR. Scheduling and allocation are explicit fixture actions: no W5
-// exclusion, W6 transport or W7 allocator/arbitration is supplied by this test.
+// GenericDDR. Scheduling and engine selection are explicit fixture actions;
+// no production allocator/arbitration is supplied by this test.
 class ComputeLifecycleUnderTest : public ControllerBase {
  public:
   explicit ComputeLifecycleUnderTest(nb::dict config)
@@ -374,8 +374,13 @@ class ComputeLifecycleUnderTest : public ControllerBase {
     if (clk <= last_issue && !(coincident_terminal && occurrence.terminal && clk == last_issue)) {
       throw std::logic_error("fixture C/A slot occupied");
     }
+    if (coincident_terminal && occurrence.terminal && clk == last_issue) {
+      // Synthetic equal-deadline fixture only: bypass the occupied issue cycle,
+      // while keeping the same Device occurrence, phase and timing checks.
+      m_device.m_compute_ca_ready = clk;
+    }
     it->command = occurrence.command;
-    m_device.issue_pud_local_command(*it, occurrence, &context, m_clk);
+    m_device.issue_pud_command(*it, occurrence, &context, m_clk);
     last_issue = clk;
     if (occurrence.terminal) {
       // Diagnostic fixture only: distinguish issue time from retirement time.
@@ -496,7 +501,7 @@ class ComputeLifecycleUnderTest : public ControllerBase {
 
 // W5 uses the real GenericDDR scheduler for legacy/ordinary/maintenance traffic.
 // Compute reservations/occurrences remain explicit fixture actions, outside
-// public ingress and arbitration; no target transport or allocation policy.
+// public ingress and allocation/arbitration policy.
 namespace Ramulator {
 class PuDConflictUnderTest {
  public:
@@ -521,26 +526,13 @@ class PuDConflictUnderTest {
   }
   void dispatch(int source, Clk_t clk) {
     advance(clk);
-    if (last_issue == clk) throw std::logic_error("fixture shared issue slot occupied");
-    auto& req = compute.at(source);
-    if (!ctrl->is_pud_eligible_before_prerequisite(req)) throw std::logic_error("fixture compute blocked");
-    const auto occ = describe_pud_occurrence(req, req.occurrence_index, *ctrl->m_device.m_spec);
-    req.command = occ.command;
-    ctrl->m_device.issue_pud_local_command(req, occ, &ctrl->protected_pud_context(req), clk);
-    last_issue = clk;
-    if (occ.terminal) {
-      ReqBuffer retiring;
-      retiring.enqueue(req);
-      auto it = retiring.begin();
-      ctrl->retire_request(it, retiring);
-    }
+    compute_dispatch(source, true);
   }
   void advance(Clk_t clk) {
     if (clk < ctrl->m_clk) throw std::logic_error("fixture clock cannot go backwards");
     while (ctrl->m_clk < clk) {
       for (auto event : dut.tick()) {
         history.append(event);
-        last_issue = ctrl->m_clk;
       }
     }
   }
@@ -620,84 +612,62 @@ class PuDConflictUnderTest {
   nb::dict stats() { ctrl->update_stats(); return nb::cast<nb::dict>(confignode_to_py(ctrl->IController::collect_stats())); }
   void capacity(size_t active) { ctrl->m_active_buffer.max_size = active; }
 
-  // W6 uses the production mechanics with explicit W4 fixture reservations.
-  // No test-side bus gate, transport clock, queue mutation or allocation policy.
-  bool transport_dispatch(int source, bool issue) {
+  // Exercise the production issue path with explicit fixture reservations.
+  bool compute_dispatch(int source, bool issue) {
     auto& req = compute.at(source);
-    if (!issue) return ctrl->check_pud_compute_issue(req);
+    const bool ready = ctrl->check_pud_compute_issue(req);
+    if (!issue) return ready;
+    if (!ready) throw std::logic_error("Compute issue timing or eligibility not ready");
     const auto occurrence = describe_pud_occurrence(req, req.occurrence_index, *ctrl->m_device.m_spec);
     ctrl->issue_pud_compute(req);
-    last_issue = ctrl->m_clk;
-    if (occurrence.terminal) retire_transport(req);
+    // Relocate the sole schedulable Request, retaining its resolved association.
+    Request copied = req;
+    req = std::move(copied);
+    if (occurrence.terminal) retire_compute(req);
     return true;
   }
-  bool target_setup(int source, bool issue, int close_source,
-                    const std::string& pre_command, const AddrVec_t& addr) {
-    std::optional<Request> conventional;
-    Request* pre = nullptr;
-    if (close_source >= 0) pre = &compute.at(close_source);
-    else if (!pre_command.empty()) {
-      int command = ctrl->m_device.m_spec->get_command_id(pre_command);
-      conventional.emplace(addr, Request::Cmd, command);
-      conventional->command = command;
-      pre = &*conventional;
-    }
-    auto& req = compute.at(source);
-    if (!issue) return ctrl->check_pud_target_preparation(req, pre);
-    ctrl->prepare_pud_target(req, pre);
-    last_issue = ctrl->m_clk;
-    if (close_source >= 0) retire_transport(*pre);
-    return true;
-  }
-  bool unallocated_setup(Request req, bool issue) {
-    initialize_pud_sequence(req, *ctrl->m_device.m_spec);
-    if (!issue) return ctrl->check_pud_target_preparation(req);
-    ctrl->prepare_pud_target(req);
-    return true;
-  }
-  nb::dict transport_state(int source) const {
-    auto out = located_snapshot(compute.at(source), false);
-    const auto context = compute.at(source).pud_compute_context.lock();
+  nb::dict compute_state(int source) const {
+    const auto& req = compute.at(source);
+    auto out = located_snapshot(req, false);
+    const auto context = req.pud_compute_context.lock();
     out["phase"] = context ? static_cast<int>(context->phase()) : -1;
+    nb::list occurrences;
+    // Observation derived from the sole Request history, not retained target state.
+    for (size_t i = 0; i < get_pud_sequence_length(req); ++i) {
+      const auto occurrence = describe_pud_occurrence(req, i, *ctrl->m_device.m_spec);
+      const auto& origin = occurrence.location()->location.origin;
+      nb::dict item;
+      item["index"] = i;
+      item["command"] = ctrl->m_device.m_spec->command_names[occurrence.command];
+      item["operand"] = occurrence.operand_index;
+      item["external"] = occurrence.location()->external;
+      item["origin"] = std::vector<int>{origin.channel, origin.rank, origin.bank_group,
+                                       origin.bank, origin.subarray, origin.local_row};
+      item["range"] = std::vector<int>{origin.mats.first, origin.mats.last};
+      item["associated"] = context && occurrence.locations == context->locations();
+      item["issued"] = req.occurrence_issue_history.at(i);
+      std::vector<std::vector<int>> segments;
+      for (const auto& segment : req.pud_locations->resolver->segment_range(origin.mats)) {
+        segments.push_back({segment.chip, segment.first_local_mat, segment.last_local_mat});
+      }
+      item["segments"] = segments;
+      occurrences.append(item);
+    }
+    out["occurrences"] = occurrences;
     return out;
   }
-  nb::dict targets(Clk_t clk) const {
-    nb::dict out;
-    nb::list queues;
-    const auto& device = ctrl->m_device;
-    for (const auto& [chip, queue] : device.m_pud_targets.m_queues) {
-      nb::dict q;
-      q["chip"] = std::vector<int>{std::get<0>(chip), std::get<1>(chip), std::get<2>(chip)};
-      nb::list entries;
-      for (const auto& entry : queue) {
-        const auto& d = *entry.descriptor;
-        nb::dict e;
-        int source = -1;
-        for (const auto& [id, req] : compute) {
-          if (req.pud_compute_context.lock() == d.context.lock()) source = id;
-        }
-        e["source"] = source;
-        e["index"] = d.occurrence.index;
-        e["operand"] = d.occurrence.operand_index;
-        e["external"] = d.occurrence.location()->external;
-        e["segment"] = std::vector<int>{entry.segment.chip, entry.segment.first_local_mat, entry.segment.last_local_mat};
-        e["transmit"] = d.ready_at - 1;
-        e["ready_at"] = d.ready_at;
-        e["reserved"] = clk < d.ready_at - 1;
-        e["ready"] = clk >= d.ready_at;
-        entries.append(e);
-      }
-      q["entries"] = entries;
-      queues.append(q);
-    }
-    out["queues"] = queues;
-    out["ca_ready"] = device.m_pud_ca_ready;
-    out["command_ca_ready"] = device.m_command_ca_ready;
-    return out;
+  bool unallocated_dispatch(Request req, bool issue) {
+    initialize_pud_sequence(req, *ctrl->m_device.m_spec);
+    if (!issue) return ctrl->check_pud_compute_issue(req);
+    ctrl->issue_pud_compute(req);
+    return true;
+  }
+  std::vector<Clk_t> command_occupancy() const {
+    return {ctrl->m_device.m_compute_ca_ready, ctrl->m_device.m_command_ca_ready};
   }
 
  private:
-  void retire_transport(Request& req) {
+  void retire_compute(Request& req) {
     ReqBuffer retiring;
     retiring.enqueue(req);
     auto it = retiring.begin();
@@ -717,7 +687,6 @@ class PuDConflictUnderTest {
   std::map<int, Request> compute;
   nb::list history;
   nb::list completed;
-  Clk_t last_issue = -1;
 };
 
 }  // namespace Ramulator
@@ -741,12 +710,10 @@ inline void bind_pud_request_harness(nb::module_& m) {
       .def("held", &PuDConflictUnderTest::held)
       .def("stats", &PuDConflictUnderTest::stats)
       .def("capacity", &PuDConflictUnderTest::capacity)
-      .def("transport_dispatch", &PuDConflictUnderTest::transport_dispatch, nb::arg("source"), nb::arg("issue") = false)
-      .def("target_setup", &PuDConflictUnderTest::target_setup, nb::arg("source"), nb::arg("issue") = false,
-           nb::arg("close_source") = -1, nb::arg("pre_command") = "", nb::arg("addr") = AddrVec_t{})
-      .def("unallocated_setup", &PuDConflictUnderTest::unallocated_setup)
-      .def("transport_state", &PuDConflictUnderTest::transport_state)
-      .def("targets", &PuDConflictUnderTest::targets);
+      .def("compute_dispatch", &PuDConflictUnderTest::compute_dispatch, nb::arg("source"), nb::arg("issue") = false)
+      .def("unallocated_dispatch", &PuDConflictUnderTest::unallocated_dispatch)
+      .def("compute_state", &PuDConflictUnderTest::compute_state)
+      .def("command_occupancy", &PuDConflictUnderTest::command_occupancy);
   nb::class_<ComputeLifecycleUnderTest>(m, "_ComputeLifecycleUnderTest")
       .def(nb::init<nb::dict>())
       .def("add", &ComputeLifecycleUnderTest::add, nb::arg("req"), nb::arg("source"),
@@ -771,9 +738,9 @@ inline void bind_pud_request_harness(nb::module_& m) {
       .def(nb::init<nb::dict>())
       .def("add", &ComputeRangesUnderTest::add)
       .def("save", &ComputeRangesUnderTest::save)
-      .def("corrupt_descriptor", &ComputeRangesUnderTest::corrupt_descriptor)
+      .def("corrupt_occurrence", &ComputeRangesUnderTest::corrupt_occurrence)
       .def("dispatch", &ComputeRangesUnderTest::dispatch, nb::arg("id"), nb::arg("clk"),
-           nb::arg("issue") = false, nb::arg("context_id") = -1, nb::arg("descriptor") = -1,
+           nb::arg("issue") = false, nb::arg("context_id") = -1, nb::arg("saved_occurrence") = -1,
            nb::arg("command") = "", nb::arg("foreign_device") = false)
       .def("state", &ComputeRangesUnderTest::state, nb::arg("id"))
       .def("shared", &ComputeRangesUnderTest::shared)

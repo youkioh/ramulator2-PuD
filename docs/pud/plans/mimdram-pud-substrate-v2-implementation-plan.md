@@ -1,6 +1,6 @@
 # MIMDRAM-based PuD substrate v2 implementation plan
 
-Status: Implementation in progress — Phase 1 complete; W3-W6 complete; W7-W9 not started.
+Status: Implementation in progress — Phase 1 and W3-W6 complete, including W6 baseline alignment; W7-W9 not started.
 
 ## Implementation progress (2026-09-09)
 
@@ -34,18 +34,45 @@ Status: Implementation in progress — Phase 1 complete; W3-W6 complete; W7-W9 n
   cover failed active-buffer promotion. Internal fixtures preserve disjoint
   compute progress; transport, allocation/arbitration and public v2 execution
   remain W6+ work.
-- **W6: Completed.** Device-owned `PuDTargetQueues` provide per-chip Q=8 FIFO
-  descriptors and atomic ready-head consumption. Timestamped successor entries
-  reserve credit at ACT issue for T+1 transport/T+2 readiness; Device shared C/A
-  checks exclude ordinary/movement issue without changing local PRADA anchors.
-  Controller preparation/issue seams require existing protected reservations and
-  recheck W5 eligibility, including independently scoped useful PRE pairing.
-  `PuDComputeContext` remains minimal. W3-W5 local-only test seams are private;
-  W6 fixtures exercise transport-aware dispatch with explicit reservations.
-- **W7-W9: Not started.** The work-unit specifications below remain unchanged
-  as implementation authority/history.
+- **W6: Completed — baseline aligned.** The
+  [Accepted transport abstraction](../decisions/mimdram-mat-target-transport-abstraction.md)
+  is implemented: each ACT_PUD* consumes its current resolved occurrence
+  association at issue. Target queues, descriptors, setup/PRE
+  pairing and successor transport are removed. W3-W5 fixtures share the single
+  baseline compute timing/issue path. `PuDComputeContext` remains minimal;
+  actual ordinary/movement and compute command-cycle occupancy is retained.
+- **W7-W9: Not started.** Production engine allocation, first-fit admission,
+  compute arbitration and public v2 execution remain future work.
 
-W6 verification: 51 focused transport tests and 255 W3-W5 tests passed. Full
+W6 baseline verification: 48 resolved-target tests and 260 W3-W5 tests passed
+(exit 0), covering exact row/range/occurrence association, copies/retries,
+multi-destination RowCopy, NOT_COPY across N, replacement profiles, rejected
+issue/probe purity, cold/late starts, next-cycle ordinary/movement progress,
+and unchanged PRADA and LC/GB anchors. The W1-W5 audit preserved canonical
+locations, pre-ACT protection, recovery and exclusion; removed the obsolete
+local/transport Device split, W3/W5 fixture bus mirrors and live architecture paths;
+and retained ordinary PRE, request queues and GB topology helpers. The W5
+maintenance fixture now starts compute after the ordinary ACT's occupied cycle.
+
+Full Device plus W1/W2 tests passed (625, exit 0), as did all controller tests
+on rerun (656, exit 0) and smoke tests (13, exit 0). Codegen and `ramulator`,
+`_ramulator`, `_ramulator_test` builds passed with unchanged generated
+definitions. Full source/test diff review found no live detailed target
+transport dependencies; no W7 behavior was added.
+
+Verification limits: the initial controller run passed 656 assertions then
+aborted at shutdown with `munmap_chunk(): invalid pointer` (exit 134).
+A freshly built clean pre-change HEAD `0ce6922` also aborted with allocator
+corruption during tests, then passed 659 tests on repeat (exit 0). This
+reproduces pre-existing allocator instability, not an identical root-cause
+diagnosis or a clean initial run. `git diff --check` passes for the W6
+source/tests/documentation, including the new test file; the unrestricted
+check reports only pre-existing whitespace in the untouched `git_diff.log`.
+Baseline results omit target-delivery latency, queue stalls and target-specific
+C/A contention; those costs are not physically zero.
+
+Historical W6 verification (Alternative A, not validation of the new baseline):
+51 focused transport tests and 255 W3-W5 tests passed. Full
 Device and controller regression runs passed (250 and 656 tests respectively);
 the final focused run also includes three subsequently added ordinary-C/A and
 rank-PRE cases. Coverage includes Q=8/credit release independent of engines,
@@ -55,8 +82,8 @@ contexts, NOT_COPY across N, replacement-profile targeting, exact successor
 counts and unchanged 61/66/76/99/104 CK local recovery-inclusive anchors.
 LC/GB retained timing and shared C/A contention passed. Build/codegen passed for
 `ramulator`, `_ramulator` and `_ramulator_test`; generated definitions were
-unchanged. Full W6 diff review and `git diff --check` passed. Existing source
-architecture comments now include W6 queues. Production allocation, oldest-first
+unchanged. Full W6 diff review and `git diff --check` passed. Historical source
+architecture comments included W6 queues. Production allocation, oldest-first
 admission, scheduler integration and public v2 execution remain W7+ work.
 
 W5 verification: 126 focused conflict/drain tests and the 31 W4 lifecycle plus
@@ -135,18 +162,22 @@ handoff, verify the then-current main and inspect any intervening source delta
 before applying this plan. Do not merge the separate functional-simulator branch.
 
 Read [AGENTS.md](../../../AGENTS.md), the relevant curated references below,
-the four canonical authorities, this plan, and the source/tests for the selected
-work unit. Historical completed plans supply conventions, not v2 semantics.
+the canonical authorities and transport abstraction below, this plan, and the
+source/tests for the selected work unit. Historical completed plans supply
+conventions, not v2 semantics.
 
 | Key | Current authority and use |
 | --- | --- |
 | A | [Substrate and movement request boundary](../decisions/mimdram-substrate-and-movement-request-boundary.md): accepted hybrid, five primitives, same-subarray MIMD, conservative movement, substrate/macro boundary. |
 | B | [Addressing, geometry, and payload](../decisions/mimdram-addressing-geometry-and-payload.md): replaceable profile, paired operands, canonical CellID, initial v1 placement, compute ranges, movement topology/payload. |
 | C-E | [Execution, ownership, and Device](../decisions/mimdram-movement-execution-ownership-and-device.md): v2 range contexts, engines, allocation, lifecycle, maintenance and functional split; retained movement provisions. |
-| C-T | [Timing and resource model](../decisions/mimdram-movement-timing-and-resource-model.md): v2 local/shared scopes, Alternative A, initial setup, per-chip queues, rounding; retained movement timing graph. |
+| C-T | [Timing and resource model](../decisions/mimdram-movement-timing-and-resource-model.md): v2 local/shared scopes, ACT-overhead rounding and retained movement timing graph. |
+| T-A | [Mat-target transport abstraction](../decisions/mimdram-mat-target-transport-abstraction.md): current baseline resolved-target consumption; supersedes Alternative-A/Q=8 transport requirements. |
 
-All three Gates A/B/C are **Accepted and closed**. C-E/C-T's v2 sections take
-precedence where they explicitly refine retained Bank-wide behavior. B's older
+All three Gates A/B/C are **Accepted and closed**. T-A supersedes the earlier
+physical target-transport requirements, including A's transport-overhead and
+C-E's pre-first-ACT transport-wait references. All other C-E/C-T v2 refinements
+retain precedence over retained Bank-wide behavior. B's older
 forward references to A/C, and proposal-era questions in the
 [gap analysis](mimdram-pud-substrate-v2-gap-analysis.md), do not reopen them.
 The gap analysis's §§9.4–9.6 identify the current authority. Unresolved physical
@@ -221,18 +252,20 @@ There is no requirement to commit after each unit or to create further plans.
 | Boundary | Work units | Exit invariant |
 | --- | --- | --- |
 | Phase 1: common placement and submission contract | W1 geometry/profile; W2 paired requests and shared location consumers | One tested location authority supplies ordinary and PuD footprints; invalid v2 placements cannot reach legacy execution. V2 execution remains unavailable. |
-| Phase 2: coherent range execution | W3 local state/timing; W4 recovery lifecycle; W5 movement/ordinary/maintenance exclusion; W6 target queues/transport; W7 allocation/arbitration; W8 public integration and microbenchmarks | All five v2 primitives support safe same-subarray disjoint-range overlap with complete transport, recovery and mixed-traffic rules; movement retains its accepted behavior. |
+| Phase 2: coherent range execution | W3 local state/timing; W4 recovery lifecycle; W5 movement/ordinary/maintenance exclusion; W6 resolved-target consumption; W7 allocation/arbitration; W8 public integration and microbenchmarks | All five v2 primitives support safe same-subarray disjoint-range overlap with explicit resolved targets, recovery and mixed-traffic rules; movement retains its accepted behavior. |
 | Final integration closure | W9 validation and fresh-context audit | Entire implementation satisfies authority, integration tests and legacy regressions, with limitations and process failures reported accurately. |
 
 Major dependency chain:
 
 ```text
 W1 -> W2 -> W3 -> W4 -> W5 -> W6 -> W7 -> W8 -> W9
-      placement   local state/lifecycle   transport   allocation   closure
+      placement   local state/lifecycle   targets     allocation   closure
 ```
 
-W6's queue mechanics can be developed against W2/W3 descriptors, but its PRE
-integration requires W4/W5. W7 must consume finished W3–W6 contracts; it must
+W6 consumes W2/W3 resolved occurrences and preserves W4/W5 protection and
+eligibility. Its baseline alignment is implemented and validated; W7 has not
+started. W7 must consume
+finished W3–W6 contracts; it must
 not relax ownership first and retrofit safety later. W8 is integration and
 reproducibility, not deferred implementation of fundamental conflict rules.
 
@@ -428,7 +461,8 @@ versus a narrow Device-side store before implementing it. Preserve legacy
 handler paths and generic hierarchy APIs where a local seam suffices.
 
 **Dependencies:** W2. Component tests may establish protected contexts directly;
-this does not enable public allocation or bypass transport in the final path.
+this does not enable public allocation or bypass resolved-target validation
+in the final path.
 
 **Validation before W4:** interleave two same-operation and heterogeneous
 range contexts, checking independent row identity, charge-sharing/sensed phases,
@@ -539,7 +573,7 @@ Open/ClosedCAP, controller plugins and existing movement accounting helpers.
 Retain full-scope Bank traversal and add range-aware guards locally.
 
 **Dependencies:** W2–W4. This unit provides the eligibility predicate consumed
-by both target preparation and real allocation; no later unit may defer it.
+by resolved-target dispatch and real allocation; no later unit may defer it.
 
 **Validation before W6:** compute blocks LC and GB while active and recovering,
 and movement blocks compute through its recovery. Test all movement/movement
@@ -571,95 +605,76 @@ remapping, maintenance interruption or refresh deadlines. First consumers are
 eligibility, scope validation and movement actions; retain accepted rejection
 and conservative behavior instead of inventing missing physical details.
 
-### W6 — Per-chip target queues and shared C/A transport
+### W6 — Resolved-target consumption without physical transport resources
 
-**Goal / observable behavior.** Implement Alternative A with Q=8 descriptors
-per physical `(Channel, Rank, Chip)`, shared across that chip's Banks/subarrays.
-FIFO order, ready times, context/occurrence identity and reservations are the
-only modeled queue state. Range transmission, capacity checks and consumption
-are atomic across participating chips. An ACT consumes matching ready heads
-on every participating chip; mismatches/absence block it. Probes are pure.
+**Goal / observable behavior.** Apply T-A: the Device consumes the row and
+resolved `MatRange` associated with each `ACT_PUD*` atomically at issue.
+Retain W1 profile-defined mat/chip topology, W2 request/occurrence identity,
+W3 range-local state and PRADA timing, and W4/W5 protection and conflict rules.
+Every compute occurrence retains its explicit range/context association,
+including N and terminal PRE; no Bank-global selected-target state is implied.
 
-The production ordering is:
+The production ordering remains:
 
 ```text
 pending compute request
     -> allocate/acquire compute engine + complete mat range
-    -> reserve/perform initial target transport
-    -> first ACT_PUD*
-    -> subsequent activation/transport sequence
+    -> ACT_PUD* consumes its resolved target at issue
+    -> subsequent occurrences consume their own resolved associations
 ```
 
-Do not speculatively enqueue target descriptors for unallocated compute
-requests. Target transport must never acquire execution ownership by itself.
+No physical target-delivery step occurs between allocation and activation.
+Remove baseline dependence on per-chip FIFO occupancy, Q=8, descriptor
+preparation, ACT/PRE enqueue/dequeue, initial one-CK target-only setup,
+T+1 transport, T+2 target readiness, or target-specific C/A reservations.
+Preserve ordinary shared command issue and applicable timing; local ACT
+anchors do not shift. Target metadata does not acquire execution ownership.
 
-Every non-final activation at T reserves its own C/A cycle, T+1 for successor
-transport and successor queue credit before issue, including credit freed by
-consuming current heads. The target sent at T+1 becomes ready at T+2. No other
-command/event may use that C/A cycle; local ACT phase begins at T. Final
-activations do not send successors. Counts are D/2/4/0/1 for RowCopy(D)/MAJ3/
-MAJ5/NOT/NOT_COPY, regardless of numerically identical ranges. N/PRE keep their
-own context, consume no ACT descriptor, and NOT_COPY retains its destination
-descriptor through N. Neither transport kind advances the primitive cursor.
+**Historical / optional fidelity.** The completed Alternative-A/Q=8
+implementation and its verification are recorded in progress above and Git
+history at `0ce6922`. Alternative A was a project mapping of MIMDRAM transport
+onto PRADA activations, not a MIMDRAM-specified PRADA mechanism. It remains
+available for possible sensitivity analysis, not a baseline requirement.
+Current baseline source no longer contains it; validation is recorded above.
 
-Use legal PRE-enqueue for an allocated context's known future target when
-available, preserving the PRE's actual close scope/recovery separately from
-its communicated target. Preparation alone must not grant engine/range
-ownership. A historical PRE
-cannot encode a later-arriving request; never insert an unnecessary whole-Bank
-PRE for disjoint compute. Otherwise use the accepted one-CK initial setup
-event, ready after its cycle, with shared C/A occupancy and no row-state effect.
-Check PRE pairing against W5 eligibility so target preparation cannot strand
-already allocated contexts that maintenance requires to drain.
+**Authority:** T-A; C-T local/shared timing and ACT-overhead rounding;
+C-E allocation/maintenance lifetime; B resolved chip/range identity.
 
-Do not set ACT_PUD* `command_cycles=2`: current codegen changes directed-edge
-anchors as well as bus occupancy. Model the mandatory transport reservation
-separately from local phase timing. Do not assign LC/GB queue tokens; movement
-occurrences only compete for the shared C/A slots under their retained fidelity.
+**Inspect/change:** existing W6 queue/setup/successor dependencies in
+`dram/pud_target_queue.*`, Device and controller dispatch, `pud_sequence.*`
+and test-only transport fixtures. Reuse W2/W3 resolved occurrences and W4/W5
+checks. Preserve legacy command-cycle generation, shared issue constraints
+and production trace schemas. No new generic event, pin or bus framework.
 
-**Authority:** C-T Alternative A, initial setup and FIFO/atomic simulator queue
-semantics; C-E allocation/maintenance lifetime; B chip/range identity.
+**Dependencies:** W2–W5. Component fixtures may construct protected contexts;
+production allocation remains W7 work. Baseline alignment does not begin W7.
 
-**Inspect/change:** localized v2 queue/transport support near GenericDDR and
-Device context dispatch; `pud_sequence.*` activation/next-activation description;
-`python/ramulator/dram/spec.py` bus/offset generation for compatibility checks;
-test-only transport/reservation snapshots in the existing harness. Avoid new
-generic event, pin or bus frameworks and production trace schema changes.
+**Validation before W7:** every activation receives its exact resolved row,
+range and occurrence association, across copies/retries, repeated equal ranges,
+multi-destination RowCopy and NOT_COPY across N. Check profile-driven ranges
+including chip boundaries and replacement profiles. Missing/stale/mismatched
+associations fail before mutation; readiness probes remain pure.
 
-**Dependencies:** W2–W5. Queue mechanics can use component fixtures, but complete
-transport/PRE checks use the final scope and lifecycle rules. W6 component tests
-may construct fixture contexts directly; this does not change production's
-allocation-before-transport ordering or W6-before-W7 implementation order.
+Verify a legal cold/late activation needs no target-only setup, successor
+event or queue capacity/readiness. No mat-target transport reserves T+1 or
+blocks otherwise eligible ordinary/movement work; applicable command issue
+and local timing still govern readiness. Preserve W3 local anchors and
+W4/W5 recovery, maintenance and exclusion, including rejected-issue behavior.
 
-**Validation before W7:** fill exactly eight entries, block the ninth and prove
-space returns on consumption while engines can remain busy. Exercise shared
-chip queues across Banks and isolation across Rank/Chip identities; multi-chip
-partial-capacity failure, mismatched heads and atomic consumption; repeated
-readiness probes; successor credit protected from another enqueue; no partial
-mutation on failed issue. Exercise multi-chip FIFO progress and avoid deadlock
-under staggered setup, successor transmission and maintenance arrival.
+**Regressions:** W3 timing and W4/W5 lifecycle/maintenance tests; directly
+affected legacy command-cycle, Device, LC/GB timing and other-Bank scheduling
+tests. Broaden coverage if shared bus/dispatch changes warrant it.
 
-Test initial cold/late setup, an available legal PRE-enqueue, distinct PRE-close
-and future-target contexts, full queues during setup, and rejection of historical
-PRE reuse/unnecessary Bank close. Verify T/T+1/T+2 boundaries, exact transport
-counts, NOT_COPY's target across N, and C/A exclusion of unrelated-Bank ordinary
-and movement commands at T+1. Confirm all local intervals remain those of W3.
-Queue-capacity boundary tests may use a fixture with more descriptors than an
-E=8 request stream naturally exposes; do not change the accepted Q to make a
-test easy or equate E and Q.
+**Completion:** validated resolved-target consumption implements T-A with no
+physical target-transport resource model. Preserve local compute timing and
+independent engine/range ownership. Report omitted transport latency,
+mat-queue stalls and target-delivery C/A contention as fidelity limitations,
+not physically zero costs.
 
-**Regressions:** W3 timing and W4/W5 lifecycle/maintenance tests; legacy command
-cycles, Device timing, LC/GB timing and other-Bank scheduling. If generic bus
-generation changes, run affected non-DDR multi-cycle/bus tests immediately.
-
-**Completion:** descriptor/credit and C/A occupancy have deterministic tested
-boundaries; no payload state, permanent per-request queue slot, `min(E,Q)`
-shortcut or implicit persistent-selection Alternative B.
-
-**Stop:** honoring mandatory T+1 transport and FIFO drain appears to require
-different queue ordering, new target lifetime, a different PRE scope or changed
-local timing. First consumers are queue admission and atomic ACT commit. Present
-the concrete conflicting trace; do not repair it by changing A/B/C semantics.
+**Stop:** baseline alignment appears to require changed target identity,
+placement, local timing, recovery or exclusion beyond Accepted authority.
+First consumer is occurrence validation/Device issue; present the conflict
+before changing those semantics.
 
 ### W7 — First-fit engine allocation and concurrent command arbitration
 
@@ -668,13 +683,13 @@ per controller/channel control-unit instance, shared across Banks and Ranks;
 initial E=8, validation E=2 and E=1 serialized control. On allocation scan
 pending compute oldest-to-newest and select the first eligible request whose
 complete range is available and for which an engine is free. Reserve both
-atomically before waiting for initial ACT/transport. No allocation based on
+atomically before waiting for initial ACT. No allocation based on
 local command timing readiness; unallocated pending requests own nothing.
 
-Enforce W6's production allocation-before-transport ordering: pending requests
-occupy no mat-target queue entries. Once allocation succeeds, the context may
-wait for initial target setup, queue capacity, C/A arbitration or local timing
-while retaining its accepted engine/range ownership.
+Enforce W6's production allocation-before-ACT ordering. Once allocation
+succeeds, the context may wait for shared C/A arbitration or local timing
+while retaining its accepted engine/range ownership. T-A adds no target
+transport or mat-queue waiting.
 
 Disjoint ranges within one Bank/subarray may make independent progress.
 Intersecting ranges conflict even with different operand rows. A Bank cannot
@@ -682,11 +697,11 @@ allocate another subarray until all existing protected ranges drain. Different
 Banks share the same E pool, C/A and applicable maintenance/timing limits.
 
 Keep allocation separate from command arbitration. Use W5's before-prerequisite
-eligibility and final issue checks, W3's context-local readiness and W6's atomic
-target/C/A readiness. Already allocated continuations keep active precedence;
-preserve priority FIFO and ordinary/movement arbitration. A timing-blocked
-context must not monopolize shared issue. The T+1 transport obligation must
-survive refresh/plugin arrival and candidate reselection. Avoid reserving
+eligibility and final issue checks, W3's context-local readiness and W6's
+resolved-target validation with shared command-issue readiness. Already
+allocated continuations keep active precedence; preserve priority FIFO and
+ordinary/movement arbitration. A timing-blocked
+context must not monopolize shared issue. Avoid reserving
 resources as a side effect of FRFCFS/FRFCFSRowHit readiness probes.
 
 **Authority:** C-E resources/admission/precedence and engine scope; C-T shared
@@ -699,7 +714,7 @@ implementations and test harness. Reuse the shared request-count queue and
 candidate machinery where compatible, without replacing ordinary scheduling.
 
 **Dependencies:** W3–W6 complete, plus W2 request lifetime. Inspect the exact
-tick ordering of completion release, refresh generation, allocation, transport
+tick ordering of completion release, refresh generation, allocation
 and arbitration before wiring them together; document any non-trivial design
 choice according to AGENTS.md without treating it as a reopened Gate.
 
@@ -712,19 +727,19 @@ compute even across Banks; E=2/E=8 enforce capacity including pre-ACT waits
 and recovery; a ninth eligible request at E=8 waits for actual release. Pool
 scope spans multiple Banks/Ranks and movement uses no compute slot.
 
-Verify unallocated pending requests enqueue no target descriptors, and allocated
-contexts retain engine/range ownership throughout initial-transport waiting.
+Verify unallocated pending requests own no execution resources, and allocated
+contexts retain engine/range ownership throughout pre-first-ACT waiting.
 
 First-fit fixture: older A holds a range; oldest pending B conflicts with A;
 younger C fits a disjoint range; still younger D also fits. With one free
 engine C allocates first, B remains pending/unowned, and D waits for capacity.
 After A recovers, B precedes younger eligible work. Also show an oldest
-range-eligible compute may allocate despite its ACT being timing/target blocked;
+range-eligible compute may allocate despite its ACT being timing blocked;
 allocation order is not oldest-ready command order. Use deterministic existing
 queue order for equal ages and test both configured schedulers.
 
 Recheck exclusion before prerequisites and after policy/plugin changes. Include
-other-Bank work during local gaps, next-cycle transport contention, multiple
+other-Bank work during local gaps, shared command-issue contention, multiple
 simultaneous recoveries, active-buffer capacity/backpressure and callback reuse
 of a just-released engine. Pending capacity must not become an undocumented
 compute-engine limit. Keep command issue at one shared C/A action per tick.
@@ -735,8 +750,8 @@ controller-scheduling suite, including HBM/GDDR users, now; record results for
 closure instead of automatically repeating unchanged coverage per unit.
 
 **Completion:** real allocation and command issue demonstrate MIMD with fully
-coherent state, transport, recovery and exclusion. No legacy ownership predicate
-or Bank compute history silently serializes v2 disjoint progress.
+coherent state, resolved targets, recovery and exclusion. No legacy ownership
+predicate or Bank compute history silently serializes v2 disjoint progress.
 
 **Stop:** integration requires changing engine scope/release, allocation policy,
 subarray concurrency or existing mixed-traffic arbitration beyond C-E. First
@@ -759,17 +774,20 @@ v2 configurations must use B's profile-backed mapping/origins instead of
 silently treating those legacy vectors as placements. No arithmetic macro is
 needed: use independent primitives and callback-submitted dependent primitives.
 
-Report profile, E/Q, primitive/range identity, arrival, first ACT, issued
-occurrences, terminal PRE and recovery/departure. Distinguish local execution
-anchors, initial setup and observed waiting/contention; terminal nRP is already
-included in primitive totals. Test-only observation can expose allocation,
-target transport and context identity. Existing production command traces lack
-unique request/range/transport reconstruction; do not infer arbitrary concurrent
-histories from them or require a new trace schema. Deliberately unique source
+Report profile, E, the T-A transport abstraction, primitive/range identity,
+arrival, first ACT, issued occurrences, terminal PRE and recovery/departure.
+Distinguish local execution anchors and observed waiting/contention; terminal
+nRP is already included in primitive totals. State that transport latency,
+mat-queue stalls and target-delivery C/A contention are omitted, not physically
+zero. Test-only observation can expose allocation and resolved context identity.
+Existing production command traces lack unique request/range reconstruction;
+do not infer arbitrary concurrent histories from them or require a new trace
+schema. Deliberately unique source
 IDs can identify commands in these controlled benchmarks.
 
 **Authority:** A experiment/scope and dependency boundary; B profile/consumer
-contract; C-E lifecycle/accounting/functional split; C-T latency accounting.
+contract; C-E lifecycle/accounting/functional split; C-T latency accounting;
+T-A transport abstraction and fidelity limits.
 
 **Inspect/change:** Python v2 configuration/capability and generated registration;
 GenericDRAM/GenericDDR public ingress; `examples/ddr4_pud_microbenchmark.cpp`,
@@ -782,11 +800,12 @@ do not create additional persistent documents without authorization.
 
 **Validation before W9:** normal-path uncontended 61/66/76/99/104 CK local
 anchors, multi-destination 40+5D+16, several range widths, and LC/GB 130/75.
-Verify setup/queue/arbitration waiting increases request latency when expected
-without shifting local anchors when transport fits. Reproduce same-operation
-and heterogeneous overlap with E=2/E=8 and serialization with E=1; movement
+Verify engine/range and arbitration waiting increases request latency when
+expected without adding physical target-transport costs or shifting local
+anchors. Reproduce same-operation and heterogeneous overlap with E=2/E=8
+and serialization with E=1; movement
 blocked through compute recovery; longer AllBank-refresh mixed traffic drains
-without stale contexts or descriptors. A dependent primitive is submitted only
+without stale contexts. A dependent primitive is submitted only
 after all required producer callbacks; submission order alone is not an oracle.
 
 Confirm acceptance once after successful enqueue, completion/latency and moved
@@ -816,7 +835,7 @@ another implementation Phase or an automatic commit. One fresh-context audit
 is justified by context-aware Device dispatch, scheduler integration and
 reentrant recovery release; no audit is required after every small unit.
 
-**Authority:** A/B/C-E/C-T; AGENTS.md risk-tiered review rules.
+**Authority:** A/B/C-E/C-T/T-A; AGENTS.md risk-tiered review rules.
 
 **Inspect:** full main-to-implementation diff, generated files and test seams;
 all changed call sites of prerequisites, timing, issue, close, completion,
@@ -832,8 +851,9 @@ only if their covered source has not changed; fixes require affected reruns.
   boundaries and absence of state/resource mutation on rejected actions.
 - Verify common resolver consumption, no formula copies in operation code,
   copy/retry lifetime, no Bank-global target, no duplicate local/Bank timing,
-  and no surviving engines/ranges/queue entries or completion references after
-  drain. Review full maintenance scopes and callback reentrancy explicitly.
+  no physical target-transport resource dependence, and no surviving
+  engines/ranges or completion references after drain. Review full maintenance
+  scopes and callback reentrancy explicitly.
 - Regenerate/build from source and run v2 tests, all relevant DDR4/PuD/movement
   Device and GenericDDR tests, both legacy benchmarks and v2 scenarios. Run
   broader shared-infrastructure suites at the level warranted below.
@@ -885,7 +905,7 @@ return the modeling question to the user before changing semantics.
 ## Planning self-review and blockers
 
 - A/B/C are treated as fixed authority. No historical gate or unresolved
-  physical-wiring question is used to reopen accepted scope, FIFO transport,
+  physical-wiring question is used to reopen accepted scope, T-A's abstraction,
   engine release, same-subarray concurrency or geometry.
 - All CellID/footprint work is identity-only. No functional storage/interpreter,
   ADD/MUL, GEMV, reduction/host-combination implementation is scheduled.
@@ -893,8 +913,8 @@ return the modeling question to the user before changing semantics.
   delayed-completion boundaries. Generic hierarchy, scheduling, event systems,
   trace formats and physical queue replicas are not independent goals.
 - Ordering puts location identity before consumers, local state/timing before
-  recovery and exclusion, and all of those plus transport before allocation
-  and public overlap. Mixed-traffic safety is part of the coherent execution
+  recovery and exclusion, and all of those plus resolved-target consumption
+  before allocation and public overlap. Mixed-traffic safety is part of the coherent execution
   Phase, not cleanup after enabling MIMD.
 - No genuine blocker prevents planning from the Accepted decisions. Concrete
   C++ packaging/retention and integration details remain bounded implementation
@@ -902,5 +922,8 @@ return the modeling question to the user before changing semantics.
   reveals one, follow the explicit stop conditions rather than being decided
   by this plan.
 
-This documentation task changes only this plan. No source, Accepted decision,
-or AGENTS.md change and no implementation/test execution is part of its creation.
+The original plan-creation task changed only this plan. The 2026-09-09
+transport-abstraction update records T-A, narrowly updates C-T and this plan,
+and leaves code, source references, AGENTS.md and W7 execution unchanged.
+The separately authorized W6 baseline alignment is now implemented and validated
+as recorded above; W7 remains unstarted.

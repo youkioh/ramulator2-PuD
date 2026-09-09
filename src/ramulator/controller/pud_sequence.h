@@ -3,7 +3,6 @@
 
 #include <array>
 #include <cstddef>
-#include <optional>
 
 #include "ramulator/base/request.h"
 
@@ -17,7 +16,7 @@ class DRAMSpec;
  *                  v
  *        +-------------------------+
  *        | PuDOccurrence           | <-- YOU ARE HERE
- *        | current descriptor/view |
+ *        | current occurrence view |
  *        +------------+------------+
  *                     |
  *                     v
@@ -80,8 +79,6 @@ using PuDMovementTimingConstraints =
 
 size_t get_pud_sequence_length(const Request& req);
 PuDOccurrence describe_pud_occurrence(const Request& req, size_t occurrence_index, const DRAMSpec& spec);
-bool is_pud_activation(const PuDOccurrence& occurrence, const DRAMSpec& spec);
-std::optional<PuDOccurrence> next_pud_activation(const Request& req, size_t after, const DRAMSpec& spec);
 void initialize_pud_sequence(Request& req, const DRAMSpec& spec);
 PuDOccurrenceAdvance observe_pud_command_issue(Request& req, int issued_command, Clk_t clk, const DRAMSpec& spec);
 PuDMovementTimingConstraints make_movement_timing_constraints(const DRAMSpec& spec);

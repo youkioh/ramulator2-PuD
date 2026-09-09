@@ -1,4 +1,4 @@
-"""W3 range-local Device components; no allocation/transport/public v2 path."""
+"""W3 range-local Device components; explicit contexts, no public v2 path."""
 
 from decimal import Decimal, ROUND_CEILING
 
@@ -110,7 +110,7 @@ def test_one_range_recovery_does_not_delay_new_disjoint_start():
 
 
 @pytest.mark.parametrize("issue_command", [False, True])
-@pytest.mark.parametrize("bad", ["wrong_range", "null", "foreign", "command", "stale_descriptor"])
+@pytest.mark.parametrize("bad", ["wrong_range", "null", "foreign", "command", "stale_occurrence"])
 def test_rejected_dispatch_is_atomic(issue_command, bad):
     d, r = _ComputeRangesUnderTest(dram_config()), resolver()
     a = add(d, r, "NOT_COPY", (0, 0))
@@ -123,7 +123,7 @@ def test_rejected_dispatch_is_atomic(issue_command, bad):
     elif bad == "command": kwargs["command"] = "PREpb"
     else:
         issue(d, a, 0)
-        kwargs["descriptor"] = saved
+        kwargs["saved_occurrence"] = saved
     before = d.state(a), d.state(b), d.shared()
     with pytest.raises(RuntimeError):
         d.dispatch(a, 100, issue=issue_command, **kwargs)
@@ -215,7 +215,7 @@ def test_fine_grained_upper_envelope_does_not_add_cycles(ns, cycles):
 
 
 @pytest.mark.parametrize("index", range(4))
-@pytest.mark.parametrize("bad", ["wrong_range", "null", "wrong_operand", "wrong_index", "terminal", "unassociated"])
+@pytest.mark.parametrize("bad", ["wrong_range", "null", "wrong_operand", "wrong_role", "wrong_index", "terminal", "unassociated"])
 def test_each_act_n_and_pre_keeps_exact_occurrence_association(index, bad):
     d, r = _ComputeRangesUnderTest(dram_config()), resolver()
     a = add(d, r, "NOT_COPY", (15, 16), 40)
@@ -223,10 +223,10 @@ def test_each_act_n_and_pre_keeps_exact_occurrence_association(index, bad):
     b = add(d, r, "NOT_COPY", (15, 16), 40)
     for clk in TIMELINES["NOT_COPY"][:index]: issue(d, a, clk)
     saved = d.save(a)
-    kwargs = dict(descriptor=saved)
+    kwargs = dict(saved_occurrence=saved)
     if bad == "wrong_range": kwargs["context_id"] = b
     elif bad == "null": kwargs["context_id"] = -2
-    else: d.corrupt_descriptor(saved, bad)
+    else: d.corrupt_occurrence(saved, bad)
     before = d.state(a), d.state(b), d.shared()
     for mutate in (False, True):
         with pytest.raises(RuntimeError):
@@ -234,21 +234,21 @@ def test_each_act_n_and_pre_keeps_exact_occurrence_association(index, bad):
         assert (d.state(a), d.state(b), d.shared()) == before
 
 
-def test_stale_sensed_descriptor_cannot_repeat_n():
+def test_stale_sensed_occurrence_cannot_repeat_n():
     d, r = _ComputeRangesUnderTest(dram_config()), resolver()
     a = add(d, r, "NOT_COPY")
     issue(d, a, 0)
     saved = d.save(a)  # Sensed, N is next.
-    issue(d, a, 40)   # Still sensed; descriptor must match the current Request.
+    issue(d, a, 40)   # Still sensed; occurrence must match the current Request.
     before = d.state(a), d.shared()
     with pytest.raises(RuntimeError, match="Wrong or stale compute occurrence"):
-        d.dispatch(a, 100, descriptor=saved, issue=True)
+        d.dispatch(a, 100, saved_occurrence=saved, issue=True)
     assert (d.state(a), d.shared()) == before
 
 
 def test_dispatch_preserves_explicit_shared_channel_edges():
     # A synthetic constraint verifies both full-hierarchy readiness and the
-    # Channel-only update seam independently of the fixture's one-tick issue.
+    # Channel-only update seam independently of the shared command occupancy.
     from ramulator.dram import DDR4_PuD_Movement as Standard
     config = dram_config()
     commands = {c: Standard.commands.index(c) for c in Standard.commands}
@@ -285,14 +285,24 @@ def test_outgoing_scope_inventory_matches_inherited_definitions():
     assert actual == expected
 
 
-def test_context_does_not_close_conventional_rows():
+def test_context_requires_drained_conventional_rows():
     d, r = _ComputeRangesUnderTest(dram_config()), resolver()
-    a = add(d, r, "NOT")
     addr = [0, 0, 0, 0, 77, 0]
     assert d.raw("ACT", addr, 0, issue=True)
-    before = d.state(a), d.shared()
+    before = d.shared()
     with pytest.raises(RuntimeError, match="drained conventional Bank"):
-        d.dispatch(a, 100, issue=True)
-    assert (d.state(a), d.shared()) == before
+        add(d, r, "NOT")
+    assert d.shared() == before
     assert d.raw("PREpb", addr, 39, issue=True)
+    a = add(d, r, "NOT")
     issue(d, a, 55)
+
+
+def test_protected_context_rejects_conventional_row_activation():
+    d, r = _ComputeRangesUnderTest(dram_config()), resolver()
+    a = add(d, r, "NOT")
+    before = d.state(a), d.shared()
+    with pytest.raises(RuntimeError, match="protected compute context"):
+        d.raw("ACT", [0, 0, 0, 0, 77, 0], 0, issue=True)
+    assert (d.state(a), d.shared()) == before
+    issue(d, a, 0)

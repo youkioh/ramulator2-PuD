@@ -248,7 +248,8 @@ def test_priority_maintenance_waits_for_last_recovery_before_whole_scope_action(
     d.raw("ACT", addr(0), True)
     assert d.add(compute(r, "MAJ3", bank=2), 1, 0)
     assert d.add(compute(r, "NOT", bank=3, bg=3), 2, 1)
-    events = sorted([(clk, 1) for clk in TIMELINES["MAJ3"]] +
+    # The ordinary ACT at zero occupies the shared command cycle.
+    events = sorted([(clk+1, 1) for clk in TIMELINES["MAJ3"]] +
                     [(clk+2, 2) for clk in TIMELINES["NOT"]])
     queued = False
     for clk, source in events:
@@ -258,7 +259,7 @@ def test_priority_maintenance_waits_for_last_recovery_before_whole_scope_action(
             queued = True
         d.dispatch(source, clk)
     d.advance(100)
-    assert d.issued() == []  # Last recovery is NOT at 101, even though MAJ3 drained at 66.
+    assert d.issued() == []  # Last recovery is NOT at 101, even though MAJ3 drained at 67.
     before = d.shared()
     for raw_command in ("PREab", "REFab"):
         with pytest.raises(RuntimeError, match="protected compute"):
@@ -360,7 +361,7 @@ def test_final_recheck_catches_command_scope_upgrade():
     assert not d.probe("RD", "RDA", addr(3))["issue"]
 
 
-def test_selection_then_reservation_is_rechecked_before_any_preparation():
+def test_selection_then_compute_reservation_rechecks_ordinary_issue():
     d, r = fixture()
     assert d.probe("RD", "ACT", addr())["issue"]
     assert d.add(compute(r), 1, 0)

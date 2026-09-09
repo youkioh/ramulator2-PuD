@@ -18,9 +18,13 @@ fixes targets. The v2 rules here take precedence over the retained legacy
 Bank-conservative/T3 contract below where explicitly refined. No code or
 implementation plan is authorized by recording this decision.
 
-The following are **Accepted project decisions**. MIMDRAM's transport
-mechanisms and evaluated capacities are source facts; their mapping to PRADA
-and the detailed queue semantics below are simulator assumptions.
+The [Accepted mat-target transport abstraction](mimdram-mat-target-transport-abstraction.md)
+supersedes only this document's Alternative-A/Q=8 baseline requirements.
+This document remains Accepted for all other timing/resource behavior.
+The two historical transport subsections below preserve the prior choice and
+rationale; they are not current baseline requirements. MIMDRAM's transport
+mechanisms and evaluated capacities remain source facts; their mapping to
+PRADA and detailed queue semantics were project simulator assumptions.
 
 **History scopes and local timing**
 
@@ -38,7 +42,20 @@ explicit assumption; do not infer movement exemptions from PRADA. Keep the
 accepted LC/GB local graphs and existing shared constraints below. Enforce
 each timing relationship in one authoritative domain, not twice.
 
-**Selected transport Alternative A**
+**Baseline resolved-target consumption**
+
+Each ACT_PUD* consumes its occurrence's resolved row and MatRange atomically
+at issue, under the linked abstraction. There is no modeled physical target
+delivery, target FIFO/Q constraint, setup event, successor transport/readiness
+state, or mat-target-specific C/A contention. Preserve explicit occurrence
+association, range-local timing and ordinary shared command issue constraints.
+Omitted transport costs are not physically zero.
+
+**Historical transport Alternative A — Superseded**
+
+The following former baseline is retained as provenance only. Alternative A
+was a project mapping onto sequential PRADA activations, not MIMDRAM
+terminology or a MIMDRAM-specified PRADA mechanism.
 
 Every ACT_PUD* occurrence consumes its matching precommunicated target before
 activation takes effect. Each activation other than the last activation in
@@ -73,7 +90,7 @@ semantically distinct. N and terminal PRE retain one modeled issue cycle and
 their own context association; exact physical context-selection encoding is
 not claimed.
 
-**Initial setup and queue semantics**
+**Historical initial setup and queue semantics — Superseded**
 
 Use PRE-enqueue when a suitable, legally issued preceding PRE can carry a
 known request's target. The PRE uses its existing C/A cycle and applicable
@@ -124,6 +141,10 @@ queue tokens. Compute transports compete with movement occurrences on shared
 C/A. This asymmetric fidelity does not claim complete MIMDRAM bus/queue or
 movement-throughput accuracy.
 
+The historical transport provisions end here. The ACT-overhead calculation,
+local timing and retained movement graph below remain current, with latency
+accounting updated for the accepted transport abstraction.
+
 **Fine-grained ACT overhead and latency accounting**
 
 MIMDRAM reports less than 0.5% additional ACT latency from mat isolation
@@ -150,14 +171,15 @@ overhead is not physically zero. Recheck this conclusion for another timing
 preset or a finer time resolution. This check does not recalibrate movement
 or conventional ACT timings.
 
-With prepared targets and no contention, first-ACT-through-terminal-recovery
+With resolved targets and no contention, first-ACT-through-terminal-recovery
 totals remain RowCopy(D)=40+5D+16 CK, MAJ3=66, MAJ5=76, NOT=99, and
-NOT_COPY=104 CK. Successor transmissions fit within their existing timing
-gaps; initial setup, queue pressure, and shared C/A arbitration can still
-increase request latency. Distinguish local primitive execution, initial
-transport, range/engine/queue or maintenance waiting, shared arbitration,
-and recovery. Overlapped costs are not summed twice; the totals already
-include terminal nRP. The LC/GB 130/75 CK isolated local baselines below are
+NOT_COPY=104 CK. Range/engine or maintenance waiting and shared command
+arbitration can still increase request latency. Distinguish these costs from
+local primitive execution and recovery; target-transport latency, mat-queue
+stalls and target-delivery-specific C/A contention are omitted under the
+linked abstraction, not physically zero. Overlapped costs are not summed
+twice; the totals already include terminal nRP. The LC/GB 130/75 CK isolated
+local baselines below are
 retained, not claims about contended v2 end-to-end latency.
 
 **Retained legacy movement timing contract**
@@ -412,8 +434,10 @@ later implementation audit finds that generalization beneficial.
 
 Rationale
 
-For v2, one history per active range preserves local PRADA timing while
-separating selection traffic from execution. Alternative A exposes C/A and
+For v2, one history per active range preserves local PRADA timing. The current
+transport abstraction's rationale is in its linked Accepted decision.
+The following is the historical rationale for the superseded transport choice:
+Alternative A exposes C/A and
 finite queue costs using source-inspired overlap instead of either silently
 zero-cost targeting or a persistent-selection extension. Explicit setup
 handles cold/late arrivals without inventing a historical PRE payload. The
@@ -444,8 +468,9 @@ Evidence
 Gate C was accepted by the user on 2026-09-09. The curated reference records
 MIMDRAM source facts from section 4.2, section 7, and Table 2: enqueue/dequeue,
 overlap, per-chip queue, evaluated resources, and fine-grained ACT overhead.
-The PRADA mapping, cold-start event, exact FIFO/atomic synchronization, and
-relative-bound application are Accepted project assumptions.
+The PRADA mapping, cold-start event and exact FIFO/atomic synchronization were
+accepted project assumptions, now superseded as baseline requirements by the
+linked abstraction. The relative-bound application remains Accepted.
 
 Current implementation facts: [Python timing generation](../../../python/ramulator/dram/spec.py)
 adjusts edge anchors for multi-cycle commands; [compute timing](../../../python/ramulator/dram/ddr4_pud.py)
@@ -483,9 +508,14 @@ Open issues
 - Physical movement command encoding and exact C/A-bus occupancy.
 - Whether stronger evidence requires movement `tRRD`, `tFAW`, activation-
   current, ordinary row-cycle, DQ, or additional shared Rank/Channel rules.
-- Physical validation of the hybrid transport encoding and FIFO/atomic queue
-  semantics; more detailed movement transport remains outside this profile.
+- Physical validation of the historical hybrid transport encoding and
+  FIFO/atomic queue semantics if revisited for optional sensitivity analysis;
+  these are not baseline implementation prerequisites. More detailed movement
+  transport remains outside this profile.
 - Portability of the numeric assumptions to another timing preset,
   organization, or DRAM standard.
-- Gate C is accepted but not implemented; v2 local/shared timing, transport,
-  and same-subarray overlap require implementation validation.
+- Current implementation progress is recorded in the
+  [implementation plan](../plans/mimdram-pud-substrate-v2-implementation-plan.md).
+  W6 baseline alignment is implemented and validated under T-A. Production
+  allocation/arbitration and same-subarray scheduling integration remain W7
+  work; W7 has not started.

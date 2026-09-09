@@ -60,7 +60,7 @@ namespace PuD {
  * |           +------------+------------+                                            |
  * |                        | describes current index                                 |
  * |                        v                                                         |
- * |                  PuDOccurrence (current descriptor/view)                         |
+ * |                  PuDOccurrence (current occurrence view)                         |
  * |                                                                                  |
  * | Movement Request cursor/history ---> +-------------------------+                 |
  * |                                      | PuDMovementState        |                 |
@@ -125,27 +125,11 @@ namespace PuD {
  * | Request owns local history; context owns phase; Controller owns recovery.        |
  * +----------------------------------------------------------------------------------+
  *
- * +----------------------------------------------------------------------------------+
- * | 6. TARGET QUEUES / SHARED C/A                         dram/pud_target_queue.h    |
- * |                                                                                  |
- * | ProtectedCompute --> Controller preparation/issue --> DRAMDevice                 |
- * |                                                        | owns                    |
- * |                                                        v                         |
- * |                                                  PuDTargetQueues                |
- * | Request occurrence + W1 segment_range --> per-(Channel, Rank, Chip) FIFO         |
- * | initial PRE/setup --> descriptor --> ACT consumes ready heads atomically         |
- * | non-final ACT --> reserved successor at T+1 --> ready at T+2                     |
- * |                                                                                  |
- * | Device C/A reservation excludes ordinary/movement issue; no local timing graph. |
- * | Queue entries retain identity/order/readiness only; NO context shadow state.    |
- * +----------------------------------------------------------------------------------+
- *
  * Mental model:
  * pud_location.h     = WHERE modeled data lives
  * request.h          = WHAT request + sequence progress
  * pud_sequence.h     = WHICH occurrence / derived movement view
- * device.h           = invocation association + Device-side phase
- * pud_target_queue.h = WHICH prepared activation target; shared C/A lives in Device
+ * device.h           = resolved-occurrence issue + phase + shared command occupancy
  * controller_base.h  = WHO owns/protects it and for how long
  * node.h             = conventional/shared DRAM state
  */

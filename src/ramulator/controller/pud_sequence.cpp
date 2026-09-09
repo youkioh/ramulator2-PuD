@@ -161,20 +161,6 @@ void initialize_pud_sequence(Request& req, const DRAMSpec& spec) {
   configure_pud_occurrence(req, spec);
 }
 
-bool is_pud_activation(const PuDOccurrence& occurrence, const DRAMSpec& spec) {
-  const auto& command = spec.command_names.at(occurrence.command);
-  return command == "ACT_PUD_OC" || command == "ACT_PUD_S_OC" ||
-         command == "ACT_PUD" || command == "ACT_PUD_S";
-}
-
-std::optional<PuDOccurrence> next_pud_activation(const Request& req, size_t after, const DRAMSpec& spec) {
-  for (size_t i = after + 1; i < get_pud_sequence_length(req); ++i) {
-    auto occurrence = describe_pud_occurrence(req, i, spec);
-    if (is_pud_activation(occurrence, spec)) return occurrence;
-  }
-  return std::nullopt;
-}
-
 PuDOccurrenceAdvance observe_pud_command_issue(Request& req, int issued_command, Clk_t clk, const DRAMSpec& spec) {
   if (issued_command != req.final_command) {
     return PuDOccurrenceAdvance::NotIssued;
