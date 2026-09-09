@@ -303,6 +303,37 @@ bool LocationResolver::directed_neighbors(int source_mat, int destination_mat) c
   return profile().gb_successor[source_mat] == destination_mat;
 }
 
+PairedOperand LocationResolver::pair(ResolvedRegion region, std::optional<BurstColumn> column) const {
+  // Reuse the canonical region validation, including its retained association.
+  cell_at(region, 0);
+  if (column) {
+    bound(column->value, groups(), "BurstColumn");
+    require(!region.burst || column == region.burst, "inconsistent group/burst projection");
+  }
+  const auto projected_column = column ? column : region.burst;
+  const auto& row = region.external_row;
+  // Absence stays optional in canonical coordinates. Only the legacy vector
+  // uses -1 to represent an unspecified Column.
+  AddrVec_t external{row.channel, row.rank, row.bank_group, row.bank, row.row,
+                     projected_column ? projected_column->value : -1};
+  return {std::move(region), std::move(external)};
+}
+
+void LocationResolver::validate(const PairedOperand& operand) const {
+  require(operand.external.size() == 6, "paired operand requires six external coordinates");
+  std::optional<BurstColumn> column;
+  if (operand.external.back() != -1) {
+    column = BurstColumn{operand.external.back()};
+  }
+  require(pair(operand.location, column).external == operand.external, "inconsistent external projection");
+}
+
+void LocationResolver::validate_spec(const DRAMSpec& spec) const {
+  // Configuration validation uses the same W1 contract as initial construction.
+  LocationResolver checked(profile(), spec, m_association->routing);
+  require(checked.association().ranks == m_association->ranks, "profile/rank context mismatch");
+}
+
 std::vector<MatSegment> LocationResolver::segment_range(MatRange mats) const {
   bound(mats.first, logical_mats(), "first logical mat");
   bound(mats.last, logical_mats(), "last logical mat");

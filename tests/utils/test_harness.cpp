@@ -420,6 +420,18 @@ class PuDRoutingSystemUnderTestCpp {
     return nb::cast<nb::dict>(confignode_to_py(m_memory_system_impl->collect_stats()));
   }
 
+  nb::dict retry_located(Request& req) {
+    RoutingControllerStub::reset(true);
+    nb::dict out;
+    out["first"] = m_memory_system->send(req);
+    out["before_retry"] = stats();
+    out["second"] = m_memory_system->send(req);
+    out["receiver"] = RoutingControllerStub::last_receiver;
+    out["same_bundle"] = RoutingControllerStub::last_request.pud_locations == req.pud_locations;
+    out["external"] = RoutingControllerStub::last_request.operands;
+    return out;
+  }
+
  private:
   std::unique_ptr<HarnessFrontEnd> m_frontend;
   std::unique_ptr<Implementation> m_memory_system_impl;
@@ -969,9 +981,12 @@ class ControllerUnderTestCpp {
 
 // ---- nanobind module ----
 
+#include "pud_request_harness.h"
+
 NB_MODULE(_ramulator_test, m) {
   m.doc() = "Ramulator2 test harness bindings";
   bind_pud_location_harness(m);
+  bind_pud_request_harness(m);
 
   nb::class_<DeviceUnderTestCpp>(m, "_DeviceUnderTest")
       .def(nb::init<nb::dict, int>(), nb::arg("dram_config"), nb::arg("channel_id") = 0)
@@ -1056,6 +1071,7 @@ NB_MODULE(_ramulator_test, m) {
 
   nb::class_<PuDRoutingSystemUnderTestCpp>(m, "_PuDRoutingSystemUnderTest")
       .def(nb::init<int>(), nb::arg("num_channels"))
+      .def("retry_located", &PuDRoutingSystemUnderTestCpp::retry_located)
       .def("send_pud_request", &PuDRoutingSystemUnderTestCpp::send_pud_request,
            nb::arg("type_id"), nb::arg("operands"), nb::arg("size_bytes") = 64)
       .def("send_regular_request", &PuDRoutingSystemUnderTestCpp::send_regular_request,

@@ -22,6 +22,10 @@ struct PuDOccurrence {
   PuDOccurrenceRole role = PuDOccurrenceRole::Operand;
   size_t index = 0;
   bool terminal = false;
+  std::shared_ptr<const PuD::RequestLocations> locations;
+  const PuD::PairedOperand* location() const {
+    return locations ? &locations->operands.at(operand_index) : nullptr;
+  }
 };
 
 enum class PuDOccurrenceAdvance {

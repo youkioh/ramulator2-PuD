@@ -45,12 +45,14 @@ class LocationResolverUnderTest {
       }
     }
     auto context = py_to_confignode(routing);
-    m_resolver = std::make_unique<PuD::LocationResolver>(
+    m_resolver = std::make_shared<PuD::LocationResolver>(
         std::move(p), *spec,
         PuD::MappingContext{context["address_space"].as<std::string>(), context["channels"].as<int>(),
                             context["channel_mapper"].as<std::string>(), context["address_mapper"].as<std::string>(),
                             context["row_remapping"].as<bool>(), context["reserved_rows_per_bank"].as<int>()});
   }
+
+  std::shared_ptr<const PuD::LocationResolver> resolver() const { return m_resolver; }
 
   static std::vector<int> cell_vector(PuD::CellID c) {
     return {c.channel, c.rank, c.bank_group, c.bank, c.subarray, c.local_row, c.chip, c.mat, c.column};
@@ -166,7 +168,7 @@ class LocationResolverUnderTest {
   }
 
  private:
-  std::unique_ptr<PuD::LocationResolver> m_resolver;
+  std::shared_ptr<const PuD::LocationResolver> m_resolver;
 };
 
 inline void bind_pud_location_harness(nb::module_& m) {

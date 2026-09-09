@@ -30,6 +30,12 @@ inline void validate_pud_operand_count(const Request& req) {
 }
 
 inline void validate_movement_metadata(const Request& req) {
+  if (req.pud_locations) {
+    if (!std::holds_alternative<std::monostate>(req.movement)) {
+      throw std::runtime_error("v2 PuD scope must come from paired operands, not legacy movement metadata");
+    }
+    return;
+  }
   bool valid = false;
   switch (req.type_id) {
     case Request::Type::LCMOV:
@@ -47,8 +53,30 @@ inline void validate_movement_metadata(const Request& req) {
   }
 }
 
+inline void validate_pud_pairs(const Request& req, const PuD::LocationResolver* expected = nullptr) {
+  if (!req.pud_locations || !req.pud_locations->resolver) {
+    throw std::runtime_error("v2 PuD requires resolver-produced paired operands and origins");
+  }
+  const auto& locations = *req.pud_locations;
+  if (expected && &expected->association() != &locations.resolver->association()) {
+    throw std::runtime_error("v2 PuD profile/routing association does not match the controller");
+  }
+  if (locations.operands.size() != req.operands.size()) {
+    throw std::runtime_error("v2 PuD paired operand count mismatch");
+  }
+  for (size_t i = 0; i < locations.operands.size(); ++i) {
+    locations.resolver->validate(locations.operands[i]);
+    if (req.operands[i] != locations.operands[i].external) {
+      throw std::runtime_error("v2 PuD external projection was changed independently");
+    }
+  }
+}
+
 inline int validate_pud_routing(const Request& req, int num_channels) {
   validate_pud_operand_count(req);
+  if (req.pud_locations) {
+    validate_pud_pairs(req);
+  }
   validate_movement_metadata(req);
 
   int route_channel = -1;

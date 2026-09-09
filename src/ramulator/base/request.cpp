@@ -1,5 +1,7 @@
 #include "ramulator/base/request.h"
 
+#include <stdexcept>
+
 namespace Ramulator {
 
 Request::Request(Addr_t addr, int type) : addr(addr), type_id(type){};
@@ -8,6 +10,19 @@ Request::Request(AddrVec_t addr_vec, int type) : addr_vec(std::move(addr_vec)), 
 
 Request::Request(std::vector<AddrVec_t> operands, int type)
     : type_id(type), operands(std::move(operands)){};
+
+Request::Request(std::shared_ptr<const PuD::LocationResolver> resolver,
+                 std::vector<PuD::PairedOperand> paired, int type) : type_id(type) {
+  if (!resolver || !is_pud_request_type(type)) {
+    throw std::invalid_argument("v2 PuD request requires a resolver and PuD type");
+  }
+  for (const auto& operand : paired) {
+    resolver->validate(operand);
+    operands.push_back(operand.external);
+  }
+  pud_locations = std::make_shared<const PuD::RequestLocations>(
+      PuD::RequestLocations{std::move(resolver), std::move(paired)});
+}
 
 Request::Request(Addr_t addr, int type, int source_id, std::function<void(Request&)> callback)
     : addr(addr), type_id(type), source_id(source_id), callback(callback){};

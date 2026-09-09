@@ -4,6 +4,7 @@
 #include <stdexcept>
 
 #include "ramulator/dram/dram_spec.h"
+#include "ramulator/memory_system/pud_request_routing.h"
 
 namespace Ramulator {
 
@@ -48,7 +49,7 @@ size_t get_pud_sequence_length(const Request& req) {
   }
 }
 
-PuDOccurrence describe_pud_occurrence(const Request& req, size_t occurrence_index, const DRAMSpec& spec) {
+static PuDOccurrence describe_occurrence(const Request& req, size_t occurrence_index, const DRAMSpec& spec) {
   const size_t sequence_length = get_pud_sequence_length(req);
   if (occurrence_index >= sequence_length) {
     throw std::logic_error(fmt::format("{} occurrence {} is outside [0, {})", request_type_name(req.type_id),
@@ -117,6 +118,15 @@ PuDOccurrence describe_pud_occurrence(const Request& req, size_t occurrence_inde
   }
   return make_occurrence(spec, command, occurrence_index, PuDOccurrenceRole::Operand, occurrence_index,
                          sequence_length);
+}
+
+PuDOccurrence describe_pud_occurrence(const Request& req, size_t occurrence_index, const DRAMSpec& spec) {
+  if (req.pud_locations) {
+    validate_pud_pairs(req);
+  }
+  auto occurrence = describe_occurrence(req, occurrence_index, spec);
+  occurrence.locations = req.pud_locations;
+  return occurrence;
 }
 
 void initialize_pud_sequence(Request& req, const DRAMSpec& spec) {

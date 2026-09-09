@@ -42,6 +42,9 @@ class ControllerBase : public IController, public Implementation {
   int get_num_levels() const override;
   float get_tCK() const override;
   bool supports_movement_requests() const override;
+  const PuD::LocationResolver* location_resolver() const override { return m_location_resolver.get(); }
+  // Setup-only location support. This does not enable v2 PuD execution.
+  void set_location_resolver(std::shared_ptr<const PuD::LocationResolver> resolver);
 
   bool send(Request& req) override;
   bool priority_send(Request& req) override;
@@ -74,6 +77,7 @@ class ControllerBase : public IController, public Implementation {
   IRefreshManager* m_refresh = nullptr;
   IRowPolicy* m_rowpolicy = nullptr;
   std::vector<IControllerPlugin*> m_plugins;
+  std::shared_ptr<const PuD::LocationResolver> m_location_resolver;
 
   // Request buffers
   std::deque<Request> m_pending;

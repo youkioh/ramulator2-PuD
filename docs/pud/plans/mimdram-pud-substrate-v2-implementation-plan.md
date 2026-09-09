@@ -1,6 +1,35 @@
 # MIMDRAM-based PuD substrate v2 implementation plan
 
-Status: Planned; implementation has not begun.
+Status: Implementation in progress — Phase 1 complete; W3-W9 not started.
+
+## Implementation progress (2026-09-09)
+
+- **W1: Completed.** Geometry/profile resolver and canonical location authority
+  implemented, including profile-owned GB topology and mat-range segmentation;
+  focused and legacy verification completed, subject to the broader-suite note
+  below.
+- **W2: Completed.** Paired request/location retention, routing and validation
+  integrated; ordinary/PuD shared-location consistency established. Incomplete
+  v2 execution remains disabled.
+- **Phase 1: Completed.** The common placement and submission contract exit
+  invariant is satisfied.
+- **W3-W9: Not started.** The work-unit specifications below remain unchanged
+  as implementation authority/history.
+
+Phase 1 verification: 243 W2 location/request tests, 127 W1 location tests,
+and 184 directly affected ingress/validation/occurrence/classification/lifecycle
+regressions passed together (554 tests, exit 0). Mapper, DDR4/PuD/movement
+Device and smoke regressions passed (156 tests, exit 0). Codegen and the
+`ramulator`, `_ramulator`, and `_ramulator_test` build passed (exit 0).
+Full W1+W2 diff review, local documentation-link checks and `git diff --check`
+completed successfully; no Gate authority or W3+ implementation changed.
+
+Verification limitation: the broader controller suite passed all 447 assertions
+but aborted during allocator shutdown with `munmap_chunk(): invalid pointer`
+(exit 134), so it is **not a clean pass**. Clean W1 checkpoint `b7aa67e` also
+reproduced intermittent native exit-134 aborts, during tests in this comparison,
+alongside clean 447-test runs (exit 0). An identical root cause is not established
+and is not attributed to W2; allocator diagnosis remains deferred.
 
 ## Baseline, authority, and scope
 

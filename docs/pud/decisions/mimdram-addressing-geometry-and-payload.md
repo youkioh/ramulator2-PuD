@@ -193,6 +193,12 @@ factoring.
 | LC-MOV | Exactly two ordered operands, source then destination; one common non-empty inclusive mat range and common source/destination row and internal selector for all selected mats. Each endpoint resolves its ordered HFF-width group through the canonical map. |
 | GB-MOV | Exactly two ordered singleton endpoints in the same chip and derived subarray, using the directed local-mat neighbor `i-1 -> i`. Source/destination rows and groups may differ. No reverse, wraparound, cross-chip, wider-range, or automatic multihop movement. |
 
+The singleton GB footprint is the project's conservative supported low-level
+subset, not a claim that MIMDRAM's published GB-MOV interface is singleton-only.
+Its range/lowering distinction and direct-reduction use are recorded in the
+[reduction placement and movement-lowering decision](mimdram-reduction-placement-and-movement-lowering.md).
+This clarification preserves the accepted topology and executable behavior.
+
 LC's selected range may cross chips because each mat copies locally; this
 does not imply chip-to-chip payload transfer. The range denotes one invocation.
 LC moves `range_length * HFFs_per_mat` bits; singleton GB moves

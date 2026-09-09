@@ -11,6 +11,7 @@
 #include "ramulator/controller/pud_request_validation.h"
 #include "ramulator/dram/dram_spec.h"
 #include "ramulator/frontend/i_frontend.h"
+#include "ramulator/memory_system/pud_request_routing.h"
 
 namespace Ramulator {
 
@@ -30,6 +31,9 @@ bool ControllerBase::check_request_timing(const Request& req) {
 }
 
 bool ControllerBase::validate_request_for_issue(const Request& req) {
+  if (req.pud_locations || (m_location_resolver && is_pud_request_type(req.type_id))) {
+    throw std::runtime_error("v2 PuD execution is unavailable");
+  }
   const bool prerequisite_compatible =
       req.command == get_preq_command(req.final_command, req.addr_vec);
   const bool timing_ready = check_request_timing(req);
@@ -54,6 +58,18 @@ float ControllerBase::get_tCK() const {
 
 bool ControllerBase::supports_movement_requests() const {
   return m_device.m_spec->supports_movement_requests();
+}
+
+void ControllerBase::set_location_resolver(std::shared_ptr<const PuD::LocationResolver> resolver) {
+  if (!resolver || m_location_resolver || m_clk != 0 || !m_pending.empty() ||
+      m_read_buffer.size() || m_write_buffer.size() || m_pud_buffer.size() || m_priority_buffer.size()) {
+    throw std::runtime_error("location resolver must be installed once before request traffic");
+  }
+  resolver->validate_spec(*m_device.m_spec);
+  if (m_addr_mapper->m_impl->get_name() != resolver->association().routing.address_mapper) {
+    throw std::runtime_error("controller mapper disagrees with location profile");
+  }
+  m_location_resolver = std::move(resolver);
 }
 
 // ── Shared initialization ───────────────────────────────────────────────
@@ -183,6 +199,14 @@ void ControllerBase::setup_base(IFrontEnd* frontend, IMemorySystem* memory_syste
 // ── IController overrides ───────────────────────────────────────────────
 
 bool ControllerBase::send(Request& req) {
+  if (req.pud_locations || (m_location_resolver && is_pud_request_type(req.type_id))) {
+    validate_pud_routing(req, m_location_resolver ? m_location_resolver->association().routing.channels : 1);
+    validate_pud_placement(req, *m_device.m_spec, m_channel_id,
+                           get_pud_placement_levels(*m_device.m_spec), m_location_resolver.get());
+    // W2 validates/retains locations only. Never enqueue into legacy Bank-wide
+    // PuD execution, even if the selected standard recognizes the type id.
+    throw std::runtime_error("v2 PuD execution is unavailable");
+  }
   if (req.type_id < 0 || req.type_id >= static_cast<int>(m_device.m_spec->supported_requests.size())) {
     throw std::runtime_error(fmt::format(
         "DRAM standard {} does not support request type_id {}",
@@ -203,6 +227,11 @@ bool ControllerBase::send(Request& req) {
   // PassThroughAddrMapper is a no-op (addr_vec already set by frontend).
   m_addr_mapper->apply(req);
   req.addr_vec[0] = m_channel_id;
+  if (m_location_resolver) {
+    // req.addr retains the original physical byte, including low offsets;
+    // intra_channel_addr/addr_vec cannot replace it as a placement origin.
+    resolve_ordinary_request(req, *m_location_resolver);
+  }
 
   req.final_command = m_device.m_spec->supported_requests[req.type_id];
 
@@ -256,6 +285,9 @@ bool ControllerBase::send(Request& req) {
 }
 
 bool ControllerBase::priority_send(Request& req) {
+  if (req.pud_locations || (m_location_resolver && is_pud_request_type(req.type_id))) {
+    throw std::runtime_error("v2 PuD execution is unavailable");
+  }
   if (req.final_command < 0 || req.final_command >= m_device.m_spec->command_count) {
     throw std::runtime_error(fmt::format(
         "Invalid priority request final_command {}: expected a DRAM command id in [0, {})",

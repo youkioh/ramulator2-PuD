@@ -90,6 +90,21 @@ class GenericDRAMSystem final : public IMemorySystem, public Implementation {
     }
 
     int channel_id = -1;
+    const auto* resolver = m_controllers[0]->location_resolver();
+    if (resolver) {
+      const auto& routing = resolver->association().routing;
+      if (routing.channels != static_cast<int>(m_controllers.size()) ||
+          routing.channel_mapper != m_channel_mapper->m_impl->get_name()) {
+        throw std::runtime_error("memory-system routing disagrees with location profile");
+      }
+      if (is_pud_request_type(req.type_id)) {
+        validate_pud_pairs(req, resolver);
+      } else {
+        // Resolve before channel compaction; req.addr preserves this origin
+        // for the controller's final conventional-mapper consistency check.
+        resolver->resolve(PuD::PhysicalBit{req.addr, 0});
+      }
+    }
     if (is_pud_request_type(req.type_id)) {
       channel_id = validate_pud_routing(req, static_cast<int>(m_controllers.size()));
     } else {

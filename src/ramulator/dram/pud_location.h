@@ -113,6 +113,11 @@ struct ResolvedRegion {
   int64_t cell_count;
 };
 
+struct PairedOperand {
+  ResolvedRegion location;
+  AddrVec_t external;
+};
+
 // W1 location-only support. Construction validates the proposed v2 placement
 // against an actual DRAMSpec and explicitly supplied mapping context. This does
 // not enable v2 requests or install anything in legacy mapping/execution paths.
@@ -139,6 +144,11 @@ class LocationResolver {
   ResolvedRegion compute_footprint(ExternalRow row, MatRange mats) const;
   // Ordered LC endpoint or singleton GB endpoint; pair/request checks belong to W2.
   ResolvedRegion group_footprint(ExternalRow row, MatRange mats, Group group) const;
+  // Whole mat-rows have no burst selector (-1 in the command projection).
+  // A supplied conventional Column is checked but never narrows that scope.
+  PairedOperand pair(ResolvedRegion region, std::optional<BurstColumn> column = std::nullopt) const;
+  void validate(const PairedOperand& operand) const;
+  void validate_spec(const DRAMSpec& spec) const;
   bool directed_neighbors(int source_mat, int destination_mat) const;
   // Exact partition of an inclusive logical range, in logical/chip order.
   // Each segment has inclusive local bounds; invalid/empty ranges are rejected.

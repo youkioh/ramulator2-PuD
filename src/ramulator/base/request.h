@@ -2,6 +2,7 @@
 #define RAMULATOR_BASE_REQUEST_H
 
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 #include <utility>
@@ -9,8 +10,19 @@
 #include <vector>
 
 #include "ramulator/base/type.h"
+#include "ramulator/dram/pud_location.h"
 
 namespace Ramulator {
+
+namespace PuD {
+// Immutable placement only. Request owns the sole mutable occurrence cursor
+// and issue history. Copies, retries, and completion/occurrence descriptors
+// share this bundle, retaining the resolver/profile even after callers die.
+struct RequestLocations {
+  std::shared_ptr<const LocationResolver> resolver;
+  std::vector<PairedOperand> operands;
+};
+}  // namespace PuD
 
 struct Request {
   struct LogicalMatRange {
@@ -65,6 +77,7 @@ struct Request {
   // RowCopy uses operand 0 as source and operands 1..N as destinations.
   std::vector<AddrVec_t> operands{};
   MovementMetadata movement{};
+  std::shared_ptr<const PuD::RequestLocations> pud_locations;
 
   int command = -1;        // Current command to issue to progress the request
   int final_command = -1;  // Terminal command, or next controller-sequenced command
@@ -86,6 +99,8 @@ struct Request {
   Request(Addr_t addr, int type);
   Request(AddrVec_t addr_vec, int type);
   Request(std::vector<AddrVec_t> operands, int type);
+  Request(std::shared_ptr<const PuD::LocationResolver> resolver,
+          std::vector<PuD::PairedOperand> operands, int type);
   Request(Addr_t addr, int type, int source_id, std::function<void(Request&)> callback);
   Request(AddrVec_t addr_vec, Cmd_t, int final_cmd);  // internal commands (refresh, row close, etc.)
 };
