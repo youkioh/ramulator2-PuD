@@ -35,10 +35,19 @@ bool ControllerBase::validate_request_for_issue(const Request& req) {
   if (req.pud_locations || (m_location_resolver && is_pud_request_type(req.type_id))) {
     throw std::runtime_error("v2 PuD execution is unavailable");
   }
+  if (!is_pud_eligible_before_prerequisite(req) ||
+      m_device.conflicts_with_protected_compute(req.command, req.addr_vec)) return false;
   const bool prerequisite_compatible =
       req.command == get_preq_command(req.final_command, req.addr_vec);
   const bool timing_ready = check_request_timing(req);
   return prerequisite_compatible && timing_ready;
+}
+
+bool ControllerBase::is_pud_eligible_before_prerequisite(const Request& req) const {
+  // Located compute uses explicit range dispatch and W4 resource intersection;
+  // it must never obtain a conventional Bank-repair prerequisite here.
+  if (req.pud_locations && is_inherited_pud_request_type(req.type_id)) return true;
+  return !m_device.conflicts_with_protected_compute(req.final_command, req.addr_vec);
 }
 
 int ControllerBase::get_preq_command(int command, const AddrVec_t& addr_vec) {
@@ -348,14 +357,33 @@ bool ControllerBase::pud_compute_resources_available(const Request& req, int eng
   return true;
 }
 
+bool ControllerBase::pud_compute_start_eligible(const Request& req) const {
+  if (!m_priority_buffer.buffer.empty() || !is_pud_eligible_before_prerequisite(req)) return false;
+  const int bank_id = m_device.get_flat_bank_id(req.operands.front());
+  const auto* bank = m_device.m_bank_nodes[bank_id];
+  // Ordinary active work drains before any preparation or reservation. V2
+  // ranges are separate and do not make conventional Bank state Opened.
+  for (const auto& active : m_active_buffer.buffer) {
+    if (active.pud_locations && is_inherited_pud_request_type(active.type_id)) continue;
+    if (m_device.get_flat_bank_id(active.addr_vec) == bank_id) return false;
+  }
+  if (bank->m_state != m_device.m_spec->get_state_id("Closed") || !bank->m_row_state.empty()) return false;
+  // Incoming conventional PRE/AP/REF recovery is distinct from local primitive
+  // readiness. No v2 compute command updates these hierarchical deadlines.
+  const auto first = describe_pud_occurrence(req, 0, *m_device.m_spec);
+  return m_device.m_root->check_timing(first.command, req.operands.front(), m_clk);
+}
+
 bool ControllerBase::reserve_pud_compute(Request& req, int engine) {
   const std::weak_ptr<PuDComputeContext> empty;
   if (req.pud_compute_context.owner_before(empty) || empty.owner_before(req.pud_compute_context)) {
     throw std::logic_error("Request already has a current or stale compute reservation");
   }
-  auto context = m_device.make_pud_compute_context(req);
-  if (!pud_compute_resources_available(req, engine)) return false;
+  if (!pud_compute_resources_available(req, engine) || !pud_compute_start_eligible(req)) return false;
+  std::shared_ptr<PuDComputeContext> context = m_device.make_pud_compute_context(req);
+  m_device.protect_pud_compute(context);
   // Commit both resources together; a failed reservation changes no Request.
+  // A failed insertion leaves only an expired non-owning Device reference.
   m_protected_compute.push_back({engine, std::move(context), false});
   req.pud_compute_context = m_protected_compute.back().context;
   return true;
@@ -510,6 +538,15 @@ bool ControllerBase::would_close_active(const Request& req) const {
   if (!m_device.m_spec->command_meta[req.command].is_closing) {
     return false;
   }
+  if (req.pud_locations && is_inherited_pud_request_type(req.type_id) &&
+      !req.pud_compute_context.expired() && req.command == req.final_command) {
+    protected_pud_context(req);
+    const auto occurrence = describe_pud_occurrence(req, req.occurrence_index, *m_device.m_spec);
+    if (occurrence.terminal && req.command == occurrence.command) {
+      return false;  // Its terminal PRE closes only its associated range.
+    }
+  }
+  if (m_device.conflicts_with_protected_compute(req.command, req.addr_vec)) return true;
   if (m_active_buffer.size() == 0) {
     return false;
   }

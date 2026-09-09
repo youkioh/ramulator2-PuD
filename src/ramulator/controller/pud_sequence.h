@@ -28,6 +28,17 @@ struct PuDOccurrence {
   }
 };
 
+// A view of the retained per-Bank movement invocation, not another state
+// machine/cursor. Endpoint identity remains in the Request's paired operands.
+struct PuDMovementState {
+  bool owns_bank = false;
+  bool source_active = false;
+  bool destination_active = false;
+  bool source_valid = false;
+  std::shared_ptr<const PuD::RequestLocations> locations;
+};
+PuDMovementState describe_pud_movement_state(const Request& req);
+
 enum class PuDOccurrenceAdvance {
   NotIssued,
   Advanced,

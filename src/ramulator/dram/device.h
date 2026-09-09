@@ -81,6 +81,11 @@ class DRAMDevice {
   void issue_pud_command(Request& req, const PuDOccurrence& occurrence,
                          PuDComputeContext* context, Clk_t clk);
 
+  // Non-owning visibility of controller reservations, including pre-ACT and
+  // recovery. Controller release remains the sole lifetime authority.
+  void protect_pud_compute(const std::shared_ptr<PuDComputeContext>& context);
+  bool conflicts_with_protected_compute(int command, const AddrVec_t& addr_vec) const;
+
   // Prerequisite check — flat bank dispatch
   int get_preq_command(int command, const AddrVec_t& addr_vec, Clk_t clk);
 
@@ -138,6 +143,7 @@ class DRAMDevice {
   }
 
  private:
+  std::vector<std::weak_ptr<PuDComputeContext>> m_protected_compute;
   void validate_pud_command(const Request& req, const PuDOccurrence& occurrence,
                             const PuDComputeContext* context) const;
   // Run any command-specific defensive validation across the complete target

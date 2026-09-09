@@ -49,6 +49,31 @@ size_t get_pud_sequence_length(const Request& req) {
   }
 }
 
+PuDMovementState describe_pud_movement_state(const Request& req) {
+  if (!is_movement_request_type(req.type_id)) {
+    throw std::logic_error("Movement state requires LC-MOV or GB-MOV");
+  }
+  const auto length = get_pud_sequence_length(req);
+  const auto cursor = req.occurrence_index;
+  if (cursor > length || req.occurrence_issue_history.size() != length) {
+    throw std::logic_error("Inconsistent retained movement context");
+  }
+  for (size_t i = 0; i < length; ++i) {
+    if ((req.occurrence_issue_history[i] != Request::kOccurrenceNotIssued) != (i < cursor)) {
+      throw std::logic_error("Inconsistent retained movement history");
+    }
+  }
+  if (req.pud_locations) validate_pud_pairs(req);
+  const bool lc = req.type_id == Request::Type::LCMOV;
+  return {
+      .owns_bank = cursor > 0 && cursor < length,
+      .source_active = cursor > 0 && cursor < (lc ? 3u : length),
+      .destination_active = cursor >= (lc ? 4u : 2u) && cursor < length,
+      .source_valid = cursor >= (lc ? 2u : 3u) && cursor < (lc ? 5u : 4u),
+      .locations = req.pud_locations,
+  };
+}
+
 static PuDOccurrence describe_occurrence(const Request& req, size_t occurrence_index, const DRAMSpec& spec) {
   const size_t sequence_length = get_pud_sequence_length(req);
   if (occurrence_index >= sequence_length) {

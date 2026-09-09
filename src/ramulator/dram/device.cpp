@@ -17,6 +17,25 @@ void DRAMDevice::set_channel_id(int channel_id) {
   m_root->m_node_id = channel_id;
 }
 
+void DRAMDevice::protect_pud_compute(const std::shared_ptr<PuDComputeContext>& context) {
+  if (!context || context->m_device != this) {
+    throw std::logic_error("Cannot protect foreign compute context");
+  }
+  std::erase_if(m_protected_compute, [](const auto& held) { return held.expired(); });
+  m_protected_compute.push_back(context);
+}
+
+bool DRAMDevice::conflicts_with_protected_compute(int command, const AddrVec_t& addr_vec) const {
+  for (const auto& held : m_protected_compute) {
+    const auto context = held.lock();
+    if (!context) continue;
+    const int bank = get_flat_bank_id(context->locations()->operands.front().external);
+    if (!for_each_target_bank_while(command, addr_vec,
+          [&](int target) { return target != bank; })) return true;
+  }
+  return false;
+}
+
 std::unique_ptr<PuDComputeContext> DRAMDevice::make_pud_compute_context(const Request& req) const {
   if (m_spec->standard_name != "DDR4_PuD_Movement" || !req.pud_locations ||
       !is_inherited_pud_request_type(req.type_id)) {
@@ -113,7 +132,7 @@ void DRAMDevice::issue_pud_command(Request& req, const PuDOccurrence& occurrence
   // - Bank ACT_PUD*/N -> compute/PRE: PRADA phases, interpreted only by the
   //   Request-local timing helper above; no Bank history/deadline update here.
   // - Terminal PRE -> ACT/compute/ACT_MOV (Bank), -> REFab (Rank): recovery
-  //   belongs to this range. Later whole-scope exclusion is W4/W5, not a shared
+  //   belongs to this range. Protected records enforce whole-scope exclusion, not a shared
   //   deadline from this PRE. No conventional Bank/Rank state is closed here.
   // Incoming conventional PREpb/PREab/RDA/WRA/REFab edges are still checked by
   // the complete hierarchy. Ordinary commands keep their full update path,
@@ -206,6 +225,11 @@ std::vector<int> DRAMDevice::get_target_banks(int command, const AddrVec_t& addr
 }
 
 void DRAMDevice::validate_command(int command, const AddrVec_t& addr_vec, Clk_t clk) const {
+  // Validate the whole scope before even the first Bank prerequisite/action
+  // or hierarchical timing update. Range dispatch has its own explicit seam.
+  if (conflicts_with_protected_compute(command, addr_vec)) {
+    throw std::logic_error("Command conflicts with protected compute context");
+  }
   auto validate_fn = m_spec->funcs.validators[command];
   if (!validate_fn) return;
   for_each_target_bank(command, addr_vec, [&](int flat_bank_id) {

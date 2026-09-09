@@ -1,6 +1,6 @@
 # MIMDRAM-based PuD substrate v2 implementation plan
 
-Status: Implementation in progress — Phase 1 complete; W3-W4 complete; W5-W9 not started.
+Status: Implementation in progress — Phase 1 complete; W3-W5 complete; W6-W9 not started.
 
 ## Implementation progress (2026-09-09)
 
@@ -25,8 +25,33 @@ Status: Implementation in progress — Phase 1 complete; W3-W4 complete; W5-W9 n
   completion path releases protection before exact-once accounting/callback.
   Fixture reservations exercise this internal lifecycle; public v2 execution,
   admission policy, mixed-traffic exclusion and transport remain disabled/deferred.
-- **W5-W9: Not started.** The work-unit specifications below remain unchanged
+- **W5: Completed.** Protected compute records guard ordinary, movement and
+  maintenance scopes before prerequisites and final issue, including pre-ACT
+  and recovery. Compute-start eligibility drains ordinary/movement activity and
+  conventional recovery; maintenance validates its whole scope before mutation.
+  Retained movement history exposes endpoint activation/source validity without
+  payloads or another cursor. Movement recovery and continuation precedence also
+  cover failed active-buffer promotion. Internal fixtures preserve disjoint
+  compute progress; transport, allocation/arbitration and public v2 execution
+  remain W6+ work.
+- **W6-W9: Not started.** The work-unit specifications below remain unchanged
   as implementation authority/history.
+
+W5 verification: 126 focused conflict/drain tests and the 31 W4 lifecycle plus
+96 W3 range/timing tests passed together (253 tests, exit 0). The complete
+controller suite passed (604 tests, exit 0), including movement ownership,
+timing, refresh/row-policy, statistics/plugin compatibility, ordinary forwarding/
+coalescing and cross-standard final-issue regressions. The complete Device suite
+and W1/W2 location/retention tests passed (622 tests, exit 0). Tests cover both
+schedulers, full-scope rejection without partial state/history/deadline mutation,
+generated and queued refresh, last-context recovery, existing nRFC, FIFO heads,
+late eligibility/command changes, conventional PRE/AP recovery, and unchanged
+LC/GB 130/75 CK anchors. Paired movement endpoint retention uses the W2 component
+seam; scheduled movement remains on the legacy path. Codegen and the `ramulator`,
+`_ramulator` and `_ramulator_test` builds passed with unchanged generated
+definitions. Full W5 diff review and `git diff --check` passed. The known
+intermittent shutdown abort was not reproduced in these runs; no allocator
+diagnosis or fix was attempted.
 
 W4 verification: 31 focused lifecycle tests, 96 W3 range/timing tests and 370
 W1/W2 location/retention tests passed together (497 tests, exit 0). The focused

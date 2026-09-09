@@ -38,7 +38,7 @@ class GenericDDRController : public ControllerBase {
   PuDMovementTimingConstraints m_movement_timing{};
 
   std::optional<bool> try_send_special_request(Request& req) override;
-  bool is_pud_eligible_before_prerequisite(const Request& candidate) const;
+  bool is_pud_eligible_before_prerequisite(const Request& candidate) const override;
   bool is_retained_movement_owner(const Request& req) const;
 };
 
@@ -80,33 +80,46 @@ bool GenericDDRController::is_retained_movement_owner(const Request& req) const 
   if (!is_movement_request_type(req.type_id)) {
     return false;
   }
-  const size_t sequence_length = get_pud_sequence_length(req);
-  if (req.occurrence_issue_history.size() != sequence_length ||
-      req.occurrence_index > sequence_length) {
-    throw std::logic_error(fmt::format(
-        "{} has inconsistent retained ownership context: cursor {}, history {}, sequence {}",
-        request_type_name(req.type_id), req.occurrence_index,
-        req.occurrence_issue_history.size(), sequence_length));
-  }
-  return req.occurrence_index > 0 && req.occurrence_index < sequence_length &&
-         req.occurrence_issue_history[0] != Request::kOccurrenceNotIssued;
+  return describe_pud_movement_state(req).owns_bank;
 }
 
 bool GenericDDRController::is_pud_eligible_before_prerequisite(
     const Request& candidate) const {
-  for (const auto& owner : m_active_buffer.buffer) {
-    const bool owns_bank = is_inherited_pud_request_type(owner.type_id) ||
-                           is_retained_movement_owner(owner);
-    if (!owns_bank || &candidate == &owner) {
-      continue;
+  if (!ControllerBase::is_pud_eligible_before_prerequisite(candidate)) return false;
+  auto avoids_bank = [&](int owner_bank) {
+    const auto avoids_command = [&](int command) {
+      return m_device.for_each_target_bank_while(
+          command, candidate.addr_vec,
+          [&](int target_bank) { return target_bank != owner_bank; });
+    };
+    return avoids_command(candidate.final_command) &&
+           (candidate.command < 0 || avoids_command(candidate.command));
+  };
+  // A failed active-buffer promotion retains the movement owner in its original
+  // buffer. V2 compute ownership instead lives in protected range records.
+  for (const auto* buffer : {&m_active_buffer, &m_pud_buffer}) {
+    for (const auto& owner : buffer->buffer) {
+      const bool legacy_compute = buffer == &m_active_buffer && !owner.pud_locations &&
+                                  is_inherited_pud_request_type(owner.type_id);
+      if ((!legacy_compute && !is_retained_movement_owner(owner)) || &candidate == &owner) continue;
+      if (!avoids_bank(m_device.get_flat_bank_id(owner.operands.front()))) return false;
     }
-
-    const int owner_bank = m_device.get_flat_bank_id(owner.operands.front());
-    const bool avoids_owner = m_device.for_each_target_bank_while(
+  }
+  // Terminal PRE retires movement ownership, but independent commands cannot
+  // reuse or close its Bank until the existing delayed recovery has completed.
+  for (const auto& recovering : m_pending) {
+    if (is_movement_request_type(recovering.type_id) && recovering.depart > m_clk &&
+        !avoids_bank(m_device.get_flat_bank_id(recovering.operands.front()))) return false;
+  }
+  // Unallocated compute must also wait for existing ordinary active requests;
+  // otherwise a preparatory PRE could destroy their conventional row state.
+  if (candidate.pud_locations && is_inherited_pud_request_type(candidate.type_id) &&
+      candidate.pud_compute_context.expired()) {
+    for (const auto& active : m_active_buffer.buffer) {
+      if (active.pud_locations && is_inherited_pud_request_type(active.type_id)) continue;
+      if (!m_device.for_each_target_bank_while(
         candidate.final_command, candidate.addr_vec,
-        [&](int target_bank) { return target_bank != owner_bank; });
-    if (!avoids_owner) {
-      return false;
+        [&](int bank) { return bank != m_device.get_flat_bank_id(active.addr_vec); })) return false;
     }
   }
   return true;
@@ -143,6 +156,14 @@ void GenericDDRController::tick() {
   };
   Candidate cand = pick_best_ready_from(
       m_active_buffer, movement_prerequisite_compatibility, pud_eligibility);
+  if (!cand.valid) {
+    // Promotion backpressure cannot turn an acquired movement into unowned
+    // pending work or let priority maintenance strand its continuation.
+    cand = pick_best_ready_from(m_pud_buffer, movement_prerequisite_compatibility,
+        [&](const Request& req) {
+          return is_retained_movement_owner(req) && pud_eligibility(req);
+        });
+  }
 
   // 2. If no candidate found, try to schedule from priority
   if (!cand.valid) {

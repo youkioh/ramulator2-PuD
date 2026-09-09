@@ -478,6 +478,7 @@ class ChannelMapperUnderTestCpp {
 };
 
 class ControllerUnderTestCpp {
+  friend class Ramulator::PuDConflictUnderTest;
  public:
   inline static constexpr int kHarnessInternalSourceId = -2;
 

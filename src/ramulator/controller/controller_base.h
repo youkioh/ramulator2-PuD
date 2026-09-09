@@ -21,6 +21,7 @@ class IRefreshManager;
 class IRowPolicy;
 class IFrontEnd;
 class IMemorySystem;
+class PuDConflictUnderTest;
 
 // Shared infrastructure for all DRAM controller implementations.
 // Provides buffers, stats, sub-component management, and low-level scheduling
@@ -33,6 +34,7 @@ class ControllerBase : public IController, public Implementation {
   // Forwarding methods — bind m_clk for sub-components
   bool check_timing(int command, const AddrVec_t& addr_vec);
   virtual bool check_request_timing(const Request& req);
+  virtual bool is_pud_eligible_before_prerequisite(const Request& req) const;
   bool validate_request_for_issue(const Request& req);
   int get_preq_command(int command, const AddrVec_t& addr_vec);
 
@@ -56,6 +58,7 @@ class ControllerBase : public IController, public Implementation {
   void reset_stats() override;
 
  protected:
+  friend class PuDConflictUnderTest;
   ControllerBase(const ConfigNode& config, Implementation* parent)
       : Implementation(config, "controller", "ControllerBase", parent) {
   }
@@ -116,6 +119,7 @@ class ControllerBase : public IController, public Implementation {
   std::vector<ProtectedCompute> m_protected_compute;
   bool reserve_pud_compute(Request& req, int engine);
   bool pud_compute_resources_available(const Request& req, int engine) const;
+  bool pud_compute_start_eligible(const Request& req) const;
   PuDComputeContext& protected_pud_context(const Request& req) const;
   ProtectedCompute& protected_pud_record(const Request& req);
   void release_completed_resources(Request& req);

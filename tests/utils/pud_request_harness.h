@@ -479,7 +479,171 @@ class ComputeLifecycleUnderTest : public ControllerBase {
   nb::list events;
 };
 
+// W5 uses the real GenericDDR scheduler for legacy/ordinary/maintenance traffic.
+// Compute reservations/occurrences remain explicit fixture actions, outside
+// public ingress and arbitration; no target transport or allocation policy.
+namespace Ramulator {
+class PuDConflictUnderTest {
+ public:
+  explicit PuDConflictUnderTest(nb::dict config) : dut(config, 8), ctrl(dut.m_controller_base) {}
+  bool add(Request req, int source, int engine) {
+    initialize_pud_sequence(req, *ctrl->m_device.m_spec);
+    req.source_id = source;
+    req.arrive = ctrl->m_clk;
+    if (!ctrl->reserve_pud_compute(req, engine)) return false;
+    req.callback = [this](Request& r) {
+      nb::dict event = located_snapshot(r, false);
+      event["source"] = r.source_id;
+      event["depart"] = r.depart;
+      completed.append(event);
+    };
+    compute.emplace(source, std::move(req));
+    return true;
+  }
+  bool start(Request req) const {
+    initialize_pud_sequence(req, *ctrl->m_device.m_spec);
+    return ctrl->pud_compute_start_eligible(req);
+  }
+  void dispatch(int source, Clk_t clk) {
+    advance(clk);
+    if (last_issue == clk) throw std::logic_error("fixture shared issue slot occupied");
+    auto& req = compute.at(source);
+    if (!ctrl->is_pud_eligible_before_prerequisite(req)) throw std::logic_error("fixture compute blocked");
+    const auto occ = describe_pud_occurrence(req, req.occurrence_index, *ctrl->m_device.m_spec);
+    req.command = occ.command;
+    ctrl->m_device.issue_pud_command(req, occ, &ctrl->protected_pud_context(req), clk);
+    last_issue = clk;
+    if (occ.terminal) {
+      ReqBuffer retiring;
+      retiring.enqueue(req);
+      auto it = retiring.begin();
+      ctrl->retire_request(it, retiring);
+    }
+  }
+  void advance(Clk_t clk) {
+    if (clk < ctrl->m_clk) throw std::logic_error("fixture clock cannot go backwards");
+    while (ctrl->m_clk < clk) {
+      for (auto event : dut.tick()) {
+        history.append(event);
+        last_issue = ctrl->m_clk;
+      }
+    }
+  }
+  void movement(Request req, int source) {
+    validate_pud_placement(req, *ctrl->m_device.m_spec, 0,
+                           get_pud_placement_levels(*ctrl->m_device.m_spec));
+    // Explicit legacy fixture conversion; this is not a v2 dispatch path. The
+    // separate located lifetime fixture checks the paired endpoint retention.
+    const auto& source_mats = req.pud_locations->operands[0].location.origin.mats;
+    const auto& destination_mats = req.pud_locations->operands[1].location.origin.mats;
+    if (req.type_id == Request::Type::LCMOV) {
+      req.movement = Request::LCMovementMetadata{{source_mats.first, source_mats.last}};
+    } else {
+      req.movement = Request::GBMovementMetadata{source_mats.first, destination_mats.first};
+    }
+    req.pud_locations.reset();
+    req.source_id = source;
+    req.callback = [this](Request& r) {
+      nb::dict event = movement_snapshot(r);
+      event["source"] = r.source_id;
+      event["depart"] = r.depart;
+      completed.append(event);
+    };
+    if (!ctrl->send(req)) throw std::logic_error("fixture movement enqueue failed");
+  }
+  nb::dict movement_state(int source) const {
+    for (const auto* buffer : {&ctrl->m_pud_buffer, &ctrl->m_active_buffer}) {
+      for (const auto& req : buffer->buffer) {
+        if (req.source_id == source) return movement_snapshot(req);
+      }
+    }
+    for (const auto& req : ctrl->m_pending) {
+      if (req.source_id == source) return movement_snapshot(req);
+    }
+    throw std::logic_error("fixture movement not retained");
+  }
+  void send(int type, const AddrVec_t& addr, int source) { dut.send_request(type, addr, source); }
+  void priority(const std::string& command, const AddrVec_t& addr) { dut.priority_send(command, addr); }
+  nb::dict probe(const std::string& final, const std::string& command, const AddrVec_t& addr) {
+    const auto& spec = *ctrl->m_device.m_spec;
+    Request req(addr, Request::Cmd, spec.get_command_id(final));
+    req.command = spec.get_command_id(command);
+    nb::dict out;
+    const bool eligible = ctrl->is_pud_eligible_before_prerequisite(req);
+    out["eligible"] = eligible;
+    out["close"] = ctrl->would_close_active(req);
+    out["preq"] = eligible ? nb::cast(spec.command_names[ctrl->get_preq_command(req.final_command, addr)]) : nb::none();
+    out["issue"] = ctrl->validate_request_for_issue(req);
+    return out;
+  }
+  void raw(const std::string& command, const AddrVec_t& addr, bool issue) {
+    auto& device = ctrl->m_device;
+    int cmd = device.m_spec->get_command_id(command);
+    if (issue) device.issue_command(cmd, addr, ctrl->m_clk);
+    else device.get_preq_command(cmd, addr, ctrl->m_clk);
+  }
+  nb::list shared() const {
+    nb::list out;
+    auto& device = ctrl->m_device;
+    for (int level = 0; level <= device.m_bank_level; ++level) {
+      device.m_root->for_each_at_level(level, [&](DRAMNode* node) {
+        nb::dict item;
+        item["state"] = node->m_state;
+        item["rows"] = std::map<int, int>(node->m_row_state.begin(), node->m_row_state.end());
+        item["ready"] = node->m_cmd_ready_clk;
+        std::vector<std::vector<Clk_t>> histories;
+        for (const auto& h : node->m_cmd_history) histories.emplace_back(h.begin(), h.end());
+        item["history"] = histories;
+        out.append(item);
+      });
+    }
+    return out;
+  }
+  nb::list issued() const { return history; }
+  nb::list completions() const { return completed; }
+  size_t held() const { return ctrl->m_protected_compute.size(); }
+  nb::dict stats() { ctrl->update_stats(); return nb::cast<nb::dict>(confignode_to_py(ctrl->IController::collect_stats())); }
+  void capacity(size_t active) { ctrl->m_active_buffer.max_size = active; }
+
+ private:
+  static nb::dict movement_snapshot(const Request& req) {
+    auto out = located_snapshot(req, false);
+    auto state = describe_pud_movement_state(req);
+    out["source_active"] = state.source_active;
+    out["destination_active"] = state.destination_active;
+    out["source_valid"] = state.source_valid;
+    out["owns_bank"] = state.owns_bank;
+    return out;
+  }
+  ControllerUnderTestCpp dut;
+  ControllerBase* ctrl;
+  std::map<int, Request> compute;
+  nb::list history;
+  nb::list completed;
+  Clk_t last_issue = -1;
+};
+
+}  // namespace Ramulator
+
 inline void bind_pud_request_harness(nb::module_& m) {
+  nb::class_<PuDConflictUnderTest>(m, "_PuDConflictUnderTest")
+      .def(nb::init<nb::dict>())
+      .def("add", &PuDConflictUnderTest::add)
+      .def("start", &PuDConflictUnderTest::start)
+      .def("dispatch", &PuDConflictUnderTest::dispatch)
+      .def("advance", &PuDConflictUnderTest::advance)
+      .def("movement", &PuDConflictUnderTest::movement)
+      .def("movement_state", &PuDConflictUnderTest::movement_state)
+      .def("send", &PuDConflictUnderTest::send)
+      .def("priority", &PuDConflictUnderTest::priority)
+      .def("probe", &PuDConflictUnderTest::probe)
+      .def("raw", &PuDConflictUnderTest::raw)
+      .def("shared", &PuDConflictUnderTest::shared)
+      .def("issued", &PuDConflictUnderTest::issued)
+      .def("completions", &PuDConflictUnderTest::completions)
+      .def("held", &PuDConflictUnderTest::held)
+      .def("stats", &PuDConflictUnderTest::stats)
+      .def("capacity", &PuDConflictUnderTest::capacity);
   nb::class_<ComputeLifecycleUnderTest>(m, "_ComputeLifecycleUnderTest")
       .def(nb::init<nb::dict>())
       .def("add", &ComputeLifecycleUnderTest::add, nb::arg("req"), nb::arg("source"),
@@ -590,6 +754,7 @@ inline void bind_pud_request_harness(nb::module_& m) {
         active.occurrence_issue_history == before && active.occurrence_index == 0;
     nb::list occurrences;
     std::vector<PuDOccurrence> retained;
+    nb::list movement_states;
     bool same_bundle = active.pud_locations == identity;
     while (active.occurrence_index < get_pud_sequence_length(active)) {
       const auto occurrence = describe_pud_occurrence(active, active.occurrence_index, *spec);
@@ -606,6 +771,15 @@ inline void bind_pud_request_harness(nb::module_& m) {
       copied.enqueue(active);
       active = copied.buffer.front();
       same_bundle &= active.pud_locations == identity;
+      if (is_movement_request_type(active.type_id)) {
+        const auto state = describe_pud_movement_state(active);
+        nb::dict snapshot = located_snapshot(active, false);
+        snapshot["source_active"] = state.source_active;
+        snapshot["destination_active"] = state.destination_active;
+        snapshot["source_valid"] = state.source_valid;
+        snapshot["same_bundle"] = state.locations == identity;
+        movement_states.append(snapshot);
+      }
     }
     // The existing pending completion container/copy shape, without executing
     // a v2 command or inventing any W3+ temporal state.
@@ -619,6 +793,7 @@ inline void bind_pud_request_harness(nb::module_& m) {
     completed = Request{};
     out["same_bundle"] = same_bundle;
     out["occurrences"] = occurrences;
+    out["movement_states"] = movement_states;
     out["descriptor_survives"] = retained.back().locations == identity && retained.back().location() != nullptr;
     return out;
   });
