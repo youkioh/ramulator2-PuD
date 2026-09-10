@@ -1,13 +1,14 @@
 # PuD Operation Generator
 
 This directory is a self-contained generator for symbolic processing-using-DRAM
-(PuD) arithmetic traces. It can be copied into another repository without any
-sibling experiment directories. Generation and validation require only Python
-3.10 or newer and the standard library.
+(PuD) arithmetic traces and opt-in local physical-row lowering. It can be
+copied into another repository without any sibling experiment directories.
+Generation, lowering, and validation require only Python 3.10 or newer and the
+standard library.
 
 The package provides eight operation profiles:
 
-| CLI profile | Inputs | Output | Primitives |
+| CLI profile | Inputs | Output | Symbolic primitives |
 |---|---|---|---:|
 | `uint8-add` | two UINT8 values | exact unsigned 9-bit sum | 50 |
 | `uint8-mul` | two UINT8 values | exact UINT16 product | 608 |
@@ -19,6 +20,11 @@ The package provides eight operation profiles:
 | `fp8-e4m3-mul` | two E4M3 bytes | truncating E4M3 result | 326 |
 
 No round-to-nearest-even (RNE) extension is included.
+
+The symbolic `Builder` trace remains the golden arithmetic program. Physical
+lowering preserves its arithmetic-core order, removes only validated terminal
+output-export RowCopies, and maps all remaining identities to integer local
+physical rows.
 
 ## Algorithm provenance
 
@@ -144,6 +150,94 @@ python3 -m tools.pud_operation_generator \
 python3 -m tools.pud_operation_generator --out build/pud-traces
 ```
 
+### Opt-in physical lowering
+
+Physical lowering has two opt-in layout paths. With `--physical-layout`, the
+tool requires an explicit JSON layout for every selected profile and treats
+the designated input, constant, and output rows as fixed caller constraints.
+For example, `uint8-add-layout.json` can contain:
+
+```json
+{
+  "uint8-add": {
+    "local_row_count": 1024,
+    "inputs": {
+      "A0": 0, "A1": 1, "A2": 2, "A3": 3,
+      "A4": 4, "A5": 5, "A6": 6, "A7": 7,
+      "B0": 8, "B1": 9, "B2": 10, "B3": 11,
+      "B4": 12, "B5": 13, "B6": 14, "B7": 15
+    },
+    "constants": {"CONST_ZERO": 16},
+    "outputs": {
+      "R0": 17, "R1": 18, "R2": 19, "R3": 20, "R4": 21,
+      "R5": 22, "R6": 23, "R7": 24, "R8": 25
+    }
+  }
+}
+```
+
+Run lowering and exhaustive symbolic/physical validation with:
+
+```bash
+python3 -m tools.pud_operation_generator \
+  --only uint8-add \
+  --physical-layout uint8-add-layout.json \
+  --out build/pud-operation-generator
+```
+
+This additionally emits `<profile>.physical.json`. Its primitive operands are
+integer local-row IDs, while provenance retains the symbolic names, original
+indices, and stages. These IDs are local to a caller-selected execution
+context. They are not complete canonical Ramulator addresses or request
+fragments; a later resolver-aware adapter must combine them with the selected
+Bank, subarray, and explicit `MatRange`.
+
+Alternatively, generate deterministic default designations and lower with:
+
+```bash
+python3 -m tools.pud_operation_generator \
+  --only uint8-add \
+  --use-default-physical-layout \
+  --out build/pud-operation-generator
+```
+
+For each profile, `--use-default-physical-layout` assigns inputs in existing
+input order, then declared constants, then outputs in output order, using
+consecutive local rows beginning at zero. It assigns no work rows; the existing
+`lower_to_physical()` allocator still chooses all temporary rows. Its default
+capacity of 1,024 local rows is the current DDR4/MIMDRAM model default, not a
+universal DRAM property.
+
+The generated `default-physical-layout.json` uses exactly the same reusable
+per-profile `local_row_count`, `inputs`, `constants`, and `outputs` structure
+shown above. Passing that file later through `--physical-layout` reproduces the
+same fixed designations. Physical artifacts and validation results identify
+the layout provenance as `default_generated` or `caller_provided`.
+
+For an editable round trip, first run the default command above, edit only the
+designated rows or capacity in its JSON, then reuse it directly:
+
+```bash
+python3 -m tools.pud_operation_generator \
+  --only uint8-add \
+  --physical-layout build/pud-operation-generator/default-physical-layout.json \
+  --out build/pud-operation-generator-edited
+```
+
+A caller-provided JSON is the actual operation-level local physical-row
+placement. The generated layout is only a built-in default placement for easy
+validation and use. Both become the same `PhysicalRowLayout` and feed the same
+`lower_to_physical()` implementation. Bank, subarray, and `MatRange` selection
+remain outside this package, and local row IDs are not complete DRAM addresses.
+A future GEMV layout planner may construct the same `PhysicalRowLayout` after
+choosing its Bank, subarray, `MatRange`, and operand/result placement; that
+planner is not implemented here.
+
+If both physical-layout options are supplied,
+`--use-default-physical-layout` takes precedence and `--physical-layout` is
+ignored, including its file contents. Without either option, generation
+remains symbolic-only.
+
 The default output directory is `build/pud-operation-generator/`, following
 the repository convention for untracked generated artifacts.
 
@@ -156,6 +250,10 @@ Each profile produces:
 - `<profile>.rows.json`: input, constant, output, work-row, and cost metadata
 - `<profile>.requests.inc`: symbolic C++ request fragment
 - `validation.json`: reference and serialized-trace replay results
+
+With either physical-layout option, each profile also gets
+`<profile>.physical.json`, and its validation record gains a separately named
+`physical_lowering` result.
 
 FP8 ADD also produces `<profile>-domain-counts.csv`.
 
@@ -184,6 +282,47 @@ print(len(program.trace))
 print(program.inputs)
 print(program.outputs["R"])
 ```
+
+The physical API accepts the same builder or a separately analyzed normalized
+program:
+
+```python
+from pud_operation_generator import (
+    PhysicalRowLayout,
+    analyze_physical_lowering,
+    execute_physical,
+    extract_physical_results,
+    lower_to_physical,
+    make_default_physical_layout,
+)
+
+normalized = analyze_physical_lowering(program)
+constant_base = len(program.inputs)
+output_base = constant_base + len(program.constants)
+layout = PhysicalRowLayout(
+    local_row_count=1024,
+    inputs={name: row for row, name in enumerate(program.inputs)},
+    constants={
+        name: constant_base + index
+        for index, name in enumerate(program.constants)
+    },
+    outputs={
+        name: output_base + bit
+        for bit, name in enumerate(program.outputs["R"])
+    },
+)
+lowered = lower_to_physical(normalized, layout)
+
+# Or use consecutive model-default designations; work rows remain unassigned
+# until lower_to_physical() runs.
+default_layout = make_default_physical_layout(program)
+default_lowered = lower_to_physical(program, default_layout)
+```
+
+`execute_physical(lowered, initial_physical_rows, lanes)` accepts and returns
+integer-keyed local-row storage. Use
+`extract_physical_results(lowered, final_physical_rows)` to read outputs from
+their designated result rows.
 
 The included interpreter can execute a generated trace for selected lanes:
 

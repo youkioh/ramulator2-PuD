@@ -2,6 +2,7 @@
 from collections import Counter
 import json
 from .core import validate_structure
+from .lowering import PhysicalLoweredProgram
 
 PROFILES = {
     'uint8-add': 'Exact unsigned 8+8 -> unsigned 9-bit sum.',
@@ -65,3 +66,45 @@ def write_program(name, b, directory):
     (directory/(name+'.requests.inc')).write_text('\n'.join(cpp)+'\n', encoding='utf-8')
     (directory/(name+'.rows.json')).write_text(json.dumps(info,indent=2)+'\n', encoding='utf-8')
     return path, info
+
+
+def physical_layout_record(layout):
+    """Return the reusable four-field JSON record for one physical layout."""
+    return {
+        "local_row_count": layout.local_row_count,
+        "inputs": dict(layout.inputs),
+        "constants": dict(layout.constants),
+        "outputs": dict(layout.outputs),
+    }
+
+
+def write_default_physical_layout(layouts, directory):
+    """Write deterministic per-profile default layouts for later reuse."""
+    directory.mkdir(parents=True, exist_ok=True)
+    document = {
+        name: physical_layout_record(layout) for name, layout in layouts.items()
+    }
+    path = directory / "default-physical-layout.json"
+    path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+    return path, document
+
+
+def write_physical_program(
+    name, lowered, directory, layout_provenance="caller_provided"
+):
+    """Write one deterministic local-row physical lowering artifact."""
+    if not isinstance(lowered, PhysicalLoweredProgram):
+        raise TypeError("lowered must be a PhysicalLoweredProgram")
+    directory.mkdir(parents=True, exist_ok=True)
+    artifact = lowered.to_dict()
+    artifact = {
+        "schema_version": artifact.pop("schema_version"),
+        "kind": artifact.pop("kind"),
+        "profile": name,
+        "contract": PROFILES[name],
+        "layout_provenance": layout_provenance,
+        **artifact,
+    }
+    path = directory/(name+'.physical.json')
+    path.write_text(json.dumps(artifact, indent=2)+'\n', encoding='utf-8')
+    return path, artifact

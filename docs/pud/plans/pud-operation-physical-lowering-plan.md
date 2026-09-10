@@ -1,7 +1,7 @@
 # PuD Operation Physical Lowering Implementation Plan
 
-Status: Ready for implementation. Gate A is resolved by the proof below; all
-six work units and the final fresh-context audit are not started.
+Status: Complete. Gate A, Work Units 1-6, Gates 1-6, and the final
+fresh-context audit passed on 2026-09-10.
 
 ## Goal and completion state
 
