@@ -7,6 +7,13 @@ destination-count rules should DDR4_PuD use for the accepted PuD commands?
 
 Decision
 
+**Current status (2026-09-10).** The numeric DDR4 timing, command-bus, and
+activation-current rules below remain current. The later Accepted
+[range-local timing/resource decision](mimdram-movement-timing-and-resource-model.md)
+refines “target-bank-local” for canonical compute: these intervals are enforced
+from each protected resolved range's history rather than a Bank-global compute
+history. Conventional Bank/rank timing retains its ordinary scope.
+
 Use the Ramulator2 `DDR4_2400R` preset as the authoritative DDR4_PuD
 baseline:
 

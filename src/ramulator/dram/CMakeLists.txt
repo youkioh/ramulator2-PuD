@@ -5,6 +5,7 @@ target_sources(
   node.h  node.cpp
   device.h  device.cpp
   dram_spec.h  dram_spec.cpp
+  pud_location.h  pud_location.cpp
   func_types.h
 
   commands/ACT.h  commands/ACT1.h  commands/ACT2.h

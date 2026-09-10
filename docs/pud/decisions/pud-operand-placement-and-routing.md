@@ -1,4 +1,11 @@
-Status: Accepted
+Status: Superseded
+
+Superseded by
+[`mimdram-addressing-geometry-and-payload.md`](mimdram-addressing-geometry-and-payload.md)
+and [`ddr4-pud-unified-substrate.md`](ddr4-pud-unified-substrate.md).
+The row/subarray convention below is retained as provenance, but current public
+compute also requires the selected profile and an explicit resolved
+`MatRange`.
 
 Question
 

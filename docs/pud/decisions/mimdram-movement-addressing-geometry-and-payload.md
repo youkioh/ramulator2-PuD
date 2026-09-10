@@ -1,4 +1,4 @@
-Status: Accepted
+Status: Superseded
 
 Question
 
@@ -6,6 +6,13 @@ What addressing, derived geometry, logical-mat placement, payload-width, and
 Column-selector model should the initial LC-MOV and GB-MOV substrate use?
 
 Decision
+
+Superseded on 2026-09-08 by
+[common MIMDRAM addressing, geometry, and payload](mimdram-addressing-geometry-and-payload.md).
+The successor preserves the legacy placement/payload boundary and records
+the accepted v2 canonical CellID contract and chip-major profile. The
+original decision and rationale below remain historical provenance; they
+do not override the successor's v2 semantics or select v2 Gate C behavior.
 
 Use exactly two ordered, request-owned `AddrVec_t` operands for each movement
 request: operand 0 is the source and operand 1 is the destination. Retain the

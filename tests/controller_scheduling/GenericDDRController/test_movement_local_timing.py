@@ -18,6 +18,7 @@ def make_movement_dut(*, scheduler=None):
         scheduler=scheduler,
         refresh_manager=ramulator.refresh_manager.NoRefresh(),
         row_policy=ramulator.row_policy.Open(),
+        num_cores=3,  # This fixture uses source IDs through 2.
     )
 
 
@@ -183,7 +184,7 @@ def test_combined_standard_has_no_movement_timing_aliases():
     ]
 
 
-@pytest.mark.parametrize("traffic", ["Read", "Write", "NOT"])
+@pytest.mark.parametrize("traffic", ["Read", "Write"])
 def test_ready_different_bank_work_beats_older_locally_blocked_movement(traffic):
     dut = make_movement_dut()
     dut.send_movement_request_for_testing(
@@ -194,13 +195,10 @@ def test_ready_different_bank_work_beats_older_locally_blocked_movement(traffic)
     ]
 
     other = operand(dut, bank=1, row=200)
-    if traffic == "NOT":
-        dut.send_pud_request("NOT", [other], source_id=2)
-    else:
-        dut.send_request(traffic, other, source_id=2)
+    dut.send_request(traffic, other, source_id=2)
 
     assert [(item.command, item.source_id) for item in dut.tick()] == [
-        ("ACT_PUD_S_OC" if traffic == "NOT" else "ACT", 2)
+        ("ACT", 2)
     ]
     dut.run_until_idle(max_ticks=256)
 
@@ -259,6 +257,7 @@ def test_final_validation_rechecks_active_close_protection_after_closedcap_upgra
         dram,
         refresh_manager=ramulator.refresh_manager.NoRefresh(),
         row_policy=ramulator.row_policy.ClosedCAP(cap=1),
+        num_cores=5,  # The traffic below intentionally uses source IDs 1..4.
     )
     other_bank = operand(dut, bank=1, row=10)
     protected_bank = operand(dut, bank=0, row=20)

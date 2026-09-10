@@ -54,6 +54,8 @@ class IMemorySystem : public TopLevel<IMemorySystem> {
   ConfigNode collect_stats() const { return m_impl->collect_stats(); }
 
   virtual bool send(Request& req) = 0;
+  // Shared profile authority for paired public PuD request construction.
+  virtual std::shared_ptr<const PuD::LocationResolver> location_resolver() const { return nullptr; }
   virtual void tick() = 0;
 
   // Returns the clock ratio for the memory system (forwarded from controllers).

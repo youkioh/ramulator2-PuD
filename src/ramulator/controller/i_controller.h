@@ -30,6 +30,8 @@ class IController {
   virtual int get_num_levels() const = 0;
   virtual float get_tCK() const = 0;
   virtual bool supports_movement_requests() const { return false; }
+  virtual bool supports_compute_requests() const { return false; }
+  virtual std::shared_ptr<const PuD::LocationResolver> location_resolver() const { return nullptr; }
 };
 
 struct ReqBuffer {

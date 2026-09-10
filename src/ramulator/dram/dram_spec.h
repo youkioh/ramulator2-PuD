@@ -135,16 +135,18 @@ struct DRAMSpec {
     return supports_request_type(type_id) &&
            supported_requests[type_id] == CONTROLLER_SEQUENCED;
   }
-  bool supports_inherited_pud_requests() const {
+  bool supports_compute_requests() const {
     return supports_controller_sequenced_request(Request::Type::RowCopy) &&
            supports_controller_sequenced_request(Request::Type::MAJ3) &&
            supports_controller_sequenced_request(Request::Type::MAJ5) &&
            supports_controller_sequenced_request(Request::Type::NOT) &&
            supports_controller_sequenced_request(Request::Type::NOT_COPY);
   }
+  bool supports_inherited_pud_requests() const {
+    return supports_compute_requests();
+  }
   bool supports_movement_requests() const {
-    return supports_inherited_pud_requests() &&
-           supports_controller_sequenced_request(Request::Type::LCMOV) &&
+    return supports_controller_sequenced_request(Request::Type::LCMOV) &&
            supports_controller_sequenced_request(Request::Type::GBMOV);
   }
 

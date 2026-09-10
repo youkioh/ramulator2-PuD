@@ -6,7 +6,7 @@ from ramulator.param import Param
 
 
 class DDR4_PuD_Movement(DDR4_PuD):
-    """DDR4_PuD-derived substrate for the movement experiment."""
+    """Canonical unified DDR4 PuD compute-and-movement definitions."""
 
     name = "DDR4_PuD_Movement"
 

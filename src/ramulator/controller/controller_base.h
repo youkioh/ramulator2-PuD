@@ -15,12 +15,48 @@
 #include "ramulator/controller/scheduler/i_scheduler.h"
 #include "ramulator/dram/device.h"
 
+class LocatedSystemUnderTest;
+
 namespace Ramulator {
 
 class IRefreshManager;
 class IRowPolicy;
 class IFrontEnd;
 class IMemorySystem;
+class PuDConflictUnderTest;
+
+/*
+ * Unified public GenericDRAM -> GenericDDR admission -> existing PuD buffer.
+ * GenericDDR: E=8 default, shared across this channel's Banks/Ranks
+ * m_pud_buffer: pending + allocated compute Requests (sole schedulable copies)
+ *                    |
+ *       oldest-to-newest first fit: engine + complete range
+ *                    |
+ *                    v
+ *        +----------------------------------+
+ *        | ControllerBase::ProtectedCompute | <-- YOU ARE HERE
+ *        +----------------+-----------------+
+ *                         | owns lifetime
+ *                         v
+ *                +-------------------+
+ * Request -weak->| PuDComputeContext |<-weak- Device registry
+ *                +-------------------+       (conflict visibility)
+ *                         |
+ *         terminal PRE -> recovery -> release -> completion/callback
+ *               |
+ *               v
+ *        Request moves to m_pending; protection outlives command scheduling.
+ *
+ * Request owns sequence/history; context (device.h) owns protocol phase.
+ * Delayed completion owns depart = terminal Request timestamp + nRP and releases
+ * protection before accounting/callback.
+ * Protected records retain resource identity/lifetime via explicit reservations.
+ * Compute issue --> Device consumes the current resolved occurrence (device.h).
+ * GenericDDR derives free engines/ranges from this store (E=8 by default).
+ * Allocation derives from the Request/context association. Ready allocated
+ * compute uses GenericDDR's narrow candidate path; no active-buffer ownership,
+ * separate allocated-request container or allocator range table.
+ */
 
 // Shared infrastructure for all DRAM controller implementations.
 // Provides buffers, stats, sub-component management, and low-level scheduling
@@ -33,6 +69,7 @@ class ControllerBase : public IController, public Implementation {
   // Forwarding methods — bind m_clk for sub-components
   bool check_timing(int command, const AddrVec_t& addr_vec);
   virtual bool check_request_timing(const Request& req);
+  virtual bool is_pud_eligible_before_prerequisite(const Request& req) const;
   bool validate_request_for_issue(const Request& req);
   int get_preq_command(int command, const AddrVec_t& addr_vec);
 
@@ -41,7 +78,12 @@ class ControllerBase : public IController, public Implementation {
   int get_tx_bytes() const override;
   int get_num_levels() const override;
   float get_tCK() const override;
+  bool supports_compute_requests() const override;
   bool supports_movement_requests() const override;
+  std::shared_ptr<const PuD::LocationResolver> location_resolver() const override { return m_location_resolver; }
+  // Install the shared placement authority before traffic; canonical public
+  // execution also requires the combined standard capability.
+  void set_location_resolver(std::shared_ptr<const PuD::LocationResolver> resolver);
 
   bool send(Request& req) override;
   bool priority_send(Request& req) override;
@@ -53,6 +95,8 @@ class ControllerBase : public IController, public Implementation {
   void reset_stats() override;
 
  protected:
+  friend class PuDConflictUnderTest;
+  friend class ::LocatedSystemUnderTest;
   ControllerBase(const ConfigNode& config, Implementation* parent)
       : Implementation(config, "controller", "ControllerBase", parent) {
   }
@@ -68,12 +112,14 @@ class ControllerBase : public IController, public Implementation {
   virtual std::optional<bool> try_send_special_request(Request& req) {
     return std::nullopt;
   }
+  virtual bool supports_range_aware_compute() const { return false; }
 
   // Sub-components
   IScheduler* m_scheduler = nullptr;
   IRefreshManager* m_refresh = nullptr;
   IRowPolicy* m_rowpolicy = nullptr;
   std::vector<IControllerPlugin*> m_plugins;
+  std::shared_ptr<const PuD::LocationResolver> m_location_resolver;
 
   // Request buffers
   std::deque<Request> m_pending;
@@ -101,6 +147,26 @@ class ControllerBase : public IController, public Implementation {
   // Per flat-bank count of requests in m_active_buffer (typically 0 or 1).
   // Maintained by promote_to_active / retire_request.
   std::vector<int> m_active_per_bank;
+
+  // Range-aware lifetime: GenericDDR selects free engines using these reservations.
+  // Neither this store nor the context owns a cursor or duplicates mat geometry.
+  struct ProtectedCompute {
+    int engine;
+    std::shared_ptr<PuDComputeContext> context;
+    bool completion_pending = false;
+  };
+  std::vector<ProtectedCompute> m_protected_compute;
+  bool reserve_pud_compute(Request& req, int engine);
+  bool pud_compute_resources_available(const Request& req, int engine) const;
+  bool pud_compute_start_eligible(const Request& req) const;
+  PuDComputeContext& protected_pud_context(const Request& req) const;
+  ProtectedCompute& protected_pud_record(const Request& req);
+  void release_completed_resources(Request& req);
+
+  // Issue mechanics for explicitly allocated contexts. These methods neither
+  // allocate engines nor select/schedule pending work.
+  bool check_pud_compute_issue(const Request& req);
+  void issue_pud_compute(Request& req);
 
   // Stats
   Clk_t m_measured_clk = 0;

@@ -1,4 +1,10 @@
-Status: Accepted
+Status: Superseded
+
+Superseded by
+[`ddr4-pud-unified-substrate.md`](ddr4-pud-unified-substrate.md), which
+defines the current five compute and two movement request types with paired
+resolved operands. The original four-operation taxonomy below remains
+historical provenance.
 
 Question
 

@@ -9,8 +9,10 @@
 #include "ramulator/controller/rowpolicy/i_row_policy.h"
 #include "ramulator/controller/scheduler/i_scheduler.h"
 #include "ramulator/controller/pud_request_validation.h"
+#include "ramulator/controller/pud_sequence.h"
 #include "ramulator/dram/dram_spec.h"
 #include "ramulator/frontend/i_frontend.h"
+#include "ramulator/memory_system/pud_request_routing.h"
 
 namespace Ramulator {
 
@@ -30,10 +32,35 @@ bool ControllerBase::check_request_timing(const Request& req) {
 }
 
 bool ControllerBase::validate_request_for_issue(const Request& req) {
+  if (is_inherited_pud_request_type(req.type_id)) {
+    if (!req.pud_locations) {
+      throw std::runtime_error("PuD compute requires canonical resolved locations");
+    }
+    // Located compute is issued only through GenericDDR's allocated range path.
+    throw std::runtime_error("PuD compute direct issue is unavailable");
+  }
+  if ((req.pud_locations && (!m_location_resolver || req.command < 0 || req.final_command < 0)) ||
+      (m_location_resolver && is_movement_request_type(req.type_id) && !req.pud_locations)) {
+    throw std::runtime_error("canonical PuD execution is unavailable");
+  }
+  if (!is_pud_eligible_before_prerequisite(req) ||
+      m_device.conflicts_with_protected_compute(req.command, req.addr_vec)) return false;
   const bool prerequisite_compatible =
       req.command == get_preq_command(req.final_command, req.addr_vec);
   const bool timing_ready = check_request_timing(req);
   return prerequisite_compatible && timing_ready;
+}
+
+bool ControllerBase::is_pud_eligible_before_prerequisite(const Request& req) const {
+  // Compute uses explicit range dispatch and protected-resource intersection; it must
+  // never obtain a conventional Bank-repair prerequisite here.
+  if (is_inherited_pud_request_type(req.type_id)) {
+    if (!req.pud_locations) {
+      throw std::logic_error("PuD compute eligibility requires canonical resolved locations");
+    }
+    return true;
+  }
+  return !m_device.conflicts_with_protected_compute(req.final_command, req.addr_vec);
 }
 
 int ControllerBase::get_preq_command(int command, const AddrVec_t& addr_vec) {
@@ -54,6 +81,22 @@ float ControllerBase::get_tCK() const {
 
 bool ControllerBase::supports_movement_requests() const {
   return m_device.m_spec->supports_movement_requests();
+}
+
+bool ControllerBase::supports_compute_requests() const {
+  return m_device.m_spec->supports_compute_requests();
+}
+
+void ControllerBase::set_location_resolver(std::shared_ptr<const PuD::LocationResolver> resolver) {
+  if (!resolver || m_location_resolver || m_clk != 0 || !m_pending.empty() ||
+      m_read_buffer.size() || m_write_buffer.size() || m_pud_buffer.size() || m_priority_buffer.size()) {
+    throw std::runtime_error("location resolver must be installed once before request traffic");
+  }
+  resolver->validate_spec(*m_device.m_spec);
+  if (m_addr_mapper->m_impl->get_name() != resolver->association().routing.address_mapper) {
+    throw std::runtime_error("controller mapper disagrees with location profile");
+  }
+  m_location_resolver = std::move(resolver);
 }
 
 // ── Shared initialization ───────────────────────────────────────────────
@@ -139,7 +182,7 @@ void ControllerBase::setup_base(IFrontEnd* frontend, IMemorySystem* memory_syste
   m_stats.add("read_latency", s_read_latency);
   m_stats.add("avg_read_latency", s_avg_read_latency);
 
-  if (m_device.m_spec->supports_inherited_pud_requests()) {
+  if (m_device.m_spec->supports_compute_requests()) {
     m_stats.add("pud_queue_len", s_pud_queue_len);
     m_stats.add("pud_queue_len_avg", s_pud_queue_len_avg);
     for (int type_id = 0; type_id < Request::Type::Count; type_id++) {
@@ -183,6 +226,21 @@ void ControllerBase::setup_base(IFrontEnd* frontend, IMemorySystem* memory_syste
 // ── IController overrides ───────────────────────────────────────────────
 
 bool ControllerBase::send(Request& req) {
+  if (is_inherited_pud_request_type(req.type_id) && !req.pud_locations) {
+    throw std::runtime_error("PuD compute requires canonical resolved locations");
+  }
+  if (req.pud_locations || (m_location_resolver && is_movement_request_type(req.type_id))) {
+    validate_pud_routing(req, m_location_resolver ? m_location_resolver->association().routing.channels : 1);
+    validate_pud_placement(req, *m_device.m_spec, m_channel_id,
+                           get_pud_placement_levels(*m_device.m_spec), m_location_resolver.get());
+    if (!m_location_resolver ||
+        (is_inherited_pud_request_type(req.type_id) && !supports_range_aware_compute()) ||
+        (is_movement_request_type(req.type_id) && !supports_movement_requests())) {
+      throw std::runtime_error("canonical PuD execution is unavailable");
+    }
+    // Normal special-request admission retains the paired Request in the PuD
+    // buffer. Only GenericDDR's allocator may acquire compute protection.
+  }
   if (req.type_id < 0 || req.type_id >= static_cast<int>(m_device.m_spec->supported_requests.size())) {
     throw std::runtime_error(fmt::format(
         "DRAM standard {} does not support request type_id {}",
@@ -203,6 +261,11 @@ bool ControllerBase::send(Request& req) {
   // PassThroughAddrMapper is a no-op (addr_vec already set by frontend).
   m_addr_mapper->apply(req);
   req.addr_vec[0] = m_channel_id;
+  if (m_location_resolver) {
+    // req.addr retains the original physical byte, including low offsets;
+    // intra_channel_addr/addr_vec cannot replace it as a placement origin.
+    resolve_ordinary_request(req, *m_location_resolver);
+  }
 
   req.final_command = m_device.m_spec->supported_requests[req.type_id];
 
@@ -256,6 +319,12 @@ bool ControllerBase::send(Request& req) {
 }
 
 bool ControllerBase::priority_send(Request& req) {
+  if (is_inherited_pud_request_type(req.type_id) && !req.pud_locations) {
+    throw std::runtime_error("PuD compute requires canonical resolved locations");
+  }
+  if (req.pud_locations || (m_location_resolver && is_movement_request_type(req.type_id))) {
+    throw std::runtime_error("canonical PuD direct priority issue is unavailable");
+  }
   if (req.final_command < 0 || req.final_command >= m_device.m_spec->command_count) {
     throw std::runtime_error(fmt::format(
         "Invalid priority request final_command {}: expected a DRAM command id in [0, {})",
@@ -288,7 +357,136 @@ void ControllerBase::tick_prologue() {
 
 // ── Request lifecycle ────────────────────────────────────────────────────
 
+bool ControllerBase::pud_compute_resources_available(const Request& req, int engine) const {
+  if (engine < 0 || !req.pud_locations || !is_inherited_pud_request_type(req.type_id)) {
+    throw std::logic_error("Compute reservation requires a located compute request and engine");
+  }
+  validate_pud_placement(req, *m_device.m_spec, m_channel_id,
+                         get_pud_placement_levels(*m_device.m_spec), m_location_resolver.get());
+  const auto& target = req.pud_locations->operands.front().location.origin;
+  const auto segments = req.pud_locations->resolver->segment_range(target.mats);
+  for (const auto& record : m_protected_compute) {
+    if (record.engine == engine) return false;
+    const auto& locations = *record.context->locations();
+    const auto& owner = locations.operands.front().location.origin;
+    if (target.channel != owner.channel || target.rank != owner.rank ||
+        target.bank_group != owner.bank_group || target.bank != owner.bank) continue;
+    // Disjoint ranges may overlap only within the same subarray. Protected
+    // records include pre-ACT allocations and recovery; neither permits SALP.
+    if (target.subarray != owner.subarray) return false;
+    for (const auto& a : segments) {
+      for (const auto& b : locations.resolver->segment_range(owner.mats)) {
+        if (a.chip == b.chip && a.first_local_mat <= b.last_local_mat &&
+            b.first_local_mat <= a.last_local_mat) return false;
+      }
+    }
+  }
+  // This is occupied-resource availability, not full start eligibility or
+  // command readiness. Geometry is supplied solely by the retained resolver.
+  return true;
+}
+
+bool ControllerBase::pud_compute_start_eligible(const Request& req) const {
+  if (!m_priority_buffer.buffer.empty() || !is_pud_eligible_before_prerequisite(req)) return false;
+  const int bank_id = m_device.get_flat_bank_id(req.operands.front());
+  const auto* bank = m_device.m_bank_nodes[bank_id];
+  // Ordinary active work drains before compute reservation. Range-aware
+  // ranges are separate and do not make conventional Bank state Opened.
+  for (const auto& active : m_active_buffer.buffer) {
+    if (is_inherited_pud_request_type(active.type_id)) {
+      if (!active.pud_locations) {
+        throw std::logic_error("Active PuD compute is missing canonical resolved locations");
+      }
+      continue;
+    }
+    if (m_device.get_flat_bank_id(active.addr_vec) == bank_id) return false;
+  }
+  if (bank->m_state != m_device.m_spec->get_state_id("Closed") || !bank->m_row_state.empty()) return false;
+  // Incoming conventional PRE/AP/REF recovery is distinct from local primitive
+  // readiness. No range-aware compute command updates these hierarchical deadlines.
+  const auto first = describe_pud_occurrence(req, 0, *m_device.m_spec);
+  return m_device.m_root->check_timing(first.command, req.operands.front(), m_clk);
+}
+
+bool ControllerBase::reserve_pud_compute(Request& req, int engine) {
+  const std::weak_ptr<PuDComputeContext> empty;
+  if (req.pud_compute_context.owner_before(empty) || empty.owner_before(req.pud_compute_context)) {
+    throw std::logic_error("Request already has a current or stale compute reservation");
+  }
+  if (!pud_compute_resources_available(req, engine) || !pud_compute_start_eligible(req)) return false;
+  std::shared_ptr<PuDComputeContext> context = m_device.make_pud_compute_context(req);
+  m_device.protect_pud_compute(context);
+  // Commit both resources together; a failed reservation changes no Request.
+  // A failed insertion leaves only an expired non-owning Device reference.
+  m_protected_compute.push_back({engine, std::move(context), false});
+  req.pud_compute_context = m_protected_compute.back().context;
+  return true;
+}
+
+PuDComputeContext& ControllerBase::protected_pud_context(const Request& req) const {
+  const auto context = req.pud_compute_context.lock();
+  const auto it = std::find_if(m_protected_compute.begin(), m_protected_compute.end(),
+      [&](const auto& record) { return record.context == context; });
+  if (!context || it == m_protected_compute.end() || context->locations() != req.pud_locations) {
+    throw std::logic_error("Missing, foreign or stale protected compute context");
+  }
+  return *context;
+}
+
+bool ControllerBase::check_pud_compute_issue(const Request& req) {
+  const auto& context = protected_pud_context(req);
+  if (!is_pud_eligible_before_prerequisite(req)) return false;
+  const auto occurrence = describe_pud_occurrence(req, req.occurrence_index, *m_device.m_spec);
+  return m_device.check_pud_timing(req, occurrence, &context, m_clk);
+}
+
+void ControllerBase::issue_pud_compute(Request& req) {
+  if (!check_pud_compute_issue(req)) throw std::logic_error("Compute issue timing or eligibility not ready");
+  const auto occurrence = describe_pud_occurrence(req, req.occurrence_index, *m_device.m_spec);
+  m_device.issue_pud_command(req, occurrence, &protected_pud_context(req), m_clk);
+}
+
+ControllerBase::ProtectedCompute& ControllerBase::protected_pud_record(const Request& req) {
+  const auto* context = &protected_pud_context(req);
+  return *std::find_if(m_protected_compute.begin(), m_protected_compute.end(),
+      [&](const auto& record) { return record.context.get() == context; });
+}
+
+void ControllerBase::release_completed_resources(Request& req) {
+  if (!is_inherited_pud_request_type(req.type_id)) return;
+  if (!req.pud_locations) {
+    throw std::logic_error("Compute completion requires canonical resolved locations");
+  }
+  const auto& record = protected_pud_record(req);
+  if (!record.completion_pending || record.context->phase() != PuDComputeContext::Phase::Recovering ||
+      req.depart < 0 || req.depart > m_clk) {
+    throw std::logic_error("Compute completion precedes protected recovery");
+  }
+  const auto* context = record.context.get();
+  std::erase_if(m_protected_compute,
+      [&](const auto& held) { return held.context.get() == context; });
+  // Release conflict-registry references at recovery too, including the final
+  // invocation when no later allocation will prune expired entries.
+  std::erase_if(m_device.m_protected_compute, [](const auto& held) { return held.expired(); });
+  req.pud_compute_context.reset();
+}
+
 void ControllerBase::retire_request(ReqBuffer::iterator& req_it, ReqBuffer& buffer) {
+  ProtectedCompute* protected_compute = nullptr;
+  if (is_inherited_pud_request_type(req_it->type_id)) {
+    if (!req_it->pud_locations) {
+      throw std::logic_error("Compute retirement requires canonical resolved locations");
+    }
+    protected_compute = &protected_pud_record(*req_it);
+    const auto& context = *protected_compute->context;
+    if (protected_compute->completion_pending || context.phase() != PuDComputeContext::Phase::Recovering ||
+        req_it->occurrence_index != get_pud_sequence_length(*req_it) ||
+        req_it->occurrence_issue_history.size() != get_pud_sequence_length(*req_it) ||
+        req_it->occurrence_issue_history.back() == Request::kOccurrenceNotIssued ||
+        req_it->occurrence_issue_history.back() > m_clk) {
+      throw std::logic_error("Compute retirement requires its unretired terminal PRE");
+    }
+  }
   if (&buffer == &m_active_buffer) {
     m_active_per_bank[m_device.get_flat_bank_id(req_it->addr_vec)]--;
   }
@@ -310,8 +508,12 @@ void ControllerBase::retire_request(ReqBuffer::iterator& req_it, ReqBuffer& buff
     }
     s_num_write_reqs_served++;
   } else if (is_pud_request_type(req_it->type_id)) {
-    req_it->depart = m_clk + m_device.m_spec->get_timing_value("nRP");
+    // Request history is the sole terminal-issue authority; retirement time
+    // need not be substituted for it. Delayed completion owns recovery release.
+    const Clk_t terminal_clk = protected_compute ? req_it->occurrence_issue_history.back() : m_clk;
+    req_it->depart = terminal_clk + m_device.m_spec->get_timing_value("nRP");
     m_pending.push_back(*req_it);
+    if (protected_compute) protected_compute->completion_pending = true;
   } else if (req_it->type_id == -1) {
     s_num_maintenance_reqs_served++;
   }
@@ -320,6 +522,8 @@ void ControllerBase::retire_request(ReqBuffer::iterator& req_it, ReqBuffer& buff
 }
 
 void ControllerBase::promote_to_active(ReqBuffer::iterator& req_it, ReqBuffer& buffer) {
+  // Transfer the sole schedulable progression: successful enqueue erases the
+  // source before scheduling resumes; backpressure leaves only the source.
   if (m_active_buffer.enqueue(*req_it)) {
     m_active_per_bank[m_device.get_flat_bank_id(req_it->addr_vec)]++;
     if (&buffer == &m_write_buffer) {
@@ -395,6 +599,20 @@ bool ControllerBase::would_close_active(const Request& req) const {
   if (!m_device.m_spec->command_meta[req.command].is_closing) {
     return false;
   }
+  if (is_inherited_pud_request_type(req.type_id)) {
+    if (!req.pud_locations) {
+      throw std::logic_error("PuD compute close check requires canonical resolved locations");
+    }
+  }
+  if (is_inherited_pud_request_type(req.type_id) && !req.pud_compute_context.expired() &&
+      req.command == req.final_command) {
+    protected_pud_context(req);
+    const auto occurrence = describe_pud_occurrence(req, req.occurrence_index, *m_device.m_spec);
+    if (occurrence.terminal && req.command == occurrence.command) {
+      return false;  // Its terminal PRE closes only its associated range.
+    }
+  }
+  if (m_device.conflicts_with_protected_compute(req.command, req.addr_vec)) return true;
   if (m_active_buffer.size() == 0) {
     return false;
   }
@@ -474,6 +692,10 @@ void ControllerBase::serve_completed_requests() {
 
     Request completed = std::move(*it);
     m_pending.erase(it);
+
+    // Recovery protection outlives command retirement. Erase its engine/range
+    // record before accounting/callback, so reentrant successors can reuse it.
+    release_completed_resources(completed);
 
     const size_t latency = static_cast<size_t>(completed.depart - completed.arrive);
     if (completed.type_id == Request::Type::Read) {

@@ -11,6 +11,26 @@
 
 namespace Ramulator {
 
+/*
+ * DRAMDevice (device.h) -- owns --> root
+ *                                   |
+ *                                   v
+ *                     +---------------------------+
+ * command/timing ---->| DRAMNode tree             | <-- YOU ARE HERE
+ * checks              | conventional state        |
+ *                     | shared timing history     |
+ *                     +---------------------------+
+ * DRAMDevice borrows Bank pointers; each node owns its children.
+ *
+ * Range-local compute authority stays outside this tree:
+ *   Request (request.h) ------> PRADA occurrence history
+ *   PuDComputeContext -------> protocol phase (device.h)
+ *   Controller --------------> recovery via Request.depart / delayed completion
+ * ProtectedCompute (controller_base.h) guards conflicting work through recovery.
+ * Compute dispatch checks shared deadlines and updates Channel timing; local PRADA
+ * history and range PRE recovery do not become Bank-global node state.
+ */
+
 /**
  * @brief     DRAM Device Node — represents one level in the DRAM hierarchy
  *
@@ -38,7 +58,9 @@ struct DRAMNode {
 
   DRAMNode(DRAMSpec* spec, DRAMNode* parent, int level, int id);
 
-  void update_timing(int command, const AddrVec_t& addr_vec, Clk_t clk);
+  // include_children=false updates only this node (compute shares Channel
+  // issue timing while its outgoing phase/recovery edges belong to a range).
+  void update_timing(int command, const AddrVec_t& addr_vec, Clk_t clk, bool include_children = true);
   bool check_timing(int command, const AddrVec_t& addr_vec, Clk_t clk);
 
   // Generic level traversal — visit all descendants at target_level

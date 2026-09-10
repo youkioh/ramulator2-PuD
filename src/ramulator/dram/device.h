@@ -9,7 +9,60 @@
 #include "ramulator/dram/dram_spec.h"
 #include "ramulator/dram/node.h"
 
+class ComputeRangesUnderTest;
+class ComputeLifecycleUnderTest;
+
 namespace Ramulator {
+
+struct PuDOccurrence;
+class DRAMDevice;
+
+/*
+ * Request + PuDOccurrence (request.h / pud_sequence.h)
+ *                      |
+ *                      v
+ *               DRAMDevice dispatch
+ *                      | checks/updates
+ *                      v
+ *           +--------------------------+
+ *           | PuDComputeContext        | <-- YOU ARE HERE
+ *           | Device association       |
+ *           | immutable locations      |
+ *           | Device-side phase        |
+ *           +--------------------------+
+ *                      ^
+ *                      | owns lifetime
+ *           ProtectedCompute (controller_base.h)
+ *
+ * Device registry -- weak --> context (conflict visibility only)
+ * DRAMDevice -- owns --> DRAMNode tree (node.h: conventional/shared state)
+ * Controller issue checks --> Device consumes the current resolved occurrence
+ * Shared command-cycle occupancy lives in Device, outside the range context.
+ * NO cursor/history/deadline/activated-row shadow state lives in the context.
+ * Request owns sequence/history; Controller owns recovery via delayed completion.
+ */
+
+// One Device-side protocol phase per lockstep invocation, never per mat.
+// Context identity associates the protected invocation with immutable locations.
+// One allocated invocation has one authoritative schedulable Request progression;
+// Device does not version Request copies. Request owns sequence/timing history,
+// and Controller protection plus delayed completion owns recovery lifetime.
+class PuDComputeContext {
+ public:
+  enum class Phase { Closed, ChargeSharing, Sensed, Recovering };
+  Phase phase() const { return m_phase; }
+  const auto& locations() const { return m_locations; }
+  PuDComputeContext(const PuDComputeContext&) = delete;
+  PuDComputeContext& operator=(const PuDComputeContext&) = delete;
+
+ private:
+  friend class DRAMDevice;
+  PuDComputeContext(const DRAMDevice* device, std::shared_ptr<const PuD::RequestLocations> locations)
+      : m_device(device), m_locations(std::move(locations)) {}
+  const DRAMDevice* m_device;
+  std::shared_ptr<const PuD::RequestLocations> m_locations;
+  Phase m_phase = Phase::Closed;
+};
 
 /**
  * @brief    DRAM Device — owns the DRAMSpec, node tree, and flat bank array.
@@ -37,6 +90,17 @@ class DRAMDevice {
 
   // Timing-only check — hierarchical (walks node tree)
   bool check_timing(int command, const AddrVec_t& addr_vec, Clk_t clk);
+
+  // Range construction creates no ownership; GenericDDR allocates protection
+  // before public compute issue. Occurrences are checked against the current
+  // authoritative Request before any timing/action. Null/foreign associations
+  // and stale occurrences fail; callers must not dispatch divergent Request copies.
+  std::unique_ptr<PuDComputeContext> make_pud_compute_context(const Request& req) const;
+
+  // Non-owning visibility of controller reservations, including pre-ACT and
+  // recovery. Controller release remains the sole lifetime authority.
+  void protect_pud_compute(const std::shared_ptr<PuDComputeContext>& context);
+  bool conflicts_with_protected_compute(int command, const AddrVec_t& addr_vec) const;
 
   // Prerequisite check — flat bank dispatch
   int get_preq_command(int command, const AddrVec_t& addr_vec, Clk_t clk);
@@ -95,6 +159,23 @@ class DRAMDevice {
   }
 
  private:
+  friend class ControllerBase;
+  friend class ::ComputeRangesUnderTest;
+  friend class ::ComputeLifecycleUnderTest;
+  friend class PuDConflictUnderTest;
+  // Actual command occupancy only. Compute uses the combined DDR4 single bus;
+  // ordinary paths retain generated timing (including other standards' dual
+  // buses). Their deadlines gate compute, not unrelated bus arbitration.
+  Clk_t m_compute_ca_ready = -1;
+  Clk_t m_command_ca_ready = -1;
+  void validate_pud_reservation(const Request& req, const PuDComputeContext* context) const;
+  bool check_pud_timing(const Request& req, const PuDOccurrence& occurrence,
+                        const PuDComputeContext* context, Clk_t clk);
+  void issue_pud_command(Request& req, const PuDOccurrence& occurrence,
+                         PuDComputeContext* context, Clk_t clk);
+  std::vector<std::weak_ptr<PuDComputeContext>> m_protected_compute;
+  void validate_pud_command(const Request& req, const PuDOccurrence& occurrence,
+                            const PuDComputeContext* context) const;
   // Run any command-specific defensive validation across the complete target
   // scope before prerequisite resolution, timing mutation, or state mutation.
   void validate_command(int command, const AddrVec_t& addr_vec, Clk_t clk) const;

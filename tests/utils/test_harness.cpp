@@ -23,6 +23,8 @@
 #include "ramulator/memory_system/pud_request_routing.h"
 #include "ramulator/python/binding_utils.h"
 
+#include "pud_location_harness.h"
+
 // ---- DeviceUnderTest ----
 
 class DeviceUnderTestCpp {
@@ -87,6 +89,9 @@ class DeviceUnderTestCpp {
 
   bool supports_inherited_pud_requests() const {
     return spec().supports_inherited_pud_requests();
+  }
+  bool supports_compute_requests() const {
+    return spec().supports_compute_requests();
   }
 
   bool supports_movement_requests() const {
@@ -418,6 +423,18 @@ class PuDRoutingSystemUnderTestCpp {
     return nb::cast<nb::dict>(confignode_to_py(m_memory_system_impl->collect_stats()));
   }
 
+  nb::dict retry_located(Request& req) {
+    RoutingControllerStub::reset(true);
+    nb::dict out;
+    out["first"] = m_memory_system->send(req);
+    out["before_retry"] = stats();
+    out["second"] = m_memory_system->send(req);
+    out["receiver"] = RoutingControllerStub::last_receiver;
+    out["same_bundle"] = RoutingControllerStub::last_request.pud_locations == req.pud_locations;
+    out["external"] = RoutingControllerStub::last_request.operands;
+    return out;
+  }
+
  private:
   std::unique_ptr<HarnessFrontEnd> m_frontend;
   std::unique_ptr<Implementation> m_memory_system_impl;
@@ -464,6 +481,7 @@ class ChannelMapperUnderTestCpp {
 };
 
 class ControllerUnderTestCpp {
+  friend class Ramulator::PuDConflictUnderTest;
  public:
   inline static constexpr int kHarnessInternalSourceId = -2;
 
@@ -489,6 +507,14 @@ class ControllerUnderTestCpp {
   std::vector<std::string> level_names() const { return spec().level_names; }
   std::vector<std::string> command_names() const { return spec().command_names; }
   std::map<std::string, int> timings() const { return timing_map(spec()); }
+
+  AddrVec_t map_address(Addr_t intra_channel_address) const {
+    Request req(intra_channel_address, Request::Type::Read);
+    req.intra_channel_addr = intra_channel_address;
+    m_controller_base->m_addr_mapper->apply(req);
+    req.addr_vec[0] = 0;  // This harness owns controller/channel 0.
+    return req.addr_vec;
+  }
 
   int timing(const std::string& name) const {
     return spec().get_timing_value(name);
@@ -959,8 +985,12 @@ class ControllerUnderTestCpp {
 
 // ---- nanobind module ----
 
+#include "pud_request_harness.h"
+
 NB_MODULE(_ramulator_test, m) {
   m.doc() = "Ramulator2 test harness bindings";
+  bind_pud_location_harness(m);
+  bind_pud_request_harness(m);
 
   nb::class_<DeviceUnderTestCpp>(m, "_DeviceUnderTest")
       .def(nb::init<nb::dict, int>(), nb::arg("dram_config"), nb::arg("channel_id") = 0)
@@ -973,6 +1003,7 @@ NB_MODULE(_ramulator_test, m) {
            &DeviceUnderTestCpp::supports_controller_sequenced_request,
            nb::arg("type_id"))
       .def("supports_inherited_pud_requests", &DeviceUnderTestCpp::supports_inherited_pud_requests)
+      .def("supports_compute_requests", &DeviceUnderTestCpp::supports_compute_requests)
       .def("supports_movement_requests", &DeviceUnderTestCpp::supports_movement_requests)
       .def_prop_ro("supports_hffs_per_mat_config", &DeviceUnderTestCpp::supports_hffs_per_mat_config)
       .def_prop_ro("hffs_per_mat", &DeviceUnderTestCpp::hffs_per_mat)
@@ -994,6 +1025,7 @@ NB_MODULE(_ramulator_test, m) {
 
   nb::class_<ControllerUnderTestCpp>(m, "_ControllerUnderTest")
       .def(nb::init<nb::dict, int>(), nb::arg("controller_config"), nb::arg("num_cores") = 1)
+      .def("map_address", &ControllerUnderTestCpp::map_address)
       .def_prop_ro("level_names", &ControllerUnderTestCpp::level_names)
       .def_prop_ro("command_names", &ControllerUnderTestCpp::command_names)
       .def_prop_ro("timings", &ControllerUnderTestCpp::timings)
@@ -1044,6 +1076,7 @@ NB_MODULE(_ramulator_test, m) {
 
   nb::class_<PuDRoutingSystemUnderTestCpp>(m, "_PuDRoutingSystemUnderTest")
       .def(nb::init<int>(), nb::arg("num_channels"))
+      .def("retry_located", &PuDRoutingSystemUnderTestCpp::retry_located)
       .def("send_pud_request", &PuDRoutingSystemUnderTestCpp::send_pud_request,
            nb::arg("type_id"), nb::arg("operands"), nb::arg("size_bytes") = 64)
       .def("send_regular_request", &PuDRoutingSystemUnderTestCpp::send_regular_request,

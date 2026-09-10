@@ -4,6 +4,7 @@
 #include <stdexcept>
 
 #include "ramulator/dram/dram_spec.h"
+#include "ramulator/memory_system/pud_request_routing.h"
 
 namespace Ramulator {
 
@@ -48,7 +49,32 @@ size_t get_pud_sequence_length(const Request& req) {
   }
 }
 
-PuDOccurrence describe_pud_occurrence(const Request& req, size_t occurrence_index, const DRAMSpec& spec) {
+PuDMovementState describe_pud_movement_state(const Request& req) {
+  if (!is_movement_request_type(req.type_id)) {
+    throw std::logic_error("Movement state requires LC-MOV or GB-MOV");
+  }
+  const auto length = get_pud_sequence_length(req);
+  const auto cursor = req.occurrence_index;
+  if (cursor > length || req.occurrence_issue_history.size() != length) {
+    throw std::logic_error("Inconsistent retained movement context");
+  }
+  for (size_t i = 0; i < length; ++i) {
+    if ((req.occurrence_issue_history[i] != Request::kOccurrenceNotIssued) != (i < cursor)) {
+      throw std::logic_error("Inconsistent retained movement history");
+    }
+  }
+  if (req.pud_locations) validate_pud_pairs(req);
+  const bool lc = req.type_id == Request::Type::LCMOV;
+  return {
+      .owns_bank = cursor > 0 && cursor < length,
+      .source_active = cursor > 0 && cursor < (lc ? 3u : length),
+      .destination_active = cursor >= (lc ? 4u : 2u) && cursor < length,
+      .source_valid = cursor >= (lc ? 2u : 3u) && cursor < (lc ? 5u : 4u),
+      .locations = req.pud_locations,
+  };
+}
+
+static PuDOccurrence describe_occurrence(const Request& req, size_t occurrence_index, const DRAMSpec& spec) {
   const size_t sequence_length = get_pud_sequence_length(req);
   if (occurrence_index >= sequence_length) {
     throw std::logic_error(fmt::format("{} occurrence {} is outside [0, {})", request_type_name(req.type_id),
@@ -117,6 +143,18 @@ PuDOccurrence describe_pud_occurrence(const Request& req, size_t occurrence_inde
   }
   return make_occurrence(spec, command, occurrence_index, PuDOccurrenceRole::Operand, occurrence_index,
                          sequence_length);
+}
+
+PuDOccurrence describe_pud_occurrence(const Request& req, size_t occurrence_index, const DRAMSpec& spec) {
+  if (is_inherited_pud_request_type(req.type_id) && !req.pud_locations) {
+    throw std::logic_error("PuD compute sequence requires canonical resolved locations");
+  }
+  if (req.pud_locations) {
+    validate_pud_pairs(req);
+  }
+  auto occurrence = describe_occurrence(req, occurrence_index, spec);
+  occurrence.locations = req.pud_locations;
+  return occurrence;
 }
 
 void initialize_pud_sequence(Request& req, const DRAMSpec& spec) {
@@ -198,6 +236,29 @@ bool check_pud_occurrence_timing(
     return clk >= predecessor_clk + constraint.delay;
   }
 
+  return true;
+}
+
+bool check_pud_compute_occurrence_timing(const Request& req, Clk_t clk, const DRAMSpec& spec) {
+  if (!req.pud_locations || !is_inherited_pud_request_type(req.type_id)) {
+    throw std::logic_error("Range timing requires a located compute request");
+  }
+  const auto next = describe_pud_occurrence(req, req.occurrence_index, spec);
+  const int bank = spec.get_level_id("Bank");
+  // Repeated commands use only this invocation's issue history. Keeping the
+  // declarative edges as the numeric authority also retains timing overrides.
+  for (size_t i = 0; i < req.occurrence_index; ++i) {
+    const auto previous = describe_pud_occurrence(req, i, spec);
+    const auto issued = req.occurrence_issue_history.at(i);
+    if (issued == Request::kOccurrenceNotIssued) {
+      throw std::logic_error("Missing range timing predecessor");
+    }
+    for (const auto& edge : spec.timing_cons[bank][previous.command]) {
+      if (edge.cmd == next.command && !edge.sibling && clk < issued + edge.val) {
+        return false;
+      }
+    }
+  }
   return true;
 }
 

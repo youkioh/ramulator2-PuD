@@ -115,6 +115,13 @@ MIMDRAM's control unit avoids maintaining execution state independently for
 every DRAM mat by allowing the contiguous range of DRAM mats selected for one
 PUD operation to share the same `ACT`-`PRE` sequence and state.
 
+MIMDRAM reports that mat isolation transistors and row-decoder latches add
+less than 0.5% ACT latency in its CACTI-based evaluation. This is a reported
+nonzero overhead bound for MIMDRAM, not a measured PRADA-hybrid delay or a
+prescription for rounding simulator intervals.
+
+**Source:** MIMDRAM section 7, methodology preceding Table 2.
+
 #### General mat-information transport
 
 MIMDRAM §4.2 introduces a per-chip mat queue and three command variants for
@@ -135,7 +142,10 @@ activation would allow the full DRAM row to be activated. In the described
 PUD μProgram mechanism, MIMDRAM uses the available `ACT`-to-`ACT` and
 `PRE`-to-`ACT` command-latency intervals to overlap mat-information
 communication with command latency. The evaluated MIMDRAM configuration uses
-an eight-entry mat queue.
+an eight-entry mat queue. Specifically, the range sent after the first ACT
+of an AAP prepares the second ACT; the first activation's range is sent with
+the preceding PRE. This does not allow an activation to select its target
+retroactively.
 
 These facts define MIMDRAM's general mat-information transport mechanism. The
 AAP/AP-specific transport walkthrough must not be generalized into an
@@ -175,13 +185,20 @@ description; MIMDRAM §8.4; MIMDRAM §8.5.
 #### MIMD concurrency boundary
 
 MIMDRAM schedules independent PUD bbops across available mat ranges. Its mat
-scheduler scans buffered bbops, checks each target range against the mat
+scheduler scans buffered bbops oldest-to-newest using online first fit,
+checks each target range against the mat
 scoreboard, marks an available range busy, and assigns the bbop to a free
 μProgram processing engine. Multiple engines can execute allocated bbops and
 maintain their command timing concurrently. When an engine finishes, it frees
 the corresponding mats in the scoreboard. This establishes general MIMDRAM
 support for concurrent independent PUD operations on available, nonoverlapping
 mat ranges.
+
+Table 2's evaluated setup specifies eight microprogram processing engines,
+an eight-entry mat queue, and a 2 kB bbop buffer. Engine count and queue
+capacity describe different resources. These evaluation parameters do not
+specify the simulator's control-unit-to-channel association or recovery-time
+release boundary.
 
 For data movement, the MIMDRAM control unit derives the targeted mat range for
 `bbop_mov` and translates the instruction to `LC-MOV` when the source and
@@ -209,22 +226,34 @@ Table 1, "Data Move".
 At the ISA level, MIMDRAM exposes:
 
 ```text
-bbop_mov dst, dst_idx, src, src_idx, size, n
+bbop_mov(dst, dst_idx, src, src_idx, size, n)
 ```
 
 where `src` and `dst` identify arrays, `src_idx` and `dst_idx` identify the
 first elements to move, `size` is the number of elements to move, and `n` is
 the number of bits per element.
 
-The MIMDRAM control unit derives the targeted mat range from the source and
-destination array locations, indices, and movement size. The paper states that
-the control unit translates the operation into `LC-MOV` when source and
-destination mats are the same, and into `GB-MOV` otherwise.
+The MIMDRAM control unit derives the targeted mat range(s) from the source and
+destination array locations, indices, and element count, with element precision
+specified by `n`. The paper states that the control unit translates the
+operation into `LC-MOV` when source and destination mats are the same, and into
+`GB-MOV` otherwise. It does not provide the complete address/range calculation
+or lowering algorithm for all operand combinations.
 
 This ISA-level statement does not, by itself, resolve the physical routing of
 an arbitrary source/destination pair.
 
 **Source:** MIMDRAM §6.1, Table 1, "Data Move".
+
+In §5, the compiler's scheduling/data-mapping pass assigns mat labels to
+dependent instruction subtrees and inserts a movement bbop when their outputs
+must meet. Its code-generation pass passes these labels to allocation and
+transposition initialization. This describes where software movement requests
+come from; it does not specify how every such request maps onto the directed
+physical GB interconnect. Mat labels in that compiler discussion do not, by
+themselves, establish physical edge direction or endpoint reachability.
+
+**Source:** MIMDRAM §5, Fig. 8, passes 2 and 3.
 
 ### 1.4 LC-MOV: local I/O movement within a mat
 
@@ -384,7 +413,10 @@ Destination:
 - destination column address `column_dst`.
 
 The worked example moves four bits from `(row_src, column_src)` in
-`mat_(M-2)` to `(row_dst, column_dst)` in `mat_(M-1)`.
+`mat_(M-2)` to `(row_dst, column_dst)` in `mat_(M-1)`: one neighboring
+source/destination mat pair and one HFF-width transfer. The published command
+interface nevertheless accepts logical mat ranges at both endpoints; the
+worked pair is not evidence that the complete interface is singleton-only.
 
 **Source:** MIMDRAM §4.1, "Global I/O Data Movement", Fig. 4.
 
@@ -514,12 +546,14 @@ command graph or timing-resource model.
 MIMDRAM §4.1.1 uses both movement mechanisms for
 `out += (A[i] + B[i])`.
 
-In the paper's two-mat example:
+Figure 6 explicitly assumes two mats, with the input arrays evenly distributed
+between them. In that example:
 
 1. MIMDRAM performs PUD addition in both mats and stores partial output
    `C = {C[0]_mat0, C[1]_mat1}`.
 2. `GB-MOV` repeatedly copies the `C[0]` portion from `mat0` into a temporary
-   row in `mat1`, four bits / four data elements at a time.
+   row in `mat1`, one HFF-width portion at a time, until all source elements
+   are copied.
 3. MIMDRAM performs `tmp + C[1]` in `mat1`, leaving the combined temporary
    output in one mat.
 
@@ -529,9 +563,19 @@ mat contains as many data elements as there are columns in that mat, e.g.
 implement an adder tree inside that mat, reducing the temporary vector to an
 output vector with four data elements.
 
-The number of `GB-MOV` and `LC-MOV` commands depends on operand bit precision.
+The number of `GB-MOV` and `LC-MOV` commands depends on represented operand
+bit precision, as footnote 6 explicitly notes. The two-mat example does not
+specify a complete merge schedule for vectors distributed over more mats.
 
 **Source:** MIMDRAM §4.1.1, Fig. 6 and footnote 6.
+
+**Source-backed derived clarification:** under the bit-serial/vertical layout,
+one HFF-width transfer carries one bit position from each of H data elements
+(H = 4 in the evaluated organization), rather than H complete
+arbitrary-precision elements. This combines the layout, HFF transfer width,
+and precision dependence; Figure 6 does not state this complete interpretation
+directly. **Sources:** MIMDRAM §2.2, §4.1 footnote 5, §4.1.1 footnote 6,
+and §6.2, "Data Transposition".
 
 The paper does not specify a subsequent `4 -> 1` mechanism in the described
 adder-tree discussion; this remains an unresolved architecture question in
@@ -698,7 +742,8 @@ row-address-to-subarray mapping.
 ## 4. Unresolved reference / architecture questions
 
 These questions are intentionally left unresolved because the cited primary
-sources do not provide enough information to close them.
+sources do not provide enough information to close them. The movement-lowering
+omissions below are source/specification gaps, not established paper errors.
 
 1. **How should the physical hierarchy in §2.1 be reconciled with the
    evaluated/logical organization?**
@@ -727,14 +772,25 @@ sources do not provide enough information to close them.
 
 4. **What is the supported reachability for non-neighbor GB-MOV targets?**
    - The physical connection shown is `SA_(i-1) -> SA_i`.
-   - The paper does not specify a multi-hop protocol or another direct route
-     for arbitrary non-neighbor source/destination mats.
+   - The paper does not specify how forward multi-hop routes are generated,
+     how intermediate scratch rows are used, or another direct route for
+     arbitrary non-neighbor source/destination mats.
+   - Reverse-direction routing where the depicted graph has no reverse edge
+     is unspecified.
+   - Cross-chip GB routing, including moves spanning disconnected chip-local
+     GB domains, is unspecified; §3.3 records the depicted datapath limit.
 
 5. **How does the high-level `bbop_mov` "same mat -> LC-MOV, otherwise ->
    GB-MOV" rule interact with physical reachability?**
    - The ISA description gives this translation rule.
    - The hardware description does not explain how every possible
      "otherwise" mapping is realized by the depicted neighboring interconnect.
+   - §5 describes compiler-inserted movement bbops, but neither it nor §§4.1,
+     4.2, and 6.1 supplies the exact compiler/control-unit lowering algorithm
+     for multi-mat endpoint pairing, simultaneous ranged transfers, overlapping
+     ranges, non-neighbor routes, reverse routes, or cross-chip routes.
+   - Neither parallel range pairing nor an implicit routing service can be
+     inferred from the published ranged command interface alone.
 
 6. **What exact precharge scope is intended for the internal movement
    sequences?**
@@ -882,6 +938,8 @@ High-Throughput, Energy-Efficient and Programmer-Transparent
 Multiple-Instruction Multiple-Data Computing,"**
 HPCA 2024.
 
+[Public paper](https://arxiv.org/pdf/2402.19080).
+
 Relevant sections used by this reference:
 
 - §1 — fine-grained DRAM motivation and mat-level execution;
@@ -889,6 +947,7 @@ Relevant sections used by this reference:
 - §4.1 — fine-grained PUD execution, `GB-MOV`, and `LC-MOV`;
 - §4.1.1 — PUD vector reduction;
 - §4.2 — logical mat encoding/ranges and mat-information communication;
+- §5 — compiler scheduling/data mapping and inserted movement instructions;
 - §6.1 — `bbop_mov`;
 - §8.4 — evaluation across 1–64 DRAM subarrays per bank;
 - §8.5 — mat-scoreboard storage and area;

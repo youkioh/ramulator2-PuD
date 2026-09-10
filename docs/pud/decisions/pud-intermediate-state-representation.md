@@ -1,4 +1,9 @@
-Status: Accepted
+Status: Superseded
+
+Superseded by the
+[range-local execution/lifecycle authority](mimdram-movement-execution-ownership-and-device.md).
+The phase names below remain reused, but they now belong to an invocation's
+explicit range context rather than one Bank-wide compute state.
 
 Question
 

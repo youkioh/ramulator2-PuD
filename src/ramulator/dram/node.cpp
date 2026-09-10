@@ -38,7 +38,7 @@ DRAMNode::DRAMNode(DRAMSpec* spec, DRAMNode* parent, int level, int id)
   }
 }
 
-void DRAMNode::update_timing(int command, const AddrVec_t& addr_vec, Clk_t clk) {
+void DRAMNode::update_timing(int command, const AddrVec_t& addr_vec, Clk_t clk, bool include_children) {
   /************************************************
    *         Update Sibling Node Timing
    ***********************************************/
@@ -73,7 +73,7 @@ void DRAMNode::update_timing(int command, const AddrVec_t& addr_vec, Clk_t clk) 
     m_cmd_ready_clk[t.cmd] = std::max(m_cmd_ready_clk[t.cmd], future);
   }
 
-  if (m_child_nodes.empty()) {
+  if (!include_children || m_child_nodes.empty()) {
     return;
   }
 

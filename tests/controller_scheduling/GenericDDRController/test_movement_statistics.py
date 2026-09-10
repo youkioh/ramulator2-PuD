@@ -4,6 +4,8 @@ import ramulator
 import tests.controller_scheduling.harness as cs
 from ramulator._ramulator_test import _PuDRoutingSystemUnderTest
 from ramulator.dram.spec import REQUEST_TYPE_IDS
+from tests.unit_tests.test_pud_location import resolver
+from tests.unit_tests.test_pud_request_locations import request
 
 
 pytestmark = pytest.mark.controller_scheduling
@@ -162,16 +164,13 @@ def test_existing_ddr4_standards_do_not_gain_movement_statistics(dram_class):
     assert not any("lcmov" in name or "gbmov" in name for name in dut.sample_stats())
 
 
-def test_memory_system_counts_accepted_movement_requests_across_channels_once():
+def test_memory_system_counts_accepted_located_movement_requests_once():
     system = _PuDRoutingSystemUnderTest(num_channels=2)
-    lc = [[0, 0], [0, 1]]
-    gb = [[1, 0], [1, 1]]
+    r = resolver()
 
-    system.send_movement_request(
-        REQUEST_TYPE_IDS["LC-MOV"], lc, "LC", 2, 5, retry_once=True
-    )
-    system.send_movement_request(REQUEST_TYPE_IDS["GB-MOV"], gb, "GB", 6, 7)
-    system.send_movement_request(REQUEST_TYPE_IDS["LC-MOV"], lc, "LC", 10, 10)
+    system.retry_located(request(r, "LC-MOV"))
+    system.retry_located(request(r, "GB-MOV"))
+    system.retry_located(request(r, "LC-MOV"))
 
     stats = system.stats()
     assert stats["total_num_pud_lcmov_requests"] == 2

@@ -10,6 +10,28 @@ namespace Ramulator {
 
 class DRAMSpec;
 
+/*
+ * Request cursor/history + operands (request.h)
+ *                  |
+ *                  v
+ *        +-------------------------+
+ *        | PuDOccurrence           | <-- YOU ARE HERE
+ *        | current occurrence view |
+ *        +------------+------------+
+ *                     |
+ *                     v
+ *        Device dispatch + PuDComputeContext (device.h)
+ *
+ * Movement Request history ---> +-------------------------+
+ *                               | PuDMovementState        |
+ *                               | derived view only       |
+ *                               +-------------------------+
+ * Views retain placement, never independent progress. Request owns the cursor;
+ * context owns only protocol phase; Controller owns recovery. Movement owns_bank
+ * covers sequence activity,
+ * not the recovery exclusion enforced by controller/Device checks.
+ */
+
 enum class PuDOccurrenceRole {
   Operand,
   Source,
@@ -22,7 +44,22 @@ struct PuDOccurrence {
   PuDOccurrenceRole role = PuDOccurrenceRole::Operand;
   size_t index = 0;
   bool terminal = false;
+  std::shared_ptr<const PuD::RequestLocations> locations;
+  const PuD::PairedOperand* location() const {
+    return locations ? &locations->operands.at(operand_index) : nullptr;
+  }
 };
+
+// A view of the retained per-Bank movement invocation, not another state
+// machine/cursor. Endpoint identity remains in the Request's paired operands.
+struct PuDMovementState {
+  bool owns_bank = false;
+  bool source_active = false;
+  bool destination_active = false;
+  bool source_valid = false;
+  std::shared_ptr<const PuD::RequestLocations> locations;
+};
+PuDMovementState describe_pud_movement_state(const Request& req);
 
 enum class PuDOccurrenceAdvance {
   NotIssued,
@@ -48,6 +85,9 @@ PuDMovementTimingConstraints make_movement_timing_constraints(const DRAMSpec& sp
 bool check_pud_occurrence_timing(
     const Request& req, Clk_t clk,
     const PuDMovementTimingConstraints& constraints);
+// Range-aware compute interprets the inherited PRADA Bank edge definitions against this
+// Request's occurrence history. Device must not also issue them into Bank history.
+bool check_pud_compute_occurrence_timing(const Request& req, Clk_t clk, const DRAMSpec& spec);
 const char* pud_occurrence_role_name(PuDOccurrenceRole role);
 
 }  // namespace Ramulator

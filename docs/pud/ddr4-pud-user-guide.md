@@ -1,83 +1,218 @@
-# DDR4_PuD user guide
+# DDR4 PuD user guide
 
-DDR4_PuD is a separate DRAM standard built from the DDR4 baseline. Standard
-DDR4 has no PuD requests, commands, states, or timings. DDR4_PuD supports five
-request-level operations:
+The canonical DDR4 PuD model is one unified compute-and-movement substrate.
+It combines PRADA-derived RowCopy, majority, and NOT mechanisms with the
+project's MIMDRAM-shaped mat placement, range-local execution, and LC-MOV /
+GB-MOV support. This is a project simulator architecture: it is not a claim
+that PRADA and MIMDRAM are one physical design.
 
-| Request identifier | Primitive | Ordered operands | Lower-level sequence |
+The public request types are:
+
+| Request identifier | Operation | Ordered operands | Lower-level sequence |
 | --- | --- | --- | --- |
 | `RowCopy` | Row copy | source, one or more destinations | `ACT_PUD_S_OC(src) -> ACT_PUD(dst0) -> ... -> PREpb` |
-| `MAJ3` | TRA (3-input majority) | three rows | `ACT_PUD_OC(X) -> ACT_PUD(Y) -> ACT_PUD_S(Z) -> PREpb` |
-| `MAJ5` | 5RA (5-input majority) | five rows | `ACT_PUD_OC(V) -> ACT_PUD(W) -> ACT_PUD(X) -> ACT_PUD(Y) -> ACT_PUD_S(Z) -> PREpb` |
-| `NOT` | NOT | one source row | `ACT_PUD_S_OC(X) -> N -> PREpb` |
-| `NOT_COPY` | NOT-and-Copy fused sequence | source, destination | `ACT_PUD_S_OC(src) -> N -> ACT_PUD(dst) -> PREpb` |
+| `MAJ3` | three-row majority (TRA) | three distinct rows | `ACT_PUD_OC(X) -> ACT_PUD(Y) -> ACT_PUD_S(Z) -> PREpb` |
+| `MAJ5` | five-row majority (5RA) | five distinct rows | `ACT_PUD_OC(V) -> ACT_PUD(W) -> ACT_PUD(X) -> ACT_PUD(Y) -> ACT_PUD_S(Z) -> PREpb` |
+| `NOT` | in-place NOT | source | `ACT_PUD_S_OC(X) -> N -> PREpb` |
+| `NOT_COPY` | NOT-and-copy composition | source, destination | `ACT_PUD_S_OC(src) -> N -> ACT_PUD(dst) -> PREpb` |
+| `LCMOV` | LC-MOV | source endpoint, destination endpoint | `ACT_MOV -> RD_MOV -> PREpb -> ACT_MOV -> WR_MOV -> PREpb` |
+| `GBMOV` | GB-MOV | source endpoint, destination endpoint | `ACT_MOV -> ACT_MOV -> RD_MOV -> WR_MOV -> PREpb` |
 
-TRA and 5RA realize 3-input and 5-input majority, respectively. The public
-request identifiers remain the consistent pair `MAJ3` and `MAJ5`. `5RA`
-cannot be a C++ identifier because it begins with a digit; `MAJ3` is the
-paired naming choice rather than a C++ language requirement.
+`MAJ3` and `MAJ5` are the public names for TRA and 5RA. `NOT_COPY` is
+a request-level composition of existing commands, not a separate physical
+DRAM command.
 
-The request owns the primitive identity and ordered address-vector operands.
-The controller validates placement, traverses operands, retains sequence
-progress, and owns the target bank from the first PuD activation through final
-`PREpb` issue. The DRAM device enforces the lower-level phase states, command
-legality, and timing. A sequence arrow specifies role order, not uninterrupted
-channel use: timing-legal commands to non-owned banks may issue between PuD
-commands.
+## Canonical configuration
 
-## Reproducible isolated run
+The currently supported placement profile is
+`MIMDRAM_DDR4_8Gb_x8_v1`. It requires this coordinated configuration:
 
-[`examples/ddr4_pud_microbenchmark_config.py`](../../examples/ddr4_pud_microbenchmark_config.py)
-is an exportable configuration for the C++ microbenchmark. It selects:
+- `DDR4_PuD_Movement` with `DDR4_8Gb_x8`, `DDR4_2400R`, and
+  `hffs_per_mat=4`;
+- one channel, with `CacheLineInterleave`;
+- `GenericDDR` with `RoBaRaCoCh`, no row remapping or reserved-row offset,
+  and `pud_placement_profile="MIMDRAM_DDR4_8Gb_x8_v1"`; and
+- one or four ranks.
 
-- `DDR4_PuD`, `DDR4_8Gb_x8`, one rank, and the supported `DDR4_2400R` timing preset;
-- `GenericDDR` with a configurable `pud_buffer_size`;
-- `FRFCFS`, `Open`, `NoRefresh`, and `PassThroughAddrMapper`;
-- `GenericDRAM` with `PassThroughChannelMapper`; and
-- the existing text `CmdTraceRecorder`.
+`DDR4_PuD_Movement` is the retained implementation registration that contains
+all compute and movement command definitions. It does not denote a separate
+movement execution model.
 
-`NoRefresh` is intentional only for this isolated-latency run. Use an
-appropriate refresh manager such as `AllBank` in traffic experiments, subject
-to the refresh limitations below. The pass-through mappers are required here
-because PuD operands are already final device-visible address vectors.
+The controller parameter `pud_compute_engines` is the positive compute-engine
+capacity E for one controller/channel instance, shared across its Banks and
+Ranks. Its default is 8. E=1 is a serialized control; larger values permit
+eligible requests on disjoint ranges to overlap. `pud_buffer_size` separately
+bounds resident PuD requests and defaults to 32.
+
+The canonical example configuration is
+[`examples/ddr4_pud_microbenchmark_config.py`](../../examples/ddr4_pud_microbenchmark_config.py).
+Its essential component tree is:
+
+```python
+dram = ramulator.dram.DDR4_PuD_Movement(
+    org_preset="DDR4_8Gb_x8",
+    timing_preset="DDR4_2400R",
+    rank=1,
+    hffs_per_mat=4,
+)
+controller = ramulator.controller.GenericDDR(
+    dram=dram,
+    pud_buffer_size=32,
+    pud_placement_profile="MIMDRAM_DDR4_8Gb_x8_v1",
+    pud_compute_engines=8,
+    scheduler=ramulator.scheduler.FRFCFS(),
+    refresh_manager=ramulator.refresh_manager.NoRefresh(),
+    row_policy=ramulator.row_policy.Open(),
+    addr_mapper=ramulator.addr_mapper.RoBaRaCoCh(),
+    controller_plugins=[
+        ramulator.controller_plugin.CmdTraceRecorder(
+            path="build/ddr4_pud_trace.csv",
+        ),
+    ],
+)
+memory_system = ramulator.memory_system.GenericDRAM(
+    clock_ratio=1,
+    controllers=[controller],
+    channel_mapper=ramulator.channel_mapper.CacheLineInterleave(),
+)
+```
+
+`NoRefresh` is intentional for isolated latency and overlap checks. Use an
+appropriate refresh manager such as `AllBank` for traffic experiments, subject
+to the refresh limitations below.
+
+## Constructing compute requests
+
+Obtain the installed shared resolver from the memory system. Every operand must
+be resolved through it and must explicitly select either the whole modeled mat
+range or an inclusive `MatRange`:
+
+```cpp
+auto resolver = memory_system->location_resolver();
+
+std::vector<Ramulator::PuD::PairedOperand> operands;
+for (int row : {100, 101}) {
+  operands.push_back(resolver->pair(resolver->compute_footprint(
+      Ramulator::PuD::ExternalRow{0, 0, 0, 0, row},
+      Ramulator::PuD::FULL_MAT)));
+}
+
+Ramulator::Request request(
+    resolver, std::move(operands), Ramulator::Request::Type::RowCopy);
+request.source_id = 0;
+request.size_bytes = memory_system->get_tx_bytes();
+```
+
+For a narrower computation, replace `FULL_MAT` with an explicit inclusive
+range:
+
+```cpp
+resolver->compute_footprint(
+    Ramulator::PuD::ExternalRow{0, 0, 0, 0, row},
+    Ramulator::PuD::MatRange{15, 18})
+```
+
+`FULL_MAT` is resolved immediately to
+`MatRange{0, resolver->logical_mats() - 1}`. Both forms therefore use the
+same validation, allocation, timing, recovery, and completion path. Omitting
+the target is invalid; bare `AddrVec_t` operands cannot establish the required
+profile and resolved range.
+
+All operands in a compute request must share Channel, Rank, BankGroup, Bank,
+derived subarray, and mat range. `MAJ3` and `MAJ5` additionally require
+distinct physical rows. RowCopy accepts one source followed by one or more
+destinations; the other compute operations require exactly three, five, one,
+and two operands for `MAJ3`, `MAJ5`, `NOT`, and `NOT_COPY`,
+respectively.
+
+## Constructing movement requests
+
+Movement uses the same resolver and paired-operand Request constructor. Each
+endpoint explicitly identifies its row, inclusive mat range, and ordered
+`Group`.
+
+An LC-MOV uses one common range for its source and destination endpoints:
+
+```cpp
+using namespace Ramulator;
+
+PuD::MatRange mats{15, 18};
+std::vector<PuD::PairedOperand> operands;
+operands.push_back(resolver->pair(resolver->group_footprint(
+    PuD::ExternalRow{0, 0, 0, 0, 100}, mats, PuD::Group{3})));
+operands.push_back(resolver->pair(resolver->group_footprint(
+    PuD::ExternalRow{0, 0, 0, 0, 101}, mats, PuD::Group{4})));
+
+Request request(resolver, std::move(operands), Request::Type::LCMOV);
+request.size_bytes = Request::kMovementSizeBytesNotApplicable;
+```
+
+A GB-MOV uses explicit singleton endpoints. The selected profile accepts only
+its directed same-chip neighbor topology:
+
+```cpp
+std::vector<PuD::PairedOperand> operands;
+operands.push_back(resolver->pair(resolver->group_footprint(
+    PuD::ExternalRow{0, 0, 0, 0, 100},
+    PuD::MatRange{6, 6}, PuD::Group{3})));
+operands.push_back(resolver->pair(resolver->group_footprint(
+    PuD::ExternalRow{0, 0, 0, 0, 101},
+    PuD::MatRange{7, 7}, PuD::Group{4})));
+
+Request request(resolver, std::move(operands), Request::Type::GBMOV);
+request.size_bytes = Request::kMovementSizeBytesNotApplicable;
+```
+
+LC-MOV range width determines moved bits as
+`selected_mat_count * hffs_per_mat`. GB-MOV moves
+`hffs_per_mat` bits. The `-1` size is a named not-applicable contract, not
+a byte count. Movement does not consume a compute engine, but its accepted
+Bank-aggregate conflict policy serializes it against same-Bank compute,
+ordinary traffic, and other movement through recovery.
+
+## Submission, recovery, and callbacks
+
+Attach the callback before submission and retry the same Request after ticking
+when `send()` reports backpressure:
+
+```cpp
+request.callback = [](Ramulator::Request& completed) {
+  // completed.arrive and completed.depart are controller cycles.
+  // completed.pud_locations retains the immutable resolved operands.
+};
+
+while (!memory_system->send(request)) {
+  memory_system->tick();
+}
+```
+
+A successful admission owns the request once. Failed admission does not consume
+or reorder its operands. Do not reconstruct or move the Request between
+retries.
+
+Compute allocation reserves one engine and the complete resolved range
+atomically using oldest-to-newest first fit. Disjoint ranges in the same
+subarray may progress concurrently when E permits; intersecting ranges and
+different subarrays of the same Bank conflict. The reservation starts before
+the first PuD activation and remains protected through terminal `PREpb` plus
+`nRP` recovery. Protection is released before exact-once accounting and the
+callback.
+
+## Canonical benchmark commands
 
 From the repository root:
 
 ```bash
 cmake -S . -B build
-cmake --build build --target ddr4_pud_microbenchmark -j
+cmake --build build --target ddr4_pud_microbenchmark mimdram_movement_microbenchmark -j $(nproc)
+
 PYTHONPATH=python python3 -m ramulator export \
   examples/ddr4_pud_microbenchmark_config.py \
   -o build/ddr4_pud_microbenchmark.yaml
 LD_LIBRARY_PATH=. ./build/ddr4_pud_microbenchmark \
   build/ddr4_pud_microbenchmark.yaml \
   build/ddr4_pud_trace.csv.ch0
-```
 
-The example submits one request at a time to an initially closed bank, has no
-unrelated traffic or refresh, retries after backpressure, and uses source IDs
-100 through 104. It prints callback/trace-derived latency components, the
-controller and memory-system statistics, and checks the five isolated modeled
-latencies. The command trace is written to
-`build/ddr4_pud_trace.csv.ch0`; its columns are `clock`, `command`, the device
-hierarchy coordinates, `type`, and `source`.
-
-## MIMDRAM movement latency validation
-
-The combined `DDR4_PuD_Movement` standard has a separate reproducible
-latency-validation benchmark at
-[`examples/mimdram_movement_microbenchmark.cpp`](../../examples/mimdram_movement_microbenchmark.cpp),
-with its export configuration at
-[`examples/mimdram_movement_microbenchmark_config.py`](../../examples/mimdram_movement_microbenchmark_config.py).
-It submits isolated LC-MOV and GB-MOV requests through the normal
-`IMemorySystem::send(Request&)` and GenericDDR controller path and derives
-command issue cycles from the existing `CmdTraceRecorder`.
-
-From the repository root:
-
-```bash
-cmake -S . -B build
-cmake --build build --target mimdram_movement_microbenchmark -j
 PYTHONPATH=python python3 -m ramulator export \
   examples/mimdram_movement_microbenchmark_config.py \
   -o build/mimdram_movement_microbenchmark.yaml
@@ -86,163 +221,98 @@ LD_LIBRARY_PATH=. ./build/mimdram_movement_microbenchmark \
   build/mimdram_movement_trace
 ```
 
-For each case, the benchmark prints request `arrive` and `depart`, every
-absolute and normalized command issue cycle, terminal `PREpb`, exact moved
-bits, and expected versus observed recovery-complete primitive latency. Under
-the canonical `DDR4_2400R` model, the expected normalized timelines are:
+The first benchmark exercises all compute requests with explicit subranges and
+`FULL_MAT`, disjoint-range overlap, dependency callbacks, LC-MOV, and GB-MOV.
+The second runs focused movement cases. Both use controlled unique source IDs.
+
+To compare compute-engine capacities, set only E when exporting:
+
+```bash
+for engines in 1 2 8; do
+  RAMULATOR_PUD_ENGINES=$engines PYTHONPATH=python python3 -m ramulator export \
+    examples/ddr4_pud_microbenchmark_config.py \
+    -o build/ddr4_pud_microbenchmark_e${engines}.yaml
+  LD_LIBRARY_PATH=. ./build/ddr4_pud_microbenchmark \
+    build/ddr4_pud_microbenchmark_e${engines}.yaml \
+    build/ddr4_pud_trace.csv.ch0
+done
+```
+
+## Command traces and latency
+
+`CmdTraceRecorder` writes one file per channel by appending `.ch0`,
+`.ch1`, and so on to its configured path. Text traces have this schema:
 
 ```text
-LC-MOV: ACT_MOV 0, RD_MOV 16, PREpb 39,
-        ACT_MOV 55, WR_MOV 94, PREpb 114, recovery/depart 130
-GB-MOV: ACT_MOV 0, ACT_MOV 1, RD_MOV 39,
-        WR_MOV 41, PREpb 59, recovery/depart 75
+clock,command,Channel,Rank,BankGroup,Bank,Row,Column,type,source
 ```
 
-Modeled primitive latency is `depart - first_ACT_MOV`; it measures the fixed
-movement command schedule through terminal precharge recovery. Request latency
-is `depart - arrive`; it also includes the admission, arbitration, scheduler,
-and any prerequisite offset before the first `ACT_MOV`. The command-line
-benchmark therefore observes 130 CK modeled versus 131 CK request latency for
-LC-MOV, and 75 CK modeled versus 76 CK request latency for GB-MOV, because this
-path issues the first command one cycle after admission.
+`type` is the numeric request identifier and `source` is `source_id`.
+Compute commands carry the selected operand Row; whole-mat-row compute has no
+single burst selector, so its projected Column is `-1`. Mat ranges and groups
+are retained in `Request::pud_locations`, not added to the trace schema.
+The controlled benchmarks print those resolved endpoints and use unique source
+IDs to correlate commands. A production trace alone cannot reconstruct
+arbitrary concurrent request identities or ranges.
 
-The benchmark runs LC widths of one and four selected mats and repeats LC/GB
-with `hffs_per_mat` values 4 and 7. It verifies unchanged command counts and
-latencies, `LC moved_bits = selected_mat_count * hffs_per_mat`,
-`GB moved_bits = hffs_per_mat`, and zero contribution to ordinary Read/Write
-counts and throughput. Its six text traces use the supplied prefix followed by
-the case name and `.ch0`.
-
-## C++ request submission
-
-Phase 9's supported submission surface is the request-level C++ memory-system
-interface, not the test-only Python controller harness:
-
-```cpp
-using Ramulator::AddrVec_t;
-using Ramulator::Request;
-
-std::vector<AddrVec_t> operands = {
-    {0, 0, 0, 0, 100, 0},  // source
-    {0, 0, 0, 0, 101, 0},  // destination 0
-    {0, 0, 0, 0, 102, 0},  // destination 1
-};
-Request request(std::move(operands), Request::Type::RowCopy);
-request.source_id = 100;
-request.size_bytes = memory_system->get_tx_bytes();
-request.callback = [](Request& completed) {
-  // completed.arrive and completed.depart are controller cycles.
-};
-
-while (!memory_system->send(request)) {
-  memory_system->tick();
-}
-```
-
-`size_bytes` must be positive and no larger than the DRAM transaction size,
-but it has no new PuD operation semantics. A `false` return is retryable
-backpressure: tick and resubmit the same request. Failed admission does not
-consume or reorder its request-owned operands. Do not reconstruct or move the
-request between retries.
-
-RowCopy requires a source followed by at least one destination. It has no
-arbitrary primitive-specific destination limit. `MAJ3`, `MAJ5`, `NOT`, and
-`NOT_COPY` require exactly three, five, one, and two operands, respectively;
-the two `NOT_COPY` operands are source then destination. Submitted order
-is the deterministic traversal and role-assignment convention; it is not a
-claim that permutations of equivalent destinations or intermediate majority
-operands change physical correctness.
-
-## Address and placement requirements
-
-Each operand is a full final device-visible vector in this order:
+Use callback timestamps and the first/last traced commands as follows:
 
 ```text
-[Channel, Rank, BankGroup, Bank, Row, Column]
+modeled primitive latency = depart - first PuD command issue
+pre-start delay           = first PuD command issue - arrive
+end-to-end latency        = depart - arrive
+terminal recovery         = depart - terminal PREpb issue
 ```
 
-Every coordinate must be within its configured hierarchy bound. For the
-example's single-channel `DDR4_8Gb_x8` organization, the bounds are one
-channel, one rank, four bank groups, four banks per bank group, 65,536 rows,
-and 1,024 columns. All operands in one request must share channel, rank, bank
-group, bank, and the derived logical subarray:
+At `DDR4_2400R`, uncontended first-command-through-recovery anchors are:
 
-```text
-subarray_id = row / 1024
-local_row   = row % 1024
-```
+| Operation | Modeled latency |
+| --- | ---: |
+| RowCopy with D destinations | `40 + 5*D + 16 CK` |
+| MAJ3 | `66 CK` |
+| MAJ5 | `76 CK` |
+| NOT | `99 CK` |
+| NOT_COPY | `104 CK` |
+| LC-MOV | `130 CK` |
+| GB-MOV | `75 CK` |
 
-The contiguous 1,024-row logical-subarray mapping is a simulator assumption,
-not a verified physical DDR4 mapping. Columns are preserved in the request
-and trace but have no PuD operation semantics.
+The totals already include terminal `nRP`. Queueing, engine/range allocation,
+maintenance, and shared command arbitration can increase end-to-end latency.
 
-## Completion and latency
-
-The controller releases bank ownership when the final `PREpb` issues. It
-retains the unschedulable request until that issue cycle plus `nRP`, then sets
-`depart` and invokes its callback exactly once. `arrive` is the successful
-controller-admission cycle; `depart` is this recovery-completion cycle. This
-completion boundary is a simulator lifecycle definition, not a claim about
-earliest physical data availability.
-
-Use the first command cycle for a request's unique `source_id` in the existing
-command trace together with its callback timestamps:
-
-```text
-isolated modeled primitive latency = depart - first PuD command issue
-pre-start delay                    = first PuD command issue - arrive
-end-to-end request latency         = depart - arrive
-```
-
-Pre-start delay includes queueing, arbitration, and prerequisite work before
-the primitive starts. Aggregate end-to-end latency can therefore exceed the
-isolated modeled primitive latency. With `DDR4_2400R`, including final
-`PREpb` recovery:
-
-```text
-RowCopy with D destinations = 40 + 5*D + 16 CK
-TRA (MAJ3 request)          = 66 CK
-5RA (MAJ5 request)          = 76 CK
-NOT                         = 99 CK
-NOT-and-Copy fused sequence = 104 CK
-```
+The current T-A abstraction delivers each resolved row/range to its
+`ACT_PUD*` occurrence atomically at issue. It omits physical target-delivery
+latency, mat-queue stalls, and target-delivery-specific C/A contention. Those
+costs are omitted, not physically zero. Ordinary shared command occupancy and
+the accepted local timing constraints still apply.
 
 ## Statistics
 
-For each operation name `rowcopy`, `maj3`, `maj5`, `not`, and `not_copy`, the controller
-exports:
+For each compute operation name `rowcopy`, `maj3`, `maj5`, `not`, and
+`not_copy`, the controller exports accepted and completed counts, total
+`depart - arrive` latency, and average latency. LC-MOV and GB-MOV use
+`lcmov` and `gbmov` and additionally report exact moved bits.
 
-- `num_pud_<operation>_reqs`: successfully accepted requests;
-- `num_pud_<operation>_reqs_completed`: requests reaching completion;
-- `pud_<operation>_latency`: total `depart - arrive`; and
-- `avg_pud_<operation>_latency`: average `depart - arrive`.
-
-`pud_queue_len` is accumulated pending-PuD queue occupancy over measured
-cycles, and `pud_queue_len_avg` is its average. Pending PuD entries are also
-included in `queue_len` and `queue_len_avg`. At memory-system scope,
-`total_num_pud_rowcopy_requests`, `total_num_pud_maj3_requests`,
-`total_num_pud_maj5_requests`, `total_num_pud_not_requests`, and
-`total_num_pud_not_copy_requests` count accepted operations.
-
-PuD requests have no accepted byte-transfer or row-buffer-hit semantics, so
-they are excluded from Read/Write throughput, forwarding, write coalescing,
-and row-buffer hit/miss/conflict statistics.
+`pud_queue_len` accumulates resident PuD-buffer occupancy over measured
+cycles, and `pud_queue_len_avg` is its average. PuD requests have no accepted
+ordinary byte-transfer or row-buffer-hit semantics, so they are excluded from
+Read/Write throughput, forwarding, write coalescing, and row-buffer
+hit/miss/conflict statistics.
 
 ## Current limitations
 
-- The simulator does not track DRAM data values or validate functional copy,
-  majority, or inversion results.
-- DDR4_PuD itself has no movement or energy model. Inter-column movement is
-  available only in the separate combined `DDR4_PuD_Movement` standard;
-  higher-level PuD operations remain outside the implemented scope.
-- Logical-subarray placement is a simulator assumption; physical mat identity
-  and interleaving remain undefined.
+- The simulator does not store DRAM values or validate functional copy,
+  majority, inversion, or movement results.
+- Arithmetic macros, ADD/MUL, GEMV/GEMM generation, reduction execution, a
+  compiler, and a functional workload ISA are not implemented by this
+  substrate.
+- The supported placement is a documented simulator profile, not verified
+  vendor DDR4 wiring. Other organizations and remapping contexts require
+  separately supported profiles.
+- GB-MOV is limited to the selected directed singleton same-chip neighbor
+  topology. LC/GB movement retains conservative Bank-aggregate concurrency.
 - There is no PuD preemption, abort, resume, refresh-postponement bound,
-  retention guarantee, or variable-operand metadata-cost model.
-- The accepted atomicity, reservation, command encoding, shared-resource,
-  activation-window, cross-bank, refresh, and behavior-changing-plugin
-  assumptions do not have physical validation. See the accepted
-  [PuD decisions](decisions/) for their precise scope.
-- Future real-workload or external-simulator integration must provide a
-  multi-operand PuD ingress path to the existing Request-level
-  `IMemorySystem::send(Request&)` interface.
+  retention guarantee, or physical target-transport resource model.
+- The accepted activation-current, command encoding, shared-resource,
+  conflict, and movement timing assumptions are simulator choices with the
+  fidelity limits recorded in the current
+  [PuD decisions](decisions/).
