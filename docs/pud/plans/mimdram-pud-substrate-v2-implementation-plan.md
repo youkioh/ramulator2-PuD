@@ -1,6 +1,6 @@
 # MIMDRAM-based PuD substrate v2 implementation plan
 
-Status: Implementation in progress — Phases 1 and 2 (W1-W8) complete, including W6 baseline alignment; W9 not started.
+Status: Complete — Phases 1 and 2 (W1-W8) and W9 fresh-context final integration closure complete.
 
 ## Implementation progress (2026-09-09)
 
@@ -70,7 +70,55 @@ Status: Implementation in progress — Phases 1 and 2 (W1-W8) complete, includin
   ninth request, with explicit source bounds checks. Live architecture comments
   describe W1-W8 and the T-A baseline.
 - **Phase 2: Completed.** Public v2 substrate integration and the W8 exit checks
-  are complete. **W9 is not started.**
+  are complete.
+- **W9: Completed.** Fresh-context audit of `main` (`d75944a`) through W8
+  (`e1f51c2`) plus the W9 closure delta covered source, tests/test seams,
+  generated wrappers, comments and documentation against A/B/C-E/C-T/T-A.
+  The public path retains one resolver/location authority and one schedulable
+  Request progression, allocates engine plus complete range before ACT, and
+  releases recovery protection before exact-once accounting/callback. No new
+  modeling choice or excluded functionality was introduced.
+
+W9 found one cleanup defect: the Device conflict registry retained expired weak
+context references after recovery until a later allocation. Recovery release now
+prunes them before callbacks, including final drain. The extended W4 drain and
+callback assertions failed all 35 tests before the fix (exit 1), then passed all
+35 after it (exit 0). Engine/range lifetime, command timing and scheduling are
+unchanged. Stale implementation-progress statements in C-E/C-T/T-A now point here.
+
+Executed behavior-to-test mapping (controller filenames are in
+`tests/controller_scheduling/GenericDDRController/`):
+
+| Unit | Executed evidence |
+| --- | --- |
+| W1 | `tests/unit_tests/test_pud_location.py`: capacity/bijection, bounds, topology, segmentation, replacement profile and mapper agreement. |
+| W2 | `tests/unit_tests/test_pud_request_locations.py`: paired validation, copy/retry lifetime, common ordinary/PuD footprints, ingress rejection and forwarding/coalescing. |
+| W3 | `tests/device_timings/test_pud_compute_ranges.py`: exact PRADA boundaries, independent range phases, rejected-issue atomicity and local/shared timing inventory. |
+| W4 | `test_pud_protected_lifecycle.py`: protection through recovery, registry drain, exact-once release/accounting, reordered and simultaneous completions, reentrant callbacks. |
+| W5 | `test_pud_conflicts.py`: complete maintenance scopes, ordinary/movement exclusion, retained movement validity, recovery and promotion backpressure. |
+| W6 | `test_pud_resolved_targets.py`: exact occurrence association, T-A consumption, pure probes, no transport queues/setup, actual command-cycle occupancy. |
+| W7 | `test_pud_allocation.py`: E=1/2/8, first fit, same-subarray MIMD/no SALP, complete-range atomicity, pre-ACT ownership, issue-ready arbitration and engine reuse. |
+| W8 | `test_pud_public.py`: configured GenericDRAM path, all primitive anchors, contention, dependency joins, exact accounting, compatibility and 6000-CK mixed-refresh drain. |
+
+W9 final validation: source codegen and a clean build of `ramulator`,
+`_ramulator`, `_ramulator_test`, `ddr4_pud_microbenchmark` and
+`mimdram_movement_microbenchmark` passed; all five targets were rebuilt after
+the cleanup fix. The final full matrix passed 370 W1/W2 location tests,
+255 Device tests, 785 controller tests (including HBM/GDDR/LPDDR coverage),
+13 smoke tests and the DDR4 fast latency/throughput test (10 non-DDR4 cases
+deselected). Every suite exited 0. Both documented legacy benchmark export/run
+pairs and both public v2 benchmarks at E=1/2/8 passed, all exits 0. No native
+heap failure appeared; this does not establish that every historical allocator
+failure is fixed. Generated DRAM definitions and generic schedulers remain
+unchanged. Full-boundary review and W9 `git diff --check` passed; an unrestricted
+`git diff main --check` still reports only the 55 previously documented trailing
+whitespace lines in untouched historical `git_diff.log`.
+
+The movement-capable `supports_pud_v2()` baseline and single named public profile
+remain intentional future extension points, with no current correctness or
+authority violation. T-A omitted transport costs, conservative movement, absent
+refresh-deadline guarantees and the separate functional-simulator boundary remain
+unchanged. W1-W9 are closed; no blocker remains.
 
 W8 verification: final public/paired-boundary run passed 309 tests (66 W8 and
 243 W2, exit 0). Public cases cover all five 61/66/76/99/104 CK anchors,
@@ -95,7 +143,7 @@ ingress bypass, legacy compute fallback, duplicate authoritative state,
 transport resurrection and excluded workload scope; `git diff --check` passed.
 Reproducible usage and T-A fidelity limits are in the existing
 [user guide](../ddr4-pud-user-guide.md#explicit-v2-substrate-runs).
-No W8 blocker remains; the W9 fresh-context integration audit remains deferred.
+No W8 blocker remains; W9 final closure is recorded above.
 
 W7 verification: 63 focused tests passed, including both schedulers, E=1/2/8,
 pre-ACT and recovery capacity, pool scope, homogeneous/heterogeneous interleaving,
@@ -1034,4 +1082,4 @@ and leaves code, source references, AGENTS.md and W7 execution unchanged.
 The separately authorized W6 baseline alignment and W7 allocation/arbitration
 are now implemented and validated as recorded above, including the recorded
 native-regression limitations. W8 is now implemented and validated as recorded
-above; W9 remains unstarted.
+above; W9 fresh-context final integration closure is complete as recorded above.

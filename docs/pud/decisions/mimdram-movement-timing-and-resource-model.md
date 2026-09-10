@@ -516,6 +516,3 @@ Open issues
   organization, or DRAM standard.
 - Current implementation progress is recorded in the
   [implementation plan](../plans/mimdram-pud-substrate-v2-implementation-plan.md).
-  W6 baseline alignment is implemented and validated under T-A. Production
-  allocation/arbitration and same-subarray scheduling integration remain W7
-  work; W7 has not started.

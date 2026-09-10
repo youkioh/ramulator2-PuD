@@ -543,6 +543,7 @@ class ComputeLifecycleUnderTest : public ControllerBase {
     out["active"] = m_active_buffer.size();
     out["active_per_bank"] = m_active_per_bank;
     out["delayed"] = m_pending.size();
+    out["device_context_references"] = m_device.m_protected_compute.size();
     out["rw_buffered"] = m_read_buffer.size() + m_write_buffer.size();
     nb::list held;
     for (const auto& record : m_protected_compute) {

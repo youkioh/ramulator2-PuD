@@ -65,7 +65,6 @@ do not claim physically complete MIMDRAM target-transport performance.
 The separately authorized W6 baseline alignment implements this contract.
 Implementation progress, validation and regression limitations are recorded in
 the [implementation plan](../plans/mimdram-pud-substrate-v2-implementation-plan.md).
-W7 has not started.
 
 Rationale
 

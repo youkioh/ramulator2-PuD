@@ -22,6 +22,7 @@ def compute(r, name="RowCopy", mats=(15, 16), row=10, bank=0):
 def drained(d):
     s = d.snapshot()
     assert s["held"] == []
+    assert s["device_context_references"] == 0
     assert s["pending"] == s["active"] == s["delayed"] == s["rw_buffered"] == 0
     assert not any(s["active_per_bank"])
 
@@ -82,6 +83,7 @@ def test_terminal_retirement_preserves_protection_until_recovery(name, mats):
     assert event["history"] == TIMELINES[name]
     assert event["cursor"] == len(TIMELINES[name])
     assert event["stats"]["held"] == [] and event["stats"]["delayed"] == 0
+    assert event["stats"]["device_context_references"] == 0
     counters = event["stats"]["counters"]
     assert counters[f"num_pud_{name.lower()}_reqs"] == 1
     assert counters[f"num_pud_{name.lower()}_reqs_completed"] == 1
@@ -166,6 +168,7 @@ def test_release_and_accounting_precede_reentrant_successor_and_forwarding():
 
     def callback(event):
         assert event["stats"]["held"] == [] and event["stats"]["delayed"] == 0
+        assert event["stats"]["device_context_references"] == 0
         assert event["stats"]["counters"]["num_pud_rowcopy_reqs_completed"] == 1
         assert d.available(successor, 0)
         assert d.add(successor.copy(), 2)

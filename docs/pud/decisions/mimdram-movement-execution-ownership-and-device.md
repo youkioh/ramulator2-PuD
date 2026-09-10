@@ -511,8 +511,8 @@ Open issues
   justifies schema/version and decoder churn.
 - Future movement-aware mapping semantics that could make AQUA or RRS
   compatible with movement operands.
-- Gate C execution semantics are accepted above but not implemented. Concrete
-  context transport/storage and v2 verification remain future implementation.
+- Implementation and v2 verification progress are recorded in the
+  [implementation plan](../plans/mimdram-pud-substrate-v2-implementation-plan.md).
 - SALP-style cross-subarray execution, early engine reuse, host/cache coherence,
   and mixed ordinary/PuD functional coherence are outside the accepted profile.
 - Future refresh deadline, retention, credit, and maximum-deferral fidelity
