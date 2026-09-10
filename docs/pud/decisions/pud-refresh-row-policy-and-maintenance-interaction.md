@@ -1,4 +1,10 @@
-Status: Accepted
+Status: Superseded
+
+Superseded by the
+[range-local execution/lifecycle authority](mimdram-movement-execution-ownership-and-device.md).
+The active-buffer/terminal-issue protection model below is historical;
+current conflict and maintenance protection covers allocated, active, and
+recovering compute ranges.
 
 Question
 

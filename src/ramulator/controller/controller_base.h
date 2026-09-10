@@ -26,7 +26,7 @@ class IMemorySystem;
 class PuDConflictUnderTest;
 
 /*
- * W1-W8: public GenericDRAM -> GenericDDR admission -> existing PuD buffer.
+ * Unified public GenericDRAM -> GenericDDR admission -> existing PuD buffer.
  * GenericDDR: E=8 default, shared across this channel's Banks/Ranks
  * m_pud_buffer: pending + allocated compute Requests (sole schedulable copies)
  *                    |
@@ -55,7 +55,7 @@ class PuDConflictUnderTest;
  * GenericDDR derives free engines/ranges from this store (E=8 by default).
  * Allocation derives from the Request/context association. Ready allocated
  * compute uses GenericDDR's narrow candidate path; no active-buffer ownership,
- * separate allocated-request container, allocator range table or target queue.
+ * separate allocated-request container or allocator range table.
  */
 
 // Shared infrastructure for all DRAM controller implementations.

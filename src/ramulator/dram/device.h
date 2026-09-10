@@ -165,7 +165,7 @@ class DRAMDevice {
   friend class PuDConflictUnderTest;
   // Actual command occupancy only. Compute uses the combined DDR4 single bus;
   // ordinary paths retain generated timing (including other standards' dual
-  // buses). Their deadline gates compute, not unrelated legacy bus arbitration.
+  // buses). Their deadlines gate compute, not unrelated bus arbitration.
   Clk_t m_compute_ca_ready = -1;
   Clk_t m_command_ca_ready = -1;
   void validate_pud_reservation(const Request& req, const PuDComputeContext* context) const;

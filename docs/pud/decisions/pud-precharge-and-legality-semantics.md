@@ -1,4 +1,11 @@
-Status: Accepted
+Status: Superseded
+
+Superseded by the current
+[range-local execution/lifecycle](mimdram-movement-execution-ownership-and-device.md)
+and [timing/resource](mimdram-movement-timing-and-resource-model.md)
+authorities. The Bank-wide phase/precharge rules below are historical
+provenance; compute terminal `PREpb` now closes its explicit range and starts
+range-local recovery.
 
 Question
 

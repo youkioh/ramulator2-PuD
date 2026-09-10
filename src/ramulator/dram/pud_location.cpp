@@ -315,8 +315,8 @@ PairedOperand LocationResolver::pair(ResolvedRegion region, std::optional<BurstC
   }
   const auto projected_column = column ? column : region.burst;
   const auto& row = region.external_row;
-  // Absence stays optional in canonical coordinates. Only the legacy vector
-  // uses -1 to represent an unspecified Column.
+  // Absence stays optional in canonical coordinates. The bare vector
+  // projection uses -1 to represent an unspecified Column.
   AddrVec_t external{row.channel, row.rank, row.bank_group, row.bank, row.row,
                      projected_column ? projected_column->value : -1};
   return {std::move(region), std::move(external)};
@@ -332,7 +332,7 @@ void LocationResolver::validate(const PairedOperand& operand) const {
 }
 
 void LocationResolver::validate_spec(const DRAMSpec& spec) const {
-  // Configuration validation uses the same W1 contract as initial construction.
+  // Configuration validation uses the same profile contract as initial construction.
   LocationResolver checked(profile(), spec, m_association->routing);
   require(checked.association().ranks == m_association->ranks, "profile/rank context mismatch");
 }

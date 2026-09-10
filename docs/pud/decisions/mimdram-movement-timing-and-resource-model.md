@@ -8,6 +8,16 @@ timing graph, numeric baseline, and recovery boundary?
 
 Decision
 
+**Current status (2026-09-10).** W1-W9 implemented the range-local timing and
+resource rules in the canonical
+[unified DDR4 PuD substrate](ddr4-pud-unified-substrate.md). T-A resolved-target
+consumption is the current transport baseline. Alternative A, Q=8, target
+queues, and their verification remain historical provenance only. The
+`v2`/`legacy` labels below describe development layers, not runtime models;
+the retained LC/GB timing graph and documented fidelity limits remain current.
+Acceptance-time statements that public execution was unavailable are
+historical.
+
 **Accepted v2 Gate C: timing and target transport, 2026-09-09**
 
 This is the canonical Gate C timing/resource/transport authority, paired with

@@ -169,7 +169,7 @@ void DRAMDevice::issue_command(int command, const AddrVec_t& addr_vec, Clk_t clk
   m_root->update_timing(command, addr_vec, clk);
   apply_action(command, addr_vec, clk);
   // Range dispatch must respect the current ordinary/movement command cycle.
-  // Legacy timing and dual/multi-cycle bus generation retain their behavior.
+  // Conventional timing and dual/multi-cycle bus generation retain their behavior.
   m_command_ca_ready = clk + m_spec->command_cycles.at(command);
 }
 

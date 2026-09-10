@@ -9,6 +9,16 @@ reduction boundary should MIMDRAM-based PuD substrate v2 support?
 
 Decision
 
+**Current status (2026-09-10).** The
+[unified-substrate decision](ddr4-pud-unified-substrate.md) is now the
+top-level public execution-model authority, and W1-W9 implemented this
+document's retained hybrid, concurrency, movement, and fidelity boundaries.
+`v2`, `legacy`, and the distinct-combined-standard wording below record
+development and internal composition, not separate selectable public models.
+Acceptance-time statements that implementation was unavailable or that Gate C
+still had to supply substrate costs are historical; T-A and the current Gate C
+authorities govern those details.
+
 Accept v2 Gate A on 2026-09-08, including the compute-phase/overhead,
 substrate/macro, and overlap-validation clarifications below. This document
 is the canonical experiment and substrate-boundary authority. Accepted

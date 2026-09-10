@@ -1069,7 +1069,7 @@ Paths:
 - benchmark: `examples/mimdram_movement_microbenchmark.cpp`;
 - export configuration: `examples/mimdram_movement_microbenchmark_config.py`;
 - command-line documentation:
-  `docs/pud/ddr4-pud-user-guide.md#mimdram-movement-latency-validation`.
+  `docs/pud/ddr4-pud-user-guide.md#canonical-benchmark-commands`.
 
 Validation completed with LC normalized issues
 `0,16,39,55,94,114` and recovery 130 CK, and GB normalized issues

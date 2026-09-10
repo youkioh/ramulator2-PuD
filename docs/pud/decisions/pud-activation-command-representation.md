@@ -7,6 +7,11 @@ should the in-scope PuD operations exist?
 
 Decision
 
+**Current status (2026-09-10).** The command identities remain current.
+`NOT_COPY` is additionally exposed by the unified substrate as a request-level
+composition of these same activation commands, `N`, and `PREpb`; it does not
+add a device-level primitive command.
+
 Represent `A`, `A*`, `A_S`, and `A_S*` as four explicit lower-level DRAM
 commands using the identifiers `ACT_PUD`, `ACT_PUD_OC`, `ACT_PUD_S`, and
 `ACT_PUD_S_OC`, respectively.

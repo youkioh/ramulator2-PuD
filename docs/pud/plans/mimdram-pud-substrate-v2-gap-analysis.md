@@ -1,5 +1,27 @@
 # MIMDRAM-based PuD substrate v2: gap analysis
 
+Status: Historical / Non-normative
+
+## Current status
+
+This document records gaps identified before and during implementation; its
+original alternatives, questions, and source/implementation snapshots remain
+visible below as investigation provenance. Current execution-model authority is
+[`ddr4-pud-unified-substrate.md`](../decisions/ddr4-pud-unified-substrate.md).
+
+Completed W1-W9 work closed the investigated substrate implementation:
+placement and canonical locations, explicit compute ranges, range-local state
+and timing, protected recovery lifetime, conflict and maintenance rules,
+resolved-target issue, first-fit E-engine allocation, public ingress, and
+benchmark validation are implemented. T-A replaced the investigated
+Alternative-A/Q=8 transport machinery.
+
+Still outside the substrate are functional value simulation, arithmetic and
+reduction macros, compiler/workload lowering, additional placement profiles or
+remapping, broader movement topology/concurrency, physical target-transport
+fidelity, and the documented physical-validation questions. These exclusions
+are not unresolved versions of the implementation gaps that W1-W9 closed.
+
 Investigation snapshot: 2026-09-08. Sections 1–8 preserve the original gap
 analysis. Section 9 records Gate B's accepted resolution and links its current
 canonical decision. Gate A is now Accepted in the

@@ -52,7 +52,7 @@ bool ControllerBase::validate_request_for_issue(const Request& req) {
 }
 
 bool ControllerBase::is_pud_eligible_before_prerequisite(const Request& req) const {
-  // Compute uses explicit range dispatch and W4 resource intersection; it must
+  // Compute uses explicit range dispatch and protected-resource intersection; it must
   // never obtain a conventional Bank-repair prerequisite here.
   if (is_inherited_pud_request_type(req.type_id)) {
     if (!req.pud_locations) {
@@ -381,7 +381,7 @@ bool ControllerBase::pud_compute_resources_available(const Request& req, int eng
       }
     }
   }
-  // This is occupied-resource availability, not W5 start eligibility or
+  // This is occupied-resource availability, not full start eligibility or
   // command readiness. Geometry is supplied solely by the retained resolver.
   return true;
 }

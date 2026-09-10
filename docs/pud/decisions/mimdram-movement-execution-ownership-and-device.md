@@ -8,6 +8,16 @@ states/actions, maintenance, and accounting govern the retained LC/GB model?
 
 Decision
 
+**Current status (2026-09-10).** W1-W9 implemented this range-local execution,
+protected recovery, conflict, maintenance, and completion authority inside the
+canonical [unified DDR4 PuD substrate](ddr4-pud-unified-substrate.md).
+`v2` and `legacy` below are development/provenance labels, not selectable
+execution branches. The retained Bank-aggregate movement provisions remain
+current within the unified model. Statements that public execution was not
+implemented, and acceptance-time implementation/open-detail notes, are
+historical; the explicitly listed physical-fidelity and out-of-scope limits
+remain current.
+
 **Accepted v2 Gate C: execution and lifecycle, 2026-09-09**
 
 This is the canonical Gate C execution/state/lifecycle authority, paired with

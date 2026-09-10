@@ -6,6 +6,12 @@ How should DDR4_PuD reuse the DDR4 baseline while keeping standard DDR4 unchange
 
 Decision
 
+**Current status (2026-09-10).** This remains an internal code-generation and
+isolation authority. The reusable `DDR4_PuD` and `DDR4_PuD_Movement`
+definitions do not establish separate public execution models; the
+[unified-substrate decision](ddr4-pud-unified-substrate.md) governs the public
+model.
+
 Define DDR4_PuD as a separate generated DRAM standard. Reuse the DDR4 Python
 definition through inheritance where appropriate, but independently copy all
 mutable command, state, timing, request, and preset collections before later

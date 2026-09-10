@@ -162,20 +162,19 @@ Evidence
   [MIMDRAM movement](../references/mimdram-inter-column-data-movement.md)
   distinguish the inherited source mechanisms from the project's hybrid and
   execution choices.
-- Current source has both a bare ordered-`AddrVec_t` Request constructor and a
-  resolver/paired-operand constructor; `LocationResolver::compute_footprint`
-  already owns compute-range resolution before `pair` and Request construction.
-  Profile selection installs the resolver, and the controller currently branches
-  between Bank-wide and protected range-aware compute using resolved-location
-  presence. The current benchmarks likewise select separate legacy and `v2`
-  paths. These are implementation boundaries to consolidate, not authority for
-  retaining both models.
+- Current source retains the bare ordered-`AddrVec_t` constructor for internal
+  compatibility, but public compute ingress requires the resolver/paired-operand
+  constructor and canonical resolved locations.
+  `LocationResolver::compute_footprint` resolves `FULL_MAT` or an explicit
+  `MatRange` before `pair` and Request construction. The configured profile
+  installs that resolver, GenericDDR uses the protected range-aware path, and
+  both public benchmarks invoke the unified substrate without a mode selector.
 
 Open issues
 
-- Implementation must inspect whether one existing DRAM standard/configuration
-  should become the single public unified substrate or whether a narrow naming
-  or packaging cleanup is needed. This is an implementation-packaging question,
-  not an open execution-semantics choice. Reusable `DDR4_PuD` and
-  `DDR4_PuD_Movement` definitions may remain internally; they must not expose
-  separate public compute-only and movement-capable models.
+- No execution-semantics or implementation-packaging issue remains for the
+  canonical public path. Reusable `DDR4_PuD` and `DDR4_PuD_Movement`
+  definitions remain implementation structure, not separate public models.
+- Additional placement profiles, physical transport fidelity, functional value
+  simulation, and higher-level arithmetic or reduction execution require
+  separate future decisions and implementation.

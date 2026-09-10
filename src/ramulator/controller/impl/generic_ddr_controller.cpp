@@ -105,7 +105,7 @@ void GenericDDRController::allocate_pud_compute() {
           [&](const auto& held) { return held.engine == engine; })) break;
     }
     if (engine == m_pud_compute_engines) break;
-    // W4 commits engine + complete range together after W5 eligibility. No
+    // Commit engine + complete range together after conflict eligibility. No
     // first-ACT local timing or shared command readiness participates here.
     reserve_pud_compute(*it, engine);
   }
@@ -358,7 +358,7 @@ void GenericDDRController::tick() {
       // Advance request
       if (allocated_compute) {
         if (cand.it->occurrence_index == get_pud_sequence_length(*cand.it)) {
-          // W4 keeps engine + range protected until delayed recovery departure.
+          // Keep engine + range protected until delayed recovery departure.
           retire_request(cand.it, *cand.buffer);
         }
       } else if (is_pud_request_type(cand.it->type_id)) {

@@ -8,6 +8,15 @@ placement profile makes that contract concrete?
 
 Decision
 
+**Current status (2026-09-10).** W1-W9 implemented this geometry and placement
+authority for the canonical
+[unified DDR4 PuD substrate](ddr4-pud-unified-substrate.md). Development-era
+`v2` and `legacy` labels below record the transition from opaque/bare
+operands to paired resolved locations; they do not name runtime models.
+Gate A, Gate C, concrete C++ retention, and public execution are now resolved.
+The corresponding acceptance-time open statements below are historical; the
+additional-profile, mapping, and physical-evidence limits remain live.
+
 Accept Gate B on 2026-09-08 with the initial
 **MIMDRAM-DDR4_8Gb_x8 modeled placement profile v1** below. This is the
 canonical addressing/geometry authority for MIMDRAM-v2 and the successor to

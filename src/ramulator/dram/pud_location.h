@@ -15,44 +15,26 @@ struct DRAMSpec;
 namespace PuD {
 
 /*
- * MIMDRAM/PuD v2 source architecture -- W1-W8
- * Simulator abstractions; no payload values or physical target transport.
+ * Canonical unified DDR4 PuD substrate:
  *
- * PhysicalBit / LayoutRegion + profile/routing + DRAMSpec
- *                  |
- *                  v
- * LocationResolver (this file): canonical CellID / ResolvedRegion / PairedOperand
- *                  |
- *                  v
- * RequestLocations (shared const) -> Request (base/request.h)
- *                                  sole cursor + occurrence issue history
- *                  |
- * Public GenericDRAM::send -> GenericDDR::send -> m_pud_buffer
- *                  |
- * Oldest-to-newest first fit reserves engine + complete resolved MatRange.
- * E=8 by default, shared across this controller/channel's Banks and Ranks.
- * Pending and allocated compute Requests stay in the same PuD buffer.
- *                  |
- * Ready allocated compute competes with active work before priority/pending.
- *                  |
- * Controller issue -> Device consumes the current resolved PuDOccurrence.
- *   ProtectedCompute -- owns --> PuDComputeContext (Device-side phase)
- *   Request          -- weak --> context <-- weak -- Device conflict registry
- *                  |
- * terminal PRE -> Request moves to m_pending -> nRP recovery
- *                  |
- * release engine/range -> exact-once completion/accounting -> callback
+ * PlacementProfile / LocationResolver
+ *     -> explicit resolved MatRange
+ *     -> PairedOperand / Request
+ *     -> GenericDRAM public ingress
+ *     -> GenericDDR PuD buffer
+ *     -> first-fit E-engine + complete-range allocation
+ *     -> resolved occurrence issue
+ *     -> terminal PRE / recovery
+ *     -> release / accounting / callback
  *
- * Request/context retain the W1/W2 location authority; no shadow range,
- * request, cursor or local history. Allocation is independent of ACT readiness
- * and active-buffer capacity. No separate allocated-request container.
+ * Compute construction uses FULL_MAT or an explicit MatRange. Movement uses
+ * explicit source/destination ranges and groups. Request/context retain the
+ * immutable location authority; Request owns the sole mutable cursor and issue
+ * history. T-A consumes resolved targets at issue, so physical target-delivery
+ * latency, queues and target-specific C/A contention are not modeled.
  *
- * DRAMNode tree (Channel -> Rank -> ... -> Bank) owns conventional/shared
- * state and timing. Compute timing uses Request-local history; range PRE
- * cannot reset another context. Movement keeps its Bank lifecycle and derives
- * endpoint/phase views from its paired Request and occurrence history.
- * T-A consumes resolved targets at issue; ordinary shared command occupancy
- * remains in Device. Physical target-delivery costs are omitted.
+ * DRAMNode owns conventional/shared state and timing. Compute phase/timing and
+ * terminal recovery are range-local; movement retains its Bank lifecycle.
  */
 
 /*
@@ -172,7 +154,7 @@ struct PairedOperand {
 };
 
 // Validates placement against an actual DRAMSpec and explicit mapping context.
-// GenericDDR installs this shared authority when its v2 profile is selected.
+// GenericDDR installs this shared authority when the supported profile is selected.
 class LocationResolver {
  public:
   LocationResolver(PlacementProfile profile, const DRAMSpec& spec, MappingContext context);
@@ -195,7 +177,7 @@ class LocationResolver {
   ResolvedRegion burst_footprint(ExternalLocation location) const;
   ResolvedRegion compute_footprint(ExternalRow row, MatRange mats) const;
   ResolvedRegion compute_footprint(ExternalRow row, FullMatTag) const;
-  // Ordered LC endpoint or singleton GB endpoint; pair/request checks belong to W2.
+  // Ordered LC endpoint or singleton GB endpoint; Request validation checks pairs.
   ResolvedRegion group_footprint(ExternalRow row, MatRange mats, Group group) const;
   // Whole mat-rows have no burst selector (-1 in the command projection).
   // A supplied conventional Column is checked but never narrows that scope.

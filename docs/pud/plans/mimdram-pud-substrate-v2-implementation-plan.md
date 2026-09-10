@@ -2,6 +2,13 @@
 
 Status: Complete — Phases 1 and 2 (W1-W8) and W9 fresh-context final integration closure complete.
 
+This file is a historical implementation record. W1-W9 are complete, and
+`v2` is development-era terminology for the work that produced the canonical
+unified DDR4 PuD substrate. Current execution semantics are governed by
+[`ddr4-pud-unified-substrate.md`](../decisions/ddr4-pud-unified-substrate.md);
+the work-unit chronology, superseded W6 transport work, and verification
+evidence below remain implementation provenance.
+
 ## Implementation progress (2026-09-09)
 
 - **W1: Completed.** Geometry/profile resolver and canonical location authority
@@ -142,7 +149,7 @@ unchanged. Phase 2 production diff and the complete W8 diff were reviewed for
 ingress bypass, legacy compute fallback, duplicate authoritative state,
 transport resurrection and excluded workload scope; `git diff --check` passed.
 Reproducible usage and T-A fidelity limits are in the existing
-[user guide](../ddr4-pud-user-guide.md#explicit-v2-substrate-runs).
+[user guide](../ddr4-pud-user-guide.md#canonical-benchmark-commands).
 No W8 blocker remains; W9 final closure is recorded above.
 
 W7 verification: 63 focused tests passed, including both schedulers, E=1/2/8,
