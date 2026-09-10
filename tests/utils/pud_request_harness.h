@@ -52,21 +52,34 @@ inline Request located_request(const LocationResolverUnderTest& fixture, int typ
     // cannot represent sparse/per-mat selectors or silently widen scalar bits.
     for (auto [key, unused] : d) {
       auto name = nb::cast<std::string>(key);
-      if (name != "kind" && name != "row" && name != "range" && name != "group" && name != "column") {
+      if (name != "kind" && name != "row" && name != "range" && name != "target" &&
+          name != "group" && name != "column") {
         throw std::invalid_argument("unsupported region descriptor");
       }
-    }
-    if (!d.contains("range")) {
-      throw std::invalid_argument("explicit range required");
-    }
-    auto mats = nb::cast<std::vector<int>>(d["range"]);
-    if (mats.size() != 2) {
-      throw std::invalid_argument("one inclusive contiguous range required");
     }
     auto row = nb::cast<std::vector<int>>(d["row"]);
     auto kind = nb::cast<std::string>(d["kind"]);
     if (kind != "compute" && kind != "group" && kind != "layout") {
       throw std::invalid_argument("PuD operand requires an explicit layout region, not a bit anchor");
+    }
+    const bool has_range = d.contains("range");
+    const bool has_target = d.contains("target");
+    if (has_target && nb::cast<std::string>(d["target"]) != "FULL_MAT") {
+      throw std::invalid_argument("compute target must be FULL_MAT");
+    }
+    const bool full_mat = has_target;
+    if (has_range == full_mat) {
+      throw std::invalid_argument("exactly one of MatRange or FULL_MAT is required");
+    }
+    if (full_mat && kind != "compute") {
+      throw std::invalid_argument("FULL_MAT is only a compute construction target");
+    }
+    std::vector<int> mats;
+    if (has_range) {
+      mats = nb::cast<std::vector<int>>(d["range"]);
+      if (mats.size() != 2) {
+        throw std::invalid_argument("one inclusive contiguous range required");
+      }
     }
     std::optional<int> group;
     if (d.contains("group")) {
@@ -76,7 +89,10 @@ inline Request located_request(const LocationResolverUnderTest& fixture, int typ
     if (d.contains("column")) {
       column = PuD::BurstColumn{nb::cast<int>(d["column"])};
     }
-    operands.push_back(fixture.resolver()->pair(fixture.region(kind, row, mats[0], mats[1], group), column));
+    auto region = full_mat
+        ? fixture.resolver()->compute_footprint(LocationResolverUnderTest::row(row), PuD::FULL_MAT)
+        : fixture.region(kind, row, mats[0], mats[1], group);
+    operands.push_back(fixture.resolver()->pair(std::move(region), column));
   }
   Request req(fixture.resolver(), std::move(operands), type);
   req.source_id = 0;
@@ -938,9 +954,16 @@ inline void bind_pud_request_harness(nb::module_& m) {
       .def_rw("type_id", &Request::type_id);
   m.def("_located_request", &located_request);
   m.def("_bare_request", [](int type, std::vector<AddrVec_t> operands, int size) {
-    Request req(std::move(operands), type);
+    // Deliberately bypass the public ordered-operand constructor so negative
+    // ingress tests can probe malformed legacy-shaped compute Requests.
+    Request req;
+    req.type_id = type;
+    req.operands = std::move(operands);
     req.size_bytes = size;
     return req;
+  });
+  m.def("_construct_bare_request", [](int type, std::vector<AddrVec_t> operands) {
+    return Request(std::move(operands), type);
   });
   m.def("_tamper_location", [](Request req, const std::string& field) {
     auto copy = std::make_shared<PuD::RequestLocations>(*req.pud_locations);

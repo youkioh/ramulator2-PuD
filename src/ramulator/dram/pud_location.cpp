@@ -294,6 +294,9 @@ ResolvedRegion LocationResolver::burst_footprint(ExternalLocation location) cons
 ResolvedRegion LocationResolver::compute_footprint(ExternalRow row, MatRange mats) const {
   return resolve(layout(row, mats, std::nullopt));
 }
+ResolvedRegion LocationResolver::compute_footprint(ExternalRow row, FullMatTag) const {
+  return compute_footprint(row, MatRange{0, logical_mats() - 1});
+}
 ResolvedRegion LocationResolver::group_footprint(ExternalRow row, MatRange mats, Group group) const {
   return resolve(layout(row, mats, group));
 }

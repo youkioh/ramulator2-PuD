@@ -34,8 +34,9 @@ class GenericDDRController : public ControllerBase {
     std::string placement_profile;
     RAMULATOR_PARSE_PARAM(placement_profile, std::string, "pud_placement_profile").default_val("");
     if (!placement_profile.empty()) {
-      if (placement_profile != "MIMDRAM_DDR4_8Gb_x8_v1" || !supports_pud_v2()) {
-        throw std::runtime_error("Unsupported PuD placement profile or incomplete v2 capability");
+      if (placement_profile != "MIMDRAM_DDR4_8Gb_x8_v1" ||
+          !supports_range_aware_compute() || !supports_movement_requests()) {
+        throw std::runtime_error("Unsupported PuD placement profile or incomplete unified-substrate capability");
       }
       set_location_resolver(std::make_shared<PuD::LocationResolver>(
           PuD::PlacementProfile::mimdram_ddr4_8gb_x8_v1(), *m_device.m_spec,
@@ -59,13 +60,18 @@ class GenericDDRController : public ControllerBase {
   Candidate pick_allocated_compute();
 
   std::optional<bool> try_send_special_request(Request& req) override;
-  bool supports_pud_v2() const override { return m_device.m_spec->supports_movement_requests(); }
+  bool supports_range_aware_compute() const override {
+    return m_device.m_spec->supports_compute_requests();
+  }
   bool is_pud_eligible_before_prerequisite(const Request& candidate) const override;
   bool is_retained_movement_owner(const Request& req) const;
 };
 
 bool GenericDDRController::check_request_timing(const Request& req) {
-  if (req.pud_locations && is_inherited_pud_request_type(req.type_id)) {
+  if (is_inherited_pud_request_type(req.type_id)) {
+    if (!req.pud_locations) {
+      throw std::logic_error("PuD compute timing requires canonical resolved locations");
+    }
     if (!req.pud_compute_context.expired()) return check_pud_compute_issue(req);
     // Unallocated compute may only prepare conventional Bank state. Its first
     // architectural ACT requires allocation, never a scheduler-side reservation.
@@ -84,8 +90,11 @@ void GenericDDRController::allocate_pud_compute() {
   // neither reorders pending work nor introduces another admission-age field.
   std::vector<ReqBuffer::iterator> pending;
   for (auto it = m_pud_buffer.begin(); it != m_pud_buffer.end(); ++it) {
-    if (it->pud_locations && is_inherited_pud_request_type(it->type_id) &&
-        it->pud_compute_context.expired()) pending.push_back(it);
+    if (!is_inherited_pud_request_type(it->type_id)) continue;
+    if (!it->pud_locations) {
+      throw std::logic_error("Pending PuD compute is missing canonical resolved locations");
+    }
+    if (it->pud_compute_context.expired()) pending.push_back(it);
   }
   std::stable_sort(pending.begin(), pending.end(),
       [](auto a, auto b) { return a->arrive < b->arrive; });
@@ -105,8 +114,11 @@ void GenericDDRController::allocate_pud_compute() {
 ControllerBase::Candidate GenericDDRController::pick_allocated_compute() {
   Candidate candidate;
   for (auto it = m_pud_buffer.begin(); it != m_pud_buffer.end(); ++it) {
-    if (!it->pud_locations || !is_inherited_pud_request_type(it->type_id) ||
-        it->pud_compute_context.expired() || !check_pud_compute_issue(*it)) continue;
+    if (!is_inherited_pud_request_type(it->type_id)) continue;
+    if (!it->pud_locations) {
+      throw std::logic_error("Allocated PuD compute is missing canonical resolved locations");
+    }
+    if (it->pud_compute_context.expired() || !check_pud_compute_issue(*it)) continue;
     if (!candidate.valid || it->arrive < candidate.it->arrive) {
       candidate = {true, it, &m_pud_buffer};
     }
@@ -160,12 +172,10 @@ bool GenericDDRController::is_pud_eligible_before_prerequisite(
            (candidate.command < 0 || avoids_command(candidate.command));
   };
   // A failed active-buffer promotion retains the movement owner in its original
-  // buffer. V2 compute ownership instead lives in protected range records.
+  // buffer. Compute ownership instead lives in protected range records.
   for (const auto* buffer : {&m_active_buffer, &m_pud_buffer}) {
     for (const auto& owner : buffer->buffer) {
-      const bool legacy_compute = buffer == &m_active_buffer && !owner.pud_locations &&
-                                  is_inherited_pud_request_type(owner.type_id);
-      if ((!legacy_compute && !is_retained_movement_owner(owner)) || &candidate == &owner) continue;
+      if (!is_retained_movement_owner(owner) || &candidate == &owner) continue;
       if (!avoids_bank(m_device.get_flat_bank_id(owner.operands.front()))) return false;
     }
   }
@@ -177,10 +187,19 @@ bool GenericDDRController::is_pud_eligible_before_prerequisite(
   }
   // Unallocated compute must also wait for existing ordinary active requests;
   // otherwise a preparatory PRE could destroy their conventional row state.
-  if (candidate.pud_locations && is_inherited_pud_request_type(candidate.type_id) &&
-      candidate.pud_compute_context.expired()) {
+  if (is_inherited_pud_request_type(candidate.type_id)) {
+    if (!candidate.pud_locations) {
+      throw std::logic_error("PuD compute arbitration requires canonical resolved locations");
+    }
+  }
+  if (is_inherited_pud_request_type(candidate.type_id) && candidate.pud_compute_context.expired()) {
     for (const auto& active : m_active_buffer.buffer) {
-      if (active.pud_locations && is_inherited_pud_request_type(active.type_id)) continue;
+      if (is_inherited_pud_request_type(active.type_id)) {
+        if (!active.pud_locations) {
+          throw std::logic_error("Active PuD compute is missing canonical resolved locations");
+        }
+        continue;
+      }
       if (!m_device.for_each_target_bank_while(
         candidate.final_command, candidate.addr_vec,
         [&](int bank) { return bank != m_device.get_flat_bank_id(active.addr_vec); })) return false;
@@ -248,7 +267,10 @@ void GenericDDRController::tick() {
   if (!cand.valid && m_priority_buffer.size() == 0) {
     Candidate pud_cand = pick_best_ready_from(m_pud_buffer, {}, [&](const Request& req) {
       if (!pud_eligibility(req)) return false;
-      if (!req.pud_locations || !is_inherited_pud_request_type(req.type_id)) return true;
+      if (!is_inherited_pud_request_type(req.type_id)) return true;
+      if (!req.pud_locations) {
+        throw std::logic_error("Pending PuD compute is missing canonical resolved locations");
+      }
       // Only conventional preparation reaches the generic prerequisite path.
       // Allocated compute uses its explicit occurrence; it never repairs a Bank.
       return req.pud_compute_context.expired() &&
@@ -266,9 +288,11 @@ void GenericDDRController::tick() {
 
   // We have a valid request to serve this cycle
   if (cand.valid) {
-    const bool located_compute = cand.it->pud_locations &&
-                                 is_inherited_pud_request_type(cand.it->type_id);
-    const bool allocated_compute = located_compute && !cand.it->pud_compute_context.expired();
+    const bool compute = is_inherited_pud_request_type(cand.it->type_id);
+    if (compute && !cand.it->pud_locations) {
+      throw std::logic_error("Selected PuD compute is missing canonical resolved locations");
+    }
+    const bool allocated_compute = compute && !cand.it->pud_compute_context.expired();
     if (allocated_compute) cand.it->command = cand.it->final_command;
     // Rowpolicy *may* upgrade the command to AutoPrecharge version
     m_rowpolicy->try_upgrade_command(*cand.it);
@@ -297,7 +321,7 @@ void GenericDDRController::tick() {
       }
       if (allocated_compute) {
         ready_to_issue = cand.it->command == cand.it->final_command && check_pud_compute_issue(*cand.it);
-      } else if (located_compute) {
+      } else if (compute) {
         // A preparatory PRE owns no compute resources and advances no occurrence.
         ready_to_issue = cand.it->command != cand.it->final_command &&
             !m_device.conflicts_with_protected_compute(cand.it->command, cand.it->addr_vec) &&

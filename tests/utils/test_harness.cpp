@@ -90,6 +90,9 @@ class DeviceUnderTestCpp {
   bool supports_inherited_pud_requests() const {
     return spec().supports_inherited_pud_requests();
   }
+  bool supports_compute_requests() const {
+    return spec().supports_compute_requests();
+  }
 
   bool supports_movement_requests() const {
     return spec().supports_movement_requests();
@@ -1000,6 +1003,7 @@ NB_MODULE(_ramulator_test, m) {
            &DeviceUnderTestCpp::supports_controller_sequenced_request,
            nb::arg("type_id"))
       .def("supports_inherited_pud_requests", &DeviceUnderTestCpp::supports_inherited_pud_requests)
+      .def("supports_compute_requests", &DeviceUnderTestCpp::supports_compute_requests)
       .def("supports_movement_requests", &DeviceUnderTestCpp::supports_movement_requests)
       .def_prop_ro("supports_hffs_per_mat_config", &DeviceUnderTestCpp::supports_hffs_per_mat_config)
       .def_prop_ro("hffs_per_mat", &DeviceUnderTestCpp::hffs_per_mat)

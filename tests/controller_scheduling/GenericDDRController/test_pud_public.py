@@ -76,6 +76,26 @@ def test_public_local_anchors_and_authoritative_locations(scheduler, name, mats)
     assert stats[f"avg_pud_{key}_latency"] == 1 + TOTALS[name]
 
 
+@pytest.mark.parametrize("scheduler", SCHEDULERS)
+@pytest.mark.parametrize("name", TOTALS)
+def test_public_full_mat_tag_executes_identically_to_explicit_full_range(scheduler, name):
+    explicit_system = system(scheduler)
+    explicit = request(explicit_system, name, (0, 127))
+    assert explicit_system.submit(explicit, 0)
+    explicit_system.advance(160)
+
+    tagged_system = system(scheduler)
+    descriptors = [dict(kind="compute", row=[0, 0, 0, 0, 10+i], target="FULL_MAT")
+                   for i in range(COMPUTE[name])]
+    tagged = tagged_system.request(REQUEST_TYPE_IDS[name], descriptors, 64)
+    assert tagged_system.submit(tagged, 0)
+    tagged_system.advance(160)
+
+    assert tagged.snapshot() == explicit.snapshot()
+    assert times(tagged_system, 0) == times(explicit_system, 0)
+    assert tagged_system.completions()[0]["depart"] == explicit_system.completions()[0]["depart"]
+
+
 @pytest.mark.parametrize("destinations", [1, 2, 5, 17])
 def test_public_multidestination_rowcopy(destinations):
     d = system()
@@ -246,7 +266,7 @@ def test_configured_v2_rejects_incompatible_setup(change):
 def test_public_profile_rejects_legacy_operands_and_preserves_forwarding():
     d = system()
     before = d.stats()
-    with pytest.raises(RuntimeError, match="paired operands"):
+    with pytest.raises(RuntimeError, match="resolved locations"):
         d.send(_bare_request(REQUEST_TYPE_IDS["RowCopy"], [[0]*6]*2, 64))
     assert d.stats() == before and d.pending == 0
     result = d.forwarding()

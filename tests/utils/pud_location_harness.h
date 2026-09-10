@@ -105,6 +105,9 @@ class LocationResolverUnderTest {
     if (kind == "compute") {
       return m_resolver->compute_footprint(row(coordinates), {first, last});
     }
+    if (kind == "compute_full") {
+      return m_resolver->compute_footprint(row(coordinates), PuD::FULL_MAT);
+    }
     if (!selector) {
       throw std::invalid_argument("explicit selector required");
     }

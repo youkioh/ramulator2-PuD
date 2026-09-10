@@ -146,6 +146,9 @@ static PuDOccurrence describe_occurrence(const Request& req, size_t occurrence_i
 }
 
 PuDOccurrence describe_pud_occurrence(const Request& req, size_t occurrence_index, const DRAMSpec& spec) {
+  if (is_inherited_pud_request_type(req.type_id) && !req.pud_locations) {
+    throw std::logic_error("PuD compute sequence requires canonical resolved locations");
+  }
   if (req.pud_locations) {
     validate_pud_pairs(req);
   }

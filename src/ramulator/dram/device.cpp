@@ -37,9 +37,9 @@ bool DRAMDevice::conflicts_with_protected_compute(int command, const AddrVec_t& 
 }
 
 std::unique_ptr<PuDComputeContext> DRAMDevice::make_pud_compute_context(const Request& req) const {
-  if (m_spec->standard_name != "DDR4_PuD_Movement" || !req.pud_locations ||
+  if (!m_spec->supports_compute_requests() || !req.pud_locations ||
       !is_inherited_pud_request_type(req.type_id)) {
-    throw std::logic_error("Range context requires a located combined-substrate compute request");
+    throw std::logic_error("Range context requires a located compute-capable request");
   }
   validate_pud_placement(req, *m_spec, m_root->m_node_id, get_pud_placement_levels(*m_spec));
   if (req.occurrence_index != 0 || req.occurrence_issue_history.size() != get_pud_sequence_length(req)) {

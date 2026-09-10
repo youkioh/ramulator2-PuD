@@ -78,10 +78,11 @@ class ControllerBase : public IController, public Implementation {
   int get_tx_bytes() const override;
   int get_num_levels() const override;
   float get_tCK() const override;
+  bool supports_compute_requests() const override;
   bool supports_movement_requests() const override;
   std::shared_ptr<const PuD::LocationResolver> location_resolver() const override { return m_location_resolver; }
-  // Install the shared placement authority before traffic; execution also
-  // requires the derived controller's complete v2 capability.
+  // Install the shared placement authority before traffic; canonical public
+  // execution also requires the combined standard capability.
   void set_location_resolver(std::shared_ptr<const PuD::LocationResolver> resolver);
 
   bool send(Request& req) override;
@@ -111,7 +112,7 @@ class ControllerBase : public IController, public Implementation {
   virtual std::optional<bool> try_send_special_request(Request& req) {
     return std::nullopt;
   }
-  virtual bool supports_pud_v2() const { return false; }
+  virtual bool supports_range_aware_compute() const { return false; }
 
   // Sub-components
   IScheduler* m_scheduler = nullptr;
@@ -147,7 +148,7 @@ class ControllerBase : public IController, public Implementation {
   // Maintained by promote_to_active / retire_request.
   std::vector<int> m_active_per_bank;
 
-  // V2 lifetime: GenericDDR selects free engines using these reservations.
+  // Range-aware lifetime: GenericDDR selects free engines using these reservations.
   // Neither this store nor the context owns a cursor or duplicates mat geometry.
   struct ProtectedCompute {
     int engine;

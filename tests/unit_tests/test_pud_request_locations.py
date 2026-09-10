@@ -5,7 +5,7 @@ import gc
 import pytest
 import ramulator
 from ramulator._ramulator_test import (
-    _LocatedSystemUnderTest, _PuDRoutingSystemUnderTest, _bare_request,
+    _LocatedSystemUnderTest, _PuDRoutingSystemUnderTest, _bare_request, _construct_bare_request,
     _located_request, _located_lifetime, _tamper_location, _validate_located_request,
 )
 from ramulator.dram.spec import REQUEST_TYPE_IDS
@@ -67,6 +67,35 @@ def test_all_compute_ranges_and_columns_do_not_narrow_rows(name, mats):
     assert small["locations"] == req.snapshot()["locations"]
     assert all(o["cell_count"] == (mats[1]-mats[0]+1)*512 for o in small["locations"])
     assert all(o["range"] == list(mats) and o["group"] is None for o in small["locations"])
+
+
+@pytest.mark.parametrize("name", COMPUTE)
+def test_full_mat_and_explicit_full_range_have_identical_canonical_locations(name):
+    r = resolver()
+    rows = range(COMPUTE[name])
+    explicit = request(r, name, [descriptor(row, (0, 127)) for row in rows])
+    tagged = request(r, name, [dict(kind="compute", row=[0, 0, 0, 0, row], target="FULL_MAT")
+                               for row in rows])
+    assert validate(r, explicit) == validate(r, tagged) == dict(route=0)
+    assert explicit.snapshot() == tagged.snapshot()
+
+
+def test_missing_compute_target_and_full_mat_movement_are_rejected_at_construction():
+    r = resolver()
+    with pytest.raises(ValueError, match="exactly one"):
+        request(r, "NOT", [dict(kind="compute", row=[0, 0, 0, 0, 0])])
+    with pytest.raises(ValueError, match="must be FULL_MAT"):
+        request(r, "NOT", [dict(kind="compute", row=[0, 0, 0, 0, 0], target="all")])
+    with pytest.raises(ValueError, match="only a compute"):
+        request(r, "LC-MOV", [dict(kind="group", row=[0, 0, 0, 0, i], target="FULL_MAT", group=i)
+                               for i in range(2)])
+
+
+@pytest.mark.parametrize("name", COMPUTE)
+def test_bare_ordered_compute_constructor_rejects_missing_target(name):
+    with pytest.raises(ValueError, match="explicit target"):
+        _construct_bare_request(REQUEST_TYPE_IDS[name], [[0, 0, 0, 0, i, 0]
+                                                        for i in range(COMPUTE[name])])
 
 
 @pytest.mark.parametrize("replacement", [False, True])
@@ -294,7 +323,7 @@ def test_real_memory_system_routing_retry_and_acceptance(name):
 @pytest.mark.parametrize("name", ALL)
 @pytest.mark.parametrize("path", ["system", "controller", "priority", "issue"])
 @pytest.mark.parametrize("install", [False, True])
-def test_v2_requires_profile_and_cannot_bypass_normal_ingress(name, path, install):
+def test_canonical_pud_requires_profile_and_cannot_bypass_normal_ingress(name, path, install):
     r = resolver()
     system = _LocatedSystemUnderTest(controller(), r, install=install)
     before = system.stats()
@@ -302,7 +331,7 @@ def test_v2_requires_profile_and_cannot_bypass_normal_ingress(name, path, instal
         assert system.send(request(r, name), path)
         assert system.pending == 1
     else:
-        with pytest.raises(RuntimeError, match="execution is unavailable"):
+        with pytest.raises(RuntimeError, match="unavailable"):
             system.send(request(r, name), path)
         assert system.pending == 0 and system.stats() == before
 
@@ -318,7 +347,7 @@ def test_invalid_ingress_acquires_nothing_and_changes_no_acceptance():
         assert system.pending == 0 and system.stats() == before
     bare = _bare_request(2, [[0]*6]*2, 64)
     for path in ["priority", "issue"]:
-        with pytest.raises(RuntimeError, match="execution is unavailable"):
+        with pytest.raises(RuntimeError, match="resolved locations"):
             system.send(bare, path)
         assert system.pending == 0 and system.stats() == before
 

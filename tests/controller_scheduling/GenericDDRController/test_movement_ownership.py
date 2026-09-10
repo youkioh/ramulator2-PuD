@@ -122,7 +122,6 @@ def test_preparatory_precharge_owns_nothing_and_reopened_bank_is_precharged_agai
     [
         "read",
         "write",
-        "inherited_pud",
         "movement",
         "priority_single",
         "priority_all",
@@ -139,8 +138,6 @@ def test_first_act_acquires_owner_and_blocks_each_same_bank_interrupter(interrup
         dut.send_request("Read", operand(dut, bank=0, row=32), source_id=2)
     elif interrupter == "write":
         dut.send_request("Write", operand(dut, bank=0, row=32), source_id=2)
-    elif interrupter == "inherited_pud":
-        dut.send_pud_request("NOT", [operand(dut, bank=0, row=32)], source_id=2)
     elif interrupter == "movement":
         send_lc(dut, bank=0, source_row=32, destination_row=33, source_id=2)
     elif interrupter == "priority_single":

@@ -9,12 +9,17 @@ Request::Request(Addr_t addr, int type) : addr(addr), type_id(type){};
 Request::Request(AddrVec_t addr_vec, int type) : addr_vec(std::move(addr_vec)), type_id(type){};
 
 Request::Request(std::vector<AddrVec_t> operands, int type)
-    : type_id(type), operands(std::move(operands)){};
+    : type_id(type), operands(std::move(operands)) {
+  if (is_inherited_pud_request_type(type)) {
+    throw std::invalid_argument(
+        "PuD compute construction requires resolver-produced paired operands and an explicit target");
+  }
+}
 
 Request::Request(std::shared_ptr<const PuD::LocationResolver> resolver,
                  std::vector<PuD::PairedOperand> paired, int type) : type_id(type) {
   if (!resolver || !is_pud_request_type(type)) {
-    throw std::invalid_argument("v2 PuD request requires a resolver and PuD type");
+    throw std::invalid_argument("PuD request requires a resolver and PuD type");
   }
   for (const auto& operand : paired) {
     resolver->validate(operand);

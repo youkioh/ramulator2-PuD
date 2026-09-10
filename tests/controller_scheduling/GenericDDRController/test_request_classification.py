@@ -60,11 +60,13 @@ def test_ddr4_rejects_all_pud_and_movement_requests():
     controller = ControllerUnderTest.make_generic_ddr(dram)
     addr_vec = controller.addr_vec(Row=1)
     assert tuple(type(dram).supported_requests) == REQUEST_TYPE_NAMES[:2]
+    assert not dut._cpp.supports_compute_requests()
     assert not dut._cpp.supports_inherited_pud_requests()
     assert not dut._cpp.supports_movement_requests()
     for type_id in range(REQUEST_TYPE_IDS["RowCopy"], REQUEST_TYPE_IDS["GB-MOV"] + 1):
         assert not dut._cpp.supports_controller_sequenced_request(type_id)
-        with pytest.raises(RuntimeError, match="does not support request type_id"):
+        expected = "resolved locations" if type_id <= REQUEST_TYPE_IDS["NOT_COPY"] else "does not support request type_id"
+        with pytest.raises(RuntimeError, match=expected):
             controller._cpp.send_request(type_id, addr_vec)
 
 
@@ -74,6 +76,7 @@ def test_ddr4_pud_supports_only_the_inherited_operations():
     controller = ControllerUnderTest.make_generic_ddr(dram)
     addr_vec = controller.addr_vec(Row=1)
     assert tuple(type(dram).supported_requests) == REQUEST_TYPE_NAMES[:7]
+    assert dut._cpp.supports_compute_requests()
     assert dut._cpp.supports_inherited_pud_requests()
     assert not dut._cpp.supports_movement_requests()
     for name in ("RowCopy", "MAJ3", "MAJ5", "NOT", "NOT_COPY"):
@@ -92,6 +95,7 @@ def test_combined_standard_requires_all_inherited_and_movement_mappings():
     dut = DeviceUnderTest(dram)
 
     assert tuple(type(dram).supported_requests) == REQUEST_TYPE_NAMES
+    assert dut._cpp.supports_compute_requests()
     assert dut._cpp.supports_inherited_pud_requests()
     assert dut._cpp.supports_movement_requests()
     for type_id in range(REQUEST_TYPE_IDS["RowCopy"], REQUEST_TYPE_IDS["GB-MOV"] + 1):

@@ -76,6 +76,10 @@ struct MatRange {
   int first, last;
   bool operator==(const MatRange&) const = default;
 };
+// Explicit construction-only selection of every logical mat in the resolver's
+// profile. The tag is resolved to MatRange immediately and is never retained.
+struct FullMatTag {};
+inline constexpr FullMatTag FULL_MAT{};
 struct MatSegment {
   int chip, first_local_mat, last_local_mat;
   bool operator==(const MatSegment&) const = default;
@@ -190,6 +194,7 @@ class LocationResolver {
   ResolvedRegion act_footprint(ExternalRow row) const;
   ResolvedRegion burst_footprint(ExternalLocation location) const;
   ResolvedRegion compute_footprint(ExternalRow row, MatRange mats) const;
+  ResolvedRegion compute_footprint(ExternalRow row, FullMatTag) const;
   // Ordered LC endpoint or singleton GB endpoint; pair/request checks belong to W2.
   ResolvedRegion group_footprint(ExternalRow row, MatRange mats, Group group) const;
   // Whole mat-rows have no burst selector (-1 in the command projection).

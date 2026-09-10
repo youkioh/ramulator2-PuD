@@ -70,38 +70,38 @@ void validate_movement_placement(const Request& req) {
   }
 }
 
-void validate_v2_placement(const Request& req, const DRAMSpec& spec, int channel,
-                           const PuD::LocationResolver* expected) {
+void validate_resolved_placement(const Request& req, const DRAMSpec& spec, int channel,
+                                 const PuD::LocationResolver* expected) {
   validate_pud_operand_count(req);
   validate_pud_pairs(req, expected);
   validate_movement_metadata(req);
   const auto& resolver = *req.pud_locations->resolver;
   resolver.validate_spec(spec);
   if (!is_valid_external_request_size(req.type_id, req.size_bytes, spec.get_tx_bytes())) {
-    throw std::runtime_error("v2 PuD invalid size_bytes (movement requires N/A)");
+    throw std::runtime_error("PuD invalid size_bytes (movement requires N/A)");
   }
   const auto& operands = req.pud_locations->operands;
   const auto& first = operands.front().location.origin;
   for (size_t i = 0; i < operands.size(); ++i) {
     const auto& origin = operands[i].location.origin;
     if (origin.channel != channel) {
-      throw std::runtime_error("v2 PuD operand does not target the controller channel");
+      throw std::runtime_error("PuD operand does not target the controller channel");
     }
     if (origin.channel != first.channel || origin.rank != first.rank ||
         origin.bank_group != first.bank_group || origin.bank != first.bank ||
         origin.subarray != first.subarray) {
-      throw std::runtime_error("v2 PuD operands must share Bank and subarray context");
+      throw std::runtime_error("PuD operands must share Bank and subarray context");
     }
     if (is_movement_request_type(req.type_id) != origin.group.has_value()) {
-      throw std::runtime_error("v2 PuD requires whole compute mat-rows or explicit movement groups");
+      throw std::runtime_error("PuD requires whole compute mat-rows or explicit movement groups");
     }
     if (req.type_id != Request::Type::GBMOV && origin.mats != first.mats) {
-      throw std::runtime_error("v2 PuD operands must share the same mat range");
+      throw std::runtime_error("PuD operands must share the same mat range");
     }
     if (req.type_id == Request::Type::MAJ3 || req.type_id == Request::Type::MAJ5) {
       for (size_t j = 0; j < i; ++j) {
         if (origin.local_row == operands[j].location.origin.local_row) {
-          throw std::runtime_error("v2 majority requires distinct physical rows");
+          throw std::runtime_error("PuD majority requires distinct physical rows");
         }
       }
     }
@@ -112,7 +112,7 @@ void validate_v2_placement(const Request& req, const DRAMSpec& spec, int channel
     if (source.first != source.last || destination.first != destination.last ||
         resolver.segment_range(source).front().chip != resolver.segment_range(destination).front().chip ||
         !resolver.directed_neighbors(source.first, destination.first)) {
-      throw std::runtime_error("v2 GB requires directed singleton neighbors within one chip");
+      throw std::runtime_error("PuD GB requires directed singleton neighbors within one chip");
     }
   }
 }
@@ -131,8 +131,11 @@ PuDPlacementLevels get_pud_placement_levels(const DRAMSpec& spec) {
 void validate_pud_placement(
     const Request& req, const DRAMSpec& spec, int controller_channel_id,
     const PuDPlacementLevels& levels, const PuD::LocationResolver* resolver) {
+  if (is_inherited_pud_request_type(req.type_id) && !req.pud_locations) {
+    throw std::runtime_error("PuD compute requires canonical resolved locations");
+  }
   if (req.pud_locations || resolver) {
-    validate_v2_placement(req, spec, controller_channel_id, resolver);
+    validate_resolved_placement(req, spec, controller_channel_id, resolver);
     return;
   }
   if (!spec.geometry.has_subarrays()) {
@@ -200,7 +203,7 @@ std::uint64_t get_movement_moved_bits(const Request& req, const DRAMSpec& spec) 
     if (!is_movement_request_type(req.type_id)) {
       throw std::runtime_error("Cannot derive movement bits for a compute request");
     }
-    validate_v2_placement(req, spec, req.operands.at(0).at(0), nullptr);
+    validate_resolved_placement(req, spec, req.operands.at(0).at(0), nullptr);
     return static_cast<std::uint64_t>(req.pud_locations->operands.front().location.cell_count);
   }
   if (!spec.hffs_per_mat.has_value() || *spec.hffs_per_mat <= 0) {
