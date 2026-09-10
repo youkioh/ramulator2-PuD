@@ -35,6 +35,9 @@ independently schedulable Ramulator2 commands.
 
 Open issues
 
-The detailed state transition, numeric timing, resource occupancy, and
-interleaving or interruptibility of the surrounding NOT sequence remain
-unresolved for later decision gates.
+For the canonical DDR4 PuD substrate, later Accepted
+[execution/lifecycle](mimdram-movement-execution-ownership-and-device.md) and
+[timing/resource](mimdram-movement-timing-and-resource-model.md) decisions
+resolve the modeled state transition, numeric timing, resource occupancy, and
+non-interruptible sequence. More detailed internal-`N` circuit fidelity or
+reuse on another DRAM standard remains outside this decision.

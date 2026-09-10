@@ -275,7 +275,7 @@ For v2 Gate A:
   scalar-reduction evidence.
 - **Accepted existing authority:** [Gate B](mimdram-addressing-geometry-and-payload.md),
   [compute timing/resources](pud-timing-resource-and-command-bus-rules.md),
-  [compute lifecycle](pud-request-lifecycle-queueing-and-statistics.md), and
+  [historical compute lifecycle](pud-request-lifecycle-queueing-and-statistics.md), and
   the legacy movement execution/timing decisions linked above. Legacy
   ownership release and recovery/callback separation do not resolve v2 state,
   conflict, or data-visibility semantics.

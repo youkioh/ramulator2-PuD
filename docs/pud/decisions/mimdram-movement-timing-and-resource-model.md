@@ -190,13 +190,13 @@ stalls and target-delivery-specific C/A contention are omitted under the
 linked abstraction, not physically zero. Overlapped costs are not summed
 twice; the totals already include terminal nRP. The LC/GB 130/75 CK isolated
 local baselines below are
-retained, not claims about contended v2 end-to-end latency.
+retained, not claims about contended canonical end-to-end latency.
 
 **Retained legacy movement timing contract**
 
 The following describes the existing Bank-conservative executable baseline.
 Its movement-local graph remains current; its Bank-serial compute and T3-only
-compute transport do not override v2 Gate C above.
+compute transport do not override the range-local Gate C rules above.
 
 Use a primitive-first, Bank-conservative resource abstraction. One range-wide
 LC-MOV remains one invocation whose selected mats progress in lockstep; range

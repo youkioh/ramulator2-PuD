@@ -36,4 +36,9 @@ operations.
 
 Open issues
 
-State transitions, prerequisites, legality, and timing remain unresolved.
+For the canonical DDR4 PuD substrate, later Accepted
+[execution/lifecycle](mimdram-movement-execution-ownership-and-device.md) and
+[timing/resource](mimdram-movement-timing-and-resource-model.md) decisions
+resolve state transitions, prerequisites, legality, and timing. Reuse on other
+DRAM standards or with different physical-fidelity assumptions requires a new
+decision.

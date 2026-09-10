@@ -90,8 +90,8 @@ class GenericDRAMSystem final : public IMemorySystem, public Implementation {
   }
 
   bool send(Request& req) override {
-    if (is_inherited_pud_request_type(req.type_id) && !req.pud_locations) {
-      throw std::runtime_error("PuD compute requires canonical resolved locations");
+    if (is_pud_request_type(req.type_id) && !req.pud_locations) {
+      throw std::runtime_error("PuD requires canonical resolved locations");
     }
     if (!is_valid_external_request_size(req.type_id, req.size_bytes, m_tx_bytes)) {
       if (is_movement_request_type(req.type_id)) {

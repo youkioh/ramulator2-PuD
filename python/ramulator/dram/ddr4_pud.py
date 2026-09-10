@@ -3,7 +3,7 @@ from ramulator.dram.spec import CONTROLLER_SEQUENCED, TimingConstraint
 
 
 class DDR4_PuD(DDR4):
-    """DDR4 baseline substrate reserved for PuD extensions."""
+    """Reusable DDR4 PuD compute command and timing definitions."""
 
     name = "DDR4_PuD"
 
@@ -35,8 +35,10 @@ class DDR4_PuD(DDR4):
         }
     )
     timing_constraints = list(DDR4.timing_constraints) + [
-        # PuD phase timing is target-bank-local. Each value is independently
-        # ceiling-converted for the DDR4_2400R baseline by Decision Gate 8.
+        # These numeric edges are declared at Bank level for this reusable
+        # definition. Canonical compute consumes them through range-local
+        # histories. Each value is independently ceiling-converted for the
+        # DDR4_2400R baseline.
         TimingConstraint(
             level="Bank",
             preceding=["ACT_PUD_OC"],

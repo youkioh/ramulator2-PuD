@@ -32,7 +32,7 @@ inline void validate_pud_operand_count(const Request& req) {
 inline void validate_movement_metadata(const Request& req) {
   if (req.pud_locations) {
     if (!std::holds_alternative<std::monostate>(req.movement)) {
-      throw std::runtime_error("PuD scope must come from paired operands, not legacy movement metadata");
+      throw std::runtime_error("PuD scope must come from paired operands, not separate movement metadata");
     }
     return;
   }
@@ -74,8 +74,8 @@ inline void validate_pud_pairs(const Request& req, const PuD::LocationResolver* 
 
 inline int validate_pud_routing(const Request& req, int num_channels) {
   validate_pud_operand_count(req);
-  if (is_inherited_pud_request_type(req.type_id) && !req.pud_locations) {
-    throw std::runtime_error("PuD compute requires canonical resolved locations");
+  if (!req.pud_locations) {
+    throw std::runtime_error("PuD requires canonical resolved locations");
   }
   if (req.pud_locations) {
     validate_pud_pairs(req);

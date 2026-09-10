@@ -103,6 +103,8 @@ struct Request {
   // Ordered, request-owned row operands for PuD requests.
   // RowCopy uses operand 0 as source and operands 1..N as destinations.
   std::vector<AddrVec_t> operands{};
+  // Retained for internal Bank-aggregate movement component fixtures. Public
+  // GenericDRAM PuD ingress requires pud_locations and rejects this as scope.
   MovementMetadata movement{};
   std::shared_ptr<const PuD::RequestLocations> pud_locations;
   // Non-owning invocation identity. Controller protection, not Request copies

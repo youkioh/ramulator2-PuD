@@ -79,8 +79,9 @@ Scan pending compute oldest-to-newest using online first fit: allocate the
 first request whose complete range is available and for which an engine is
 free, subject to ordinary/movement, subarray, and maintenance eligibility.
 Allocation is distinct from command arbitration and local timing readiness.
-Reserve engine and range atomically on allocation, including the pre-first-ACT
-wait for target transport. An unallocated pending request owns nothing.
+Reserve engine and range atomically on allocation, including any pre-first-ACT
+wait for normal arbitration or local timing. T-A adds no target-delivery wait.
+An unallocated pending request owns nothing.
 Retain request-count pending buffering; do not reproduce the 2 kB bbop-buffer
 hardware or equate its byte capacity with engine count.
 

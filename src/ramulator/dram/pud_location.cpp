@@ -90,7 +90,7 @@ LocationResolver::LocationResolver(PlacementProfile p, const DRAMSpec& spec, Map
   require(!p.name.empty() && !context.address_space.empty(), "profile/address-space association required");
   require(context.channels == 1 && context.channel_mapper == "CacheLineInterleave" &&
               context.address_mapper == "RoBaRaCoCh" && !context.row_remapping && context.reserved_rows_per_bank == 0,
-          "unsupported v2 mapper/remapping context");
+          "unsupported PuD mapper/remapping context");
   require(spec.standard_name == "DDR4" || spec.standard_name == "DDR4_PuD" || spec.standard_name == "DDR4_PuD_Movement",
           "unsupported DDR standard");
   require(spec.level_names == std::vector<std::string>{"Channel", "Rank", "BankGroup", "Bank", "Row", "Column"} &&

@@ -204,7 +204,7 @@ From the repository root:
 
 ```bash
 cmake -S . -B build
-cmake --build build --target ddr4_pud_microbenchmark mimdram_movement_microbenchmark -j2
+cmake --build build --target ddr4_pud_microbenchmark mimdram_movement_microbenchmark -j $(nproc)
 
 PYTHONPATH=python python3 -m ramulator export \
   examples/ddr4_pud_microbenchmark_config.py \
@@ -234,7 +234,7 @@ for engines in 1 2 8; do
     -o build/ddr4_pud_microbenchmark_e${engines}.yaml
   LD_LIBRARY_PATH=. ./build/ddr4_pud_microbenchmark \
     build/ddr4_pud_microbenchmark_e${engines}.yaml \
-    build/ddr4_pud_trace_e${engines}.csv.ch0
+    build/ddr4_pud_trace.csv.ch0
 done
 ```
 
