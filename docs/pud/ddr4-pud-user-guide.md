@@ -271,6 +271,18 @@ dependency chain per output with its physical requests in completion order.
 Use `--m 2` or larger to generate multiple chains. Requirements can also be
 generated independently as shown above.
 
+To generate and run one baseline independently of pytest, use the
+[standalone experiment runner](../../experiments/pud_gemv_baseline.py) from the
+repository root in the same Python environment:
+
+```bash
+PYTHONPATH=python:. python3 experiments/pud_gemv_baseline.py --profile MIMDRAM-InterMatFirst-int8 --m 2 --n 12 --out build/pud-gemv --csv build/pud-gemv/results.csv
+```
+
+It uses the canonical one-rank configuration above and prints JSON with output
+placement, compute/LC-MOV/GB-MOV and total Request counts, peak inflight and
+controller cycles. Omit `--csv` to skip appending the same fields to a CSV file.
+
 The only active schedules are **MIMDRAM-InterMatFirst** (full-vector forward
 GB-MOV/ADD, then the sink's LC-MOV/ADD tree) and **MIMDRAM-IntraMatFirst**
 (local LC-MOV/ADD trees first, then residual-only forward GB-MOV/ADD).
