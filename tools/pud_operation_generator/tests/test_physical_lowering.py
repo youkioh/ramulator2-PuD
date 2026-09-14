@@ -16,7 +16,7 @@ if str(PACKAGE_PARENT) not in sys.path:
     sys.path.insert(0, str(PACKAGE_PARENT))
 
 from pud_operation_generator.__main__ import BUILDERS
-from pud_operation_generator.core import Builder, Primitive, execute, pack
+from pud_operation_generator.core import Builder, Primitive, execute, pack, signed_value, unpack
 from pud_operation_generator.lowering import (
     LoweredPrimitive,
     PhysicalLoweredProgram,
@@ -43,9 +43,9 @@ from pud_operation_generator.validation import validate_physical_lowering, verif
 
 BASELINES = {
     "uint8-add": (41, 13, 4, 26, 30),
-    "uint8-mul": (592, 68, 52, 33, 85),
-    "int8-add": (46, 14, 5, 26, 31),
-    "int8-mul": (612, 68, 52, 34, 86),
+    "uint8-mul": (592, 26, 10, 33, 43),
+    "int8-add": (46, 14, 6, 25, 31),
+    "int8-mul": (612, 26, 18, 26, 44),
     "fp8-e5m2-add": (1045, 25, 17, 26, 43),
     "fp8-e5m2-mul": (326, 15, 7, 26, 33),
     "fp8-e4m3-add": (1331, 30, 22, 26, 48),
@@ -225,6 +225,33 @@ class AnalysisTests(unittest.TestCase):
 
 
 class AllocationTests(unittest.TestCase):
+    def test_int8_discarded_bits_are_not_live_outs_and_rows_are_reused(self):
+        for name in ("int8-add", "int8-mul"):
+            with self.subTest(name=name):
+                builder = BUILDERS[name]()
+                normalized = analyze_physical_lowering(builder)
+                lowered = lower_to_physical(builder, make_default_physical_layout(builder))
+                intervals = {item.symbolic_name: item for item in normalized.work_intervals}
+                self.assertEqual(list(dict(lowered.designated_outputs)), [f"R{bit}" for bit in range(8)])
+                self.assertEqual(len(lowered.removed_exports), 8)
+                self.assertEqual(
+                    [item.final_producer for item in lowered.result_bindings],
+                    builder.taps["full_result"][:8],
+                )
+                for bit, row in enumerate(builder.taps["full_result"][8:], 8):
+                    interval = intervals[row]
+                    self.assertEqual(interval.last_required, max(
+                        index for index, primitive in enumerate(normalized.retained_primitives)
+                        if row in primitive.rows
+                    ))
+                    self.assertLess(interval.last_required, normalized.completion_point)
+                    if name == "int8-mul" and bit < 15:
+                        self.assertTrue(any(
+                            later.first_required > interval.last_required
+                            and lowered.bindings[later.symbolic_name] == lowered.bindings[row]
+                            for later in normalized.work_intervals
+                        ), f"product bit {bit} row must actually be reused")
+
     def test_all_profile_metrics_are_optimal_and_deterministic(self):
         for name, factory in BUILDERS.items():
             with self.subTest(name=name):
@@ -527,6 +554,41 @@ class PhysicalReplayTests(unittest.TestCase):
 
 
 class PhysicalValidationTests(unittest.TestCase):
+    def test_int8_full_results_exhaustively_observed_before_row_reuse(self):
+        left = [value for value in range(256) for _ in range(256)]
+        right = list(range(256)) * 256
+        lanes = len(left)
+        for name in ("int8-add", "int8-mul"):
+            with self.subTest(name=name):
+                builder = BUILDERS[name]()
+                normalized = analyze_physical_lowering(builder)
+                lowered = lower_to_physical(builder, make_default_physical_layout(builder))
+                initial = dict(zip(builder.inputs, pack(left, 8) + pack(right, 8)))
+                initial.update({row: (1 << lanes) - 1 if value else 0
+                                for row, value in builder.constants.items()})
+                physical_initial = {lowered.bindings[row]: value for row, value in initial.items()}
+                intervals = {item.symbolic_name: item for item in normalized.work_intervals}
+                snapshots = []
+                # Replay prefixes to observe each value at its final required
+                # command. This test adds no primitive or allocation lifetime.
+                for row in builder.taps["full_result"] + builder.carry_beyond_output:
+                    end = intervals[row].last_required
+                    prefix = replace(lowered, primitives=lowered.primitives[:end + 1], result_bindings=())
+                    storage = execute_physical(prefix, physical_initial, lanes)
+                    snapshots.append(storage[lowered.bindings[row]])
+                width = len(builder.taps["full_result"])
+                full = unpack(snapshots[:width], lanes)
+                expected = [
+                    signed_value(a, 8) + signed_value(b, 8) if name.endswith("add")
+                    else signed_value(a, 8) * signed_value(b, 8)
+                    for a, b in zip(left, right)
+                ]
+                self.assertEqual([signed_value(value, width) for value in full], expected)
+                if name == "int8-mul":
+                    carry = unpack(snapshots[width:], lanes)
+                    self.assertEqual([value + (high << 16) for value, high in zip(full, carry)],
+                                     [value + (1 << 16) for value in expected])
+
     def test_all_profiles_exhaustively_establish_triple_equality(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)
@@ -746,13 +808,19 @@ class PhysicalSurfaceTests(unittest.TestCase):
             lower_to_physical(builder, too_small)
 
     def test_default_cli_emits_reusable_layout_and_provenance(self):
-        names = ("uint8-add", "fp8-e5m2-mul")
+        names = ("uint8-add", "int8-add", "int8-mul", "fp8-e5m2-mul")
         with tempfile.TemporaryDirectory() as directory:
             completed = self.run_default_cli(directory, *names)
             self.assertEqual(completed.returncode, 0, completed.stderr)
             self.assertIn("reference/symbolic/physical PASS", completed.stdout)
             output = Path(directory) / "out"
             layout_path = output / "default-physical-layout.json"
+            self.assertIn(
+                "int8-mul: 612 primitives (physical; 620 symbolic), "
+                "input rows: 16, output rows: 8, temporary rows: 18,",
+                completed.stdout,
+            )
+            self.assertNotIn("scratch", completed.stdout)
             self.assertTrue(layout_path.is_file())
             first_bytes = layout_path.read_bytes()
             document = json.loads(layout_path.read_text())
@@ -763,6 +831,8 @@ class PhysicalSurfaceTests(unittest.TestCase):
                     document[name],
                     physical_layout_record(make_default_physical_layout(builder)),
                 )
+                if name.startswith("int8-"):
+                    self.assertEqual(list(document[name]["outputs"]), [f"R{bit}" for bit in range(8)])
                 physical = json.loads(
                     (output / f"{name}.physical.json").read_text()
                 )
@@ -791,6 +861,7 @@ class PhysicalSurfaceTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as reuse_directory:
                 reused = self.run_cli(reuse_directory, document, *names)
                 self.assertEqual(reused.returncode, 0, reused.stderr)
+                self.assertEqual(reused.stdout, completed.stdout)
                 reused_output = Path(reuse_directory) / "out"
                 for name in names:
                     physical = json.loads(
@@ -811,6 +882,15 @@ class PhysicalSurfaceTests(unittest.TestCase):
                 (Path(directory) / "out" / "default-physical-layout.json").is_file()
             )
 
+    def test_int8_cli_rejects_old_widened_output_layouts(self):
+        for name, old_width in (("int8-add", 9), ("int8-mul", 16)):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                record = layout_record(BUILDERS[name]())
+                record["outputs"].update({f"R{bit}": 100 + bit for bit in range(8, old_width)})
+                completed = self.run_cli(directory, {name: record}, name)
+                self.assertNotEqual(completed.returncode, 0)
+                self.assertIn("R8", completed.stderr)
+
     def test_cli_without_layout_remains_symbolic_only(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "out"
@@ -830,6 +910,12 @@ class PhysicalSurfaceTests(unittest.TestCase):
             )
             self.assertEqual(completed.returncode, 0, completed.stderr)
             self.assertIn("reference/replay PASS", completed.stdout)
+            self.assertIn(
+                "uint8-add: 50 primitives (symbolic), input rows: 16, "
+                "output rows: 9, temporary rows: 4 (required for physical lowering),",
+                completed.stdout,
+            )
+            self.assertNotIn("scratch", completed.stdout)
             self.assertFalse((output / "default-physical-layout.json").exists())
             self.assertFalse((output / "uint8-add.physical.json").exists())
             report = json.loads((output / "validation.json").read_text())
@@ -859,7 +945,7 @@ class PhysicalSurfaceTests(unittest.TestCase):
             self.assertNotIn("request_fragment", artifact)
 
     def test_cli_success_and_layout_failures(self):
-        names = ("uint8-add", "fp8-e5m2-mul")
+        names = ("uint8-add", "int8-add", "int8-mul", "fp8-e5m2-mul")
         layouts = {name: layout_record(BUILDERS[name]()) for name in names}
         uint8_builder = BUILDERS["uint8-add"]()
         layouts["uint8-add"]["inputs"] = {

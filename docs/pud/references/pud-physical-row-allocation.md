@@ -6,6 +6,14 @@ primitive facts, established allocation results, and derivations. It does not
 select an allocator contract or change the generator, interpreter, generated
 sequence, or simulator.
 
+Historical scope: the code observations below describe the pre-lowering,
+widened-output generator investigated for the original allocation decision.
+In particular, its INT8 9/16-output table is historical, not the current
+operation interface. The subsequent fixed-width INT8 contract and current
+counts are documented in the [generator README](../../../tools/pud_operation_generator/README.md)
+and [accepted lowering decision](../decisions/pud-operation-physical-lowering.md).
+The physical-source facts below are unchanged by that project interface choice.
+
 The labels used below have these meanings:
 
 - **Source fact** — stated by the original cited PRADA paper or by the

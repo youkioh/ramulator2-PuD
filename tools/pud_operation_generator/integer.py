@@ -1,4 +1,4 @@
-"""Exact widened UINT8 and signed INT8 arithmetic generators."""
+"""Widened UINT8 and full internal INT8 arithmetic with byte-wide INT8 exports."""
 
 from collections import deque
 
@@ -18,28 +18,33 @@ def _build_multiply(*, signed: bool):
     builder.complemented_partial_products = []
     buckets = [deque() for _ in range(2 * width + 1)]
 
-    for i in range(width):
-        for j in range(width):
-            builder.stage = (
-                f"partial_product_{i}_{j}: A{i} AND B{j}, weight 2^{i + j}"
-            )
-            partial_product = builder.bit_and(f"A{i}", f"B{j}")
-            # In two's complement, a term containing exactly one sign bit has
-            # a negative coefficient. Complement it here and correct the sum below.
-            if signed and ((i == width - 1) != (j == width - 1)):
-                builder.stage = f"signed_complement_{i}_{j}"
-                builder.emit("NOT", partial_product)
-                builder.complemented_partial_products.append([i, j])
-            buckets[i + j].append(partial_product)
-
-    if signed:
-        # Together with the complemented cross terms, these constants transform
-        # the accumulated value into A*B + 2^(2*width). The low 16 bits are A*B.
-        buckets[width].append(builder.one)
-        buckets[2 * width - 1].append(builder.one)
+    def partial_product(i, j):
+        builder.stage = (
+            f"partial_product_{i}_{j}: A{i} AND B{j}, weight 2^{i + j}"
+        )
+        product = builder.bit_and(f"A{i}", f"B{j}")
+        # A term containing exactly one sign bit has a negative coefficient.
+        if signed and ((i == width - 1) != (j == width - 1)):
+            builder.stage = f"signed_complement_{i}_{j}"
+            builder.emit("NOT", product)
+            builder.complemented_partial_products.append([i, j])
+        return product
 
     result = []
     for bit in range(2 * width):
+        # Emit only this column's products, then reduce before emitting the
+        # next column. Preserve the compressor's products/correction/carries
+        # operand order from the original all-products-first algorithm.
+        incoming = buckets[bit]
+        buckets[bit] = deque(
+            partial_product(i, bit - i)
+            for i in range(width)
+            if 0 <= bit - i < width
+        )
+        # With complemented cross terms these yield A*B + 2^(2*width).
+        if signed and bit in (width, 2 * width - 1):
+            buckets[bit].append(builder.one)
+        buckets[bit].extend(incoming)
         bucket = buckets[bit]
         initial_count = len(bucket)
         builder.stage = (
@@ -75,8 +80,13 @@ def _build_multiply(*, signed: bool):
     if not signed and builder.carry_beyond_output:
         raise AssertionError("unexpected unsigned overflow structure")
 
-    builder.stage = "output: copy completed product bits to R rows"
-    builder.export("R", result)
+    if signed:
+        builder.taps["full_result"] = result
+    builder.stage = (
+        "output: copy low eight product bits to R rows"
+        if signed else "output: copy completed product bits to R rows"
+    )
+    builder.export("R", result[:width] if signed else result)
     return builder
 
 
@@ -99,11 +109,15 @@ def _build_add(*, signed: bool):
     if signed:
         builder.carry_beyond_output = [result[-1]]
         result = result[:-1]
+        builder.taps["full_result"] = result
     else:
         builder.carry_beyond_output = []
 
-    builder.stage = "output: copy exact nine-bit sum to R rows"
-    builder.export("R", result)
+    builder.stage = (
+        "output: copy low eight sum bits to R rows"
+        if signed else "output: copy exact nine-bit sum to R rows"
+    )
+    builder.export("R", result[:width] if signed else result)
     return builder
 
 
@@ -118,10 +132,10 @@ def build_uint8_mul():
 
 
 def build_int8_add():
-    """Build a two's-complement 8-bit add with an exact signed 9-bit result."""
+    """Compute the exact signed 9-bit sum and expose only its low eight bits."""
     return _build_add(signed=True)
 
 
 def build_int8_mul():
-    """Build a two's-complement 8-bit multiply with a signed 16-bit result."""
+    """Compute all 16 signed product bits and expose only the low eight bits."""
     return _build_multiply(signed=True)

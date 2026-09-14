@@ -47,6 +47,23 @@ or shares constant rows across separate operation invocations.
 
 ## Outputs
 
+The GEMV-facing INT8 and FP8 ADD/MUL profiles consume and expose 8-bit values;
+their only output names are `R0..R7`. INT8 ADD retains its full signed nine-bit
+internal computation. INT8 MUL retains its full signed 16-bit product,
+generating and reducing all columns 0..15 in LSB-to-MSB order with the existing
+signed corrections. Only the low eight result bits are exported. High bits
+are diagnostics, not designated outputs, and do not extend physical lifetimes.
+This is an accepted project interface choice, not a claim about PRADA's
+original output interface. UINT8 and FP8 arithmetic policies are unchanged.
+UINT8 MUL uses the same column-streaming schedule through columns 0..15 while
+retaining its exact full 16-bit output `R0..R15`.
+
+Future GEMV composes the existing MUL and ADD PuD operations. No separate FMA
+PuD operation is introduced. GEMV implementation and placement remain deferred.
+There is no explicit truncation primitive or extra RowCopy sequence; the
+export selection defines the fixed-width boundary. The physical lowerer
+preserves the resulting emitted sequence under the contract below.
+
 Every output `Rn` has a caller- or layout-provided designated physical row
 `P(Rn)`. Output rows are precolored physical colors, but they are not reserved
 from operation entry. Before the live interval of the final symbolic producer

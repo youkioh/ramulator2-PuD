@@ -3,6 +3,21 @@
 Status: Complete. Gate A, Work Units 1-6, Gates 1-6, and the final
 fresh-context audit passed on 2026-09-10.
 
+Fixed-width INT8 follow-up: completed on 2026-09-14. INT8 ADD/MUL now export
+only eight bits while preserving full internal arithmetic; MUL generates and
+reduces all 16 columns in order. The existing lowerer is unchanged. Full
+package and exhaustive arithmetic/physical validation, lifetime snapshots,
+row-reuse/optimality checks, and default/explicit-layout CLI tests passed.
+The current metrics below supersede the initial INT8 baselines. The original
+milestone's work-unit restrictions below describe that completed milestone,
+not this subsequently authorized arithmetic-interface revision.
+
+UINT8 MUL follow-up: the same column-streaming loop now processes all columns
+0..15 while retaining the exact 16-bit public product. Exhaustive 65,536-pair
+symbolic/physical validation and allocation checks passed. Its 608 symbolic
+and 592 physical primitives are unchanged; scratch fell from 52 to 10 rows
+and footprint from 85 to 43. INT8 and FP8 traces are unchanged by this follow-up.
+
 ## Goal and completion state
 
 Extend `tools/pud_operation_generator` with a deterministic physical-lowering
@@ -215,23 +230,29 @@ logic consumes local-row capacity and eligibility only; it has no Ramulator
 timing, command-phase, recovery, request-scheduling, Bank, subarray, or
 `MatRange` dependency.
 
-### Plan-time audit of the eight current traces
+### Revalidated baselines of the eight current traces
 
-A read-only audit of the current builders confirmed that every profile has a
+A fresh calculation after the INT8 and UINT8 scheduling revisions confirmed
+that every profile has a
 valid terminal export suffix, pairwise-distinct nonprotected final producers,
-and the following interval-partitioning result. These values become regression
-baselines; the implementation must recompute rather than hard-code them.
+and the following interval-partitioning result. These values are regression
+baselines; the implementation recomputes rather than hard-codes them.
 
 | Profile | Retained physical primitives | `H` | `O` | Work colors `C` | Additional scratch | Designated rows | Footprint / accepted peak live |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | `uint8-add` | 41 | 17 | 9 | 13 | 4 | 26 | 30 |
-| `uint8-mul` | 592 | 17 | 16 | 68 | 52 | 33 | 85 |
-| `int8-add` | 46 | 17 | 9 | 14 | 5 | 26 | 31 |
-| `int8-mul` | 612 | 18 | 16 | 68 | 52 | 34 | 86 |
+| `uint8-mul` | 592 | 17 | 16 | 26 | 10 | 33 | 43 |
+| `int8-add` | 46 | 17 | 8 | 14 | 6 | 25 | 31 |
+| `int8-mul` | 612 | 18 | 8 | 26 | 18 | 26 | 44 |
 | `fp8-e5m2-add` | 1,045 | 18 | 8 | 25 | 17 | 26 | 43 |
 | `fp8-e5m2-mul` | 326 | 18 | 8 | 15 | 7 | 26 | 33 |
 | `fp8-e4m3-add` | 1,331 | 18 | 8 | 30 | 22 | 26 | 48 |
 | `fp8-e4m3-mul` | 318 | 18 | 8 | 20 | 12 | 26 | 38 |
+
+The historical INT8 ADD baseline had 9 outputs, 5 scratch, 26 designated rows,
+and footprint 31. INT8 MUL had 16 outputs, 68 work colors, 52 scratch,
+34 designated rows, and footprint 86. Retained arithmetic primitive counts
+remain 46 and 612; only export counts and MUL generation order changed.
 
 All eight fit within the accepted 1,024-local-row profile under any valid
 in-range choice of distinct designated rows that leaves the listed additional

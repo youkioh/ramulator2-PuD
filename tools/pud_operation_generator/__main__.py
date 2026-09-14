@@ -16,8 +16,10 @@ from .integer import build_int8_add, build_int8_mul, build_uint8_add, build_uint
 from .lowering import (
     PhysicalLoweringError,
     PhysicalRowLayout,
+    analyze_physical_lowering,
     lower_to_physical,
     make_default_physical_layout,
+    maximum_interval_depth,
 )
 from .validation import verify
 
@@ -192,8 +194,25 @@ def main():
             if lowered is not None
             else "reference/replay PASS"
         )
+        if lowered is not None:
+            primitive_summary = (
+                f"{len(lowered.primitives)} primitives (physical; "
+                f"{len(program.trace)} symbolic)"
+            )
+            temporary_rows = lowered.additional_scratch_rows
+        else:
+            primitive_summary = f"{len(program.trace)} primitives (symbolic)"
+            normalized = analyze_physical_lowering(program)
+            temporary_rows = (
+                maximum_interval_depth(normalized.work_intervals)
+                - len(normalized.outputs)
+            )
+        temporary_qualifier = "" if lowered is not None else " (required for physical lowering)"
         print(
-            f"{name}: {len(program.trace)} primitives, "
+            f"{name}: {primitive_summary}, "
+            f"input rows: {len(program.inputs)}, "
+            f"output rows: {len(program.outputs['R'])}, "
+            f"temporary rows: {temporary_rows}{temporary_qualifier}, "
             f"{validation['pairs']:,} pairs, {outcome}",
             flush=True,
         )

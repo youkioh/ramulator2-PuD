@@ -12,14 +12,19 @@ The package provides eight operation profiles:
 |---|---|---|---:|
 | `uint8-add` | two UINT8 values | exact unsigned 9-bit sum | 50 |
 | `uint8-mul` | two UINT8 values | exact UINT16 product | 608 |
-| `int8-add` | two INT8 values | exact signed 9-bit sum | 55 |
-| `int8-mul` | two INT8 values | exact INT16 product | 628 |
+| `int8-add` | two INT8 values | low 8 bits of full signed 9-bit sum | 54 |
+| `int8-mul` | two INT8 values | low 8 bits of full INT16 product | 620 |
 | `fp8-e5m2-add` | two E5M2 bytes | approximate E5M2 candidate | 1,053 |
 | `fp8-e5m2-mul` | two E5M2 bytes | truncating E5M2 result | 334 |
 | `fp8-e4m3-add` | two E4M3 bytes | approximate E4M3 candidate | 1,339 |
 | `fp8-e4m3-mul` | two E4M3 bytes | truncating E4M3 result | 326 |
 
 No round-to-nearest-even (RNE) extension is included.
+
+All INT8 and FP8 ADD/MUL profiles consume two 8-bit values and expose exactly
+`R0..R7`. UINT8 retains its existing widened interface. Future GEMV uses the
+existing MUL and ADD PuD operations; no separate FMA PuD operation is
+introduced. GEMV itself is not implemented here.
 
 The symbolic `Builder` trace remains the golden arithmetic program. Physical
 lowering preserves its arithmetic-core order, removes only validated terminal
@@ -63,15 +68,18 @@ derivations built on the same Boolean primitives.
 ### INT8 addition
 
 Each eight-bit operand is sign-extended to nine bits, then passed through the
-same ripple adder as UINT8. The low nine result bits represent the exact range
-`-256..254`; the carry beyond bit 8 is discarded.
+same ripple adder as UINT8. The full nine-bit internal sum represents the exact
+range `-256..254`; the carry beyond bit 8 is retained only as a diagnostic.
+The operation exports only bits 0..7. Bit 8 remains in the `full_result`
+diagnostic tap, without becoming an `R8` output or a physical live-out.
 
 For example, adding `-1 + 0` requires sign extension:
 
 ```text
 A = 11111111 -> 111111111
 B = 00000000 -> 000000000
-R =             111111111  (-1 as signed 9-bit)
+internal sum = 111111111  (-1 as signed 9-bit)
+R0..R7      =  11111111  (-1 as signed 8-bit)
 ```
 
 Using the unsigned carry as the signed result bit would incorrectly encode this
@@ -100,6 +108,28 @@ transformed_sum = signed_product + 2^16
 The low 16 bits are exactly the signed INT8 product, and the generated trace's
 extra carry is exhaustively checked against this identity. This construction is
 a derivation in this package, not a claim about an unpublished PRADA signed
+sequence.
+
+INT8 MUL generates and reduces columns 0..15 in LSB-to-MSB order. For each
+column it generates only that column's partial products, inserts the signed
+correction if needed, and compresses them together with incoming carries.
+The compressor operand order is preserved. It computes all 64 partial
+products and all 16 product bits, including bits 8..15, before the terminal
+export block selects only bits 0..7. This is full internal product computation
+plus a fixed-width 8-bit visible result, not a low-half-only optimization.
+UINT8 MUL uses the same column-streaming loop through columns 0..15, without
+signed complements or correction terms. It retains the exact full UINT16
+output `R0..R15`; column 15 exports the carry arriving from column 14 without
+another addition. UINT8 ADD and the shared FP8 `Builder.multiply()` sequences
+are unchanged.
+
+Both INT8 profiles expose their full arithmetic result through the LSB-first
+`diagnostic_taps.full_result` manifest field (9 bits for ADD, 16 for MUL).
+Exhaustive validation independently checks that signed full result and the
+visible low byte, including the MUL correction-carry identity. These taps do
+not keep discarded values live at operation exit. Physical tests observe the
+full result at lifetime endpoints, before rows are reused. Truncation is only
+the choice of exported bits: there is no `TRUNC_LO8` primitive or extra copy
 sequence.
 
 ## FP8 formats and numerical scope
@@ -208,6 +238,29 @@ consecutive local rows beginning at zero. It assigns no work rows; the existing
 capacity of 1,024 local rows is the current DDR4/MIMDRAM model default, not a
 universal DRAM property.
 
+For INT8 ADD the defaults designate `R0..R7` at rows 17..24; INT8 MUL uses
+rows 18..25 because it declares both constants. Old INT8 layouts containing
+`R8` or higher are rejected.
+
+The integer multiplication and fixed-width INT8 baselines are:
+
+| Profile | Retained physical primitives | Work peak | Designated rows | Additional scratch | Footprint / total peak |
+|---|---:|---:|---:|---:|---:|
+| `uint8-mul` | 592 | 26 | 33 | 10 | 43 |
+| `int8-add` | 46 | 14 | 25 | 6 | 31 |
+| `int8-mul` | 612 | 26 | 26 | 18 | 44 |
+
+UINT8 MUL still emits 608 symbolic primitives and removes 16 terminal exports
+during physical lowering. Column streaming reduces its scratch from 52 to 10
+rows and footprint from 85 to 43, preserving its full product and output width.
+
+Physical lowering removes exactly eight terminal exports in each INT8 case. MUL
+bits 8..14 actually reuse rows during later columns; bit 15 and ADD bit 8
+finish at the final arithmetic command and are also not live-outs. ADD's
+footprint is unchanged: removing a designation moves one row into scratch
+accounting. Counts are for the fixed emitted sequence, not a global optimum
+over different arithmetic schedules.
+
 The generated `default-physical-layout.json` uses exactly the same reusable
 per-profile `local_row_count`, `inputs`, `constants`, and `outputs` structure
 shown above. Passing that file later through `--physical-layout` reproduces the
@@ -243,6 +296,20 @@ the repository convention for untracked generated artifacts.
 
 Every selected profile is checked over all 65,536 input pairs. A successful run
 reports `reference/replay PASS`.
+
+The CLI summary includes primitive count, input rows, output rows, and
+`temporary rows`. With physical lowering enabled, it reports the retained
+physical primitive count alongside the symbolic count, for example:
+
+```text
+int8-mul: 612 primitives (physical; 620 symbolic), input rows: 16, output rows: 8, temporary rows: 18, 65,536 pairs, reference/symbolic/physical PASS
+```
+
+`temporary rows` counts additional physical rows beyond the designated input,
+constant, and output rows. Input rows exclude constants. Without a physical
+layout option, the CLI reports symbolic primitives and derives the required
+temporary-row count from interval depth, labeling it `required for physical
+lowering`; it still emits only symbolic artifacts.
 
 Each profile produces:
 
@@ -347,8 +414,10 @@ initial.update({
 
 rows = execute(program.trace, initial, lanes)
 raw = unpack([rows[row] for row in program.outputs["R"]], lanes)
-result = [signed_value(value, 9) for value in raw]
-print(result)  # [-129, 6, 254]
+result = [signed_value(value, 8) for value in raw]
+print(result)  # [127, 6, -2]
+full_raw = unpack([rows[row] for row in program.taps["full_result"]], lanes)
+print([signed_value(value, 9) for value in full_raw])  # [-129, 6, 254]
 ```
 
 ## Optional library comparison
@@ -373,8 +442,11 @@ python3 -m unittest discover -s tests -v
 ```
 
 The tests cover the eight-profile public surface, primitive counts, selected
-UINT8 and INT8 values, exhaustive reference validation, serialized replay, and
-execution after copying the directory into an isolated temporary repository.
+UINT8 and INT8 values, exhaustive full-result and visible-result validation,
+column scheduling, discarded-bit corruption detection, serialized replay,
+physical lifetime reuse and optimality, both layout CLI paths, and execution
+after copying the directory into an isolated temporary repository. Existing
+FP8 exhaustive validation and numerical policies are unchanged.
 
 ## Primitive semantics
 

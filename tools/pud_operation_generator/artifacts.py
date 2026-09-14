@@ -7,8 +7,8 @@ from .lowering import PhysicalLoweredProgram
 PROFILES = {
     'uint8-add': 'Exact unsigned 8+8 -> unsigned 9-bit sum.',
     'uint8-mul': 'Exact unsigned 8x8 -> unsigned 16-bit product.',
-    'int8-add': 'Exact signed 8+8 -> signed 9-bit sum; no saturation or wrap.',
-    'int8-mul': 'Exact signed 8x8 -> signed 16-bit product.',
+    'int8-add': 'Full exact signed 9-bit internal sum; low 8 bits exported, no saturation.',
+    'int8-mul': 'Full exact signed 16-bit internal product, columns 0..15 computed; low 8 bits exported.',
     'fp8-e5m2-add': 'E5M2 bounded-alignment addition without rounding or complete special-value handling.',
     'fp8-e5m2-mul': 'E5M2 multiplication with magnitude truncation over the documented normal domain.',
     'fp8-e4m3-add': 'OFP8 E4M3 bounded-alignment addition without rounding or complete special-value handling.',

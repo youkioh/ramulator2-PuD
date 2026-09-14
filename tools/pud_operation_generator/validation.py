@@ -54,24 +54,32 @@ def _verify_integer(name, builder, left, right, lanes, rows, raw, library):
     width = builder.width
     left_values = [signed_value(value, width) for value in left] if builder.signed else left
     right_values = [signed_value(value, width) for value in right] if builder.signed else right
-    actual = (
-        [signed_value(value, len(builder.outputs["R"])) for value in raw]
-        if builder.signed
-        else raw
-    )
     expected = [
         a + b if name.endswith("add") else a * b
         for a, b in zip(left_values, right_values)
     ]
-    assert actual == expected
-
     report = {"reference_mismatches": 0}
+    actual = raw
+    full_raw = raw
+    if builder.signed:
+        full_width = width + 1 if name.endswith("add") else 2 * width
+        assert len(builder.taps["full_result"]) == full_width
+        full_raw = _unpack_tap(rows, builder, "full_result", lanes)
+        actual = [signed_value(value, full_width) for value in full_raw]
+        assert raw == [value & ((1 << width) - 1) for value in expected], "visible low bits"
+        report.update({
+            "internal_result_width": full_width,
+            "internal_reference_mismatches": 0,
+            "visible_low8_mismatches": 0,
+        })
+    assert actual == expected, "full arithmetic result"
+
     if name == "int8-mul":
         carry = unpack([rows[row] for row in builder.carry_beyond_output], lanes)
         assert all(
             result + (high << (2 * width))
             == reference + (1 << (2 * width))
-            for result, high, reference in zip(raw, carry, expected)
+            for result, high, reference in zip(full_raw, carry, expected)
         )
         report["signed_correction_identity"] = True
 
@@ -421,6 +429,9 @@ def _verify_physical(builder, lowered, initial, lanes, symbolic_raw):
 
 
 def verify(name, builder, path, info, library=False, lowered=None):
+    if name.startswith(("int8-", "fp8-")):
+        assert builder.outputs == {"R": [f"R{bit}" for bit in range(8)]}
+        assert info["output_width"] == 8
     left, right, lanes, rows, raw = _execute_and_replay(builder, path, info)
     width = getattr(builder, "width", 8)
     initial = dict(zip(builder.inputs, pack(left, width) + pack(right, width)))
