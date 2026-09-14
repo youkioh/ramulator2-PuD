@@ -77,20 +77,21 @@ def execute_trace(metadata, trace, matrix, vector, poison=0xA5):
         start = 0
         for domain_index, domain in enumerate(record["domains"]):
             a_row, x_row = record["input_rows"][domain_index]
-            for mat in range(domain["mat_count"]):
+            for local_mat in range(domain["mat_count"]):
+                mat = domain["mat_begin"] + local_mat
                 rows = memory.setdefault((*context, mat), {})
                 for first in record["macro_operation_temporary_row_bases"].values():
                     for bit in range(bits):
                         rows[first+bit] = mask if (poison >> bit) & 1 else 0
                 for name, row_id in record["constant_rows"].items():
                     rows[row_id] = mask if name == program.one else 0
-                valid = min(width, domain["elements"]-mat*width)
+                valid = min(width, domain["elements"]-local_mat*width)
                 for first, values in ((a_row, matrix[output]), (x_row, vector)):
                     for bit in range(bits):
                         word = mask if (poison >> bit) & 1 else 0
                         for lane in range(valid):
                             pos = column(lane)
-                            word = (word & ~(1 << pos)) | (((values[start+mat*width+lane] >> bit) & 1) << pos)
+                            word = (word & ~(1 << pos)) | (((values[start+local_mat*width+lane] >> bit) & 1) << pos)
                         rows[first+bit] = word
             events[domain["completion_index"]] = (output, context, domain)
             start += domain["elements"]

@@ -253,12 +253,26 @@ generator's documented scope.
 Build, generation, and execution instructions are in the
 [DDR4 PuD user guide](../ddr4-pud-user-guide.md#gemv-trace-generation-and-execution).
 
-The deterministic layout uses one rank, chip-local mats beginning at logical
-mat zero, and disjoint output row bands within subarrays. Each band holds all
-of that output's input domains, its three eight-row macro workspaces, protected
-constants, and its generated micro-operation-level maximum. It rejects layouts
-exceeding that static capacity; there is no runtime row allocator. Inputs and
-constants are assumed preplaced. The JSON records their row locations, macro
+The deterministic one-rank layout implements the Accepted
+[mat-level parallelism characterization placement](../decisions/pud-gemv-output-placement.md),
+not the final GEMV baseline placement policy. Its enumeration is:
+disjoint legal K-mat range, chip, bank, bank group, subarray, then row band.
+Each domain uses K=`ceil(elements_this_domain/512)` forward-connected mats;
+an output reserves the maximum domain K and reuses that range's prefix across
+its sequential domains. M=2,N=12 uses mats 0 and 1; M=2,N=516 uses ranges
+0..1 and 2..3, all in the same bank/subarray. These experiments isolate
+mat-level MIMD by intentionally excluding bank-level placement parallelism and
+SALP. The actual baseline evaluation policy will be defined separately under
+the decision's BLP expectation. Subarrays supply static capacity fallback only; SALP under the
+open-bitline organization is undecided and is neither modeled nor assumed.
+
+Each output's row band within its reserved range holds all input domains,
+three eight-row macro workspaces, protected constants, and the generated
+micro-operation-level maximum. Equal row numbers in disjoint mats are separate
+storage. After all unused ranges/contexts are exhausted, reused ranges receive
+disjoint row bands. Layouts exceeding static capacity are rejected; there is
+no runtime row allocator. Inputs and constants are assumed preplaced.
+The JSON records their row locations, macro
 workspaces, private PuD micro-operation-level temporary rows, domain sinks/residual rows, and one-based
 physical completion indices for GPU readout before workspace reuse. Each
 `completion_index` identifies a Request in the flattened physical sequence,
@@ -285,12 +299,12 @@ consecutive, and empty chains are allowed. A `CHAIN` selection is mandatory
 before any physical Request. There is no implicit chain.
 
 The GEMV writer emits one chain per output, numbered from zero, containing all
-of that output's domains and the unchanged physical Request sequence. This
+of that output's domains and the ordered physical Request sequence. This
 mapping belongs to the generator: PuDTrace does not interpret IDs as outputs,
 arithmetic formats, resources, or Request source IDs. There are no cross-chain
 dependencies. Producers must place all mutually dependent requests in the same
-chain; the frontend does not infer dependencies from addresses. The layout and
-its physical indices/counts remain unchanged.
+chain; the frontend does not infer dependencies from addresses. Chain directives
+do not change the layout's flattened physical indices/counts.
 
 Compute opcodes are `RowCopy`, `MAJ3`, `MAJ5`, `NOT`, and `NOT_COPY`,
 with the existing ordered operand counts and semantics. All integers are
@@ -329,9 +343,14 @@ workspace reuse still has no modeled cost. Static placement capacity and the
 accepted engine, mat, subarray, Bank movement, command-bus and timing constraints
 remain authoritative. A peak above one establishes outstanding-request overlap,
 not necessarily simultaneous command execution on conflicting resources. See the
-[chain execution plan](../plans/pud-gemv-chain-execution-plan.md) for timing evidence.
+[output placement plan](../plans/pud-gemv-output-placement-plan.md) for controlled
+same-bank/same-subarray characterization evidence and its remaining movement
+serialization; these measurements do not establish the final baseline's performance.
 
-Layout metadata schema 2 names the scopes explicitly:
+Layout metadata schema 3 adds per-domain `mat_begin`, the physical logical-mat
+origin; `mat_count` gives the active prefix length and `sink_mat` its final mat.
+Replay must use this origin rather than initializing every output at mat zero.
+The existing explicit temporary-row scope names remain:
 `micro_operation_requirements`, `micro_operation_counts`,
 `micro_operation_temporary_rows_per_mat`, per-output
 `micro_operation_temporary_rows`, and `macro_operation_temporary_row_bases`.

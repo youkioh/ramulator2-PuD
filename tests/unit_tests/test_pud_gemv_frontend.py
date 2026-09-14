@@ -5,7 +5,7 @@ import pytest
 import ramulator
 from ramulator._ramulator_test import _PuDTraceUnderTest
 from ramulator.dram.spec import REQUEST_TYPE_IDS
-from tools.pud_gemv_generator.generator import PROFILES, placement_profile, write_gemv
+from tools.pud_gemv_generator.generator import PROFILES, _output_placement, placement_profile, write_gemv
 from tests.unit_tests.test_pud_request_locations import controller
 from tests.unit_tests.test_pud_location import resolver
 
@@ -116,6 +116,26 @@ def test_empty_and_missing_resolver(tmp_path):
         simulation(path, install=False)
 
 
+def assert_generated_mat_overlap(metadata, physical, commands, k):
+    assert [r["context"] for r in metadata["outputs"]] == [[0, 0, 0, 0]] * 2
+    assert [r["domains"][0]["mat_begin"] for r in metadata["outputs"]] == [0, k]
+    assert all(d["mat_count"] == k for r in metadata["outputs"] for d in r["domains"])
+    end = metadata["outputs"][0]["domains"][-1]["completion_index"]
+    for start, first in ((0, 0), (end, k)):
+        fields = physical[start].split()
+        assert fields[:7] == ["RowCopy", "0", "0", "0", "0", str(first), str(first+k-1)]
+    assert all([int(c[level]) for level in ("Channel", "Rank", "BankGroup", "Bank")] == [0]*4
+               and int(c["Row"]) < 1024 for c in commands)
+    # Both chains' first Requests are single-destination RowCopy. With one
+    # outstanding Request per chain, two source ACTs before either PRE prove
+    # that the generated disjoint compute ranges execute concurrently.
+    first_pre = next(i for i, c in enumerate(commands) if c["command"] == "PREpb")
+    starts = [int(c["clock"]) for c in commands[:first_pre]
+              if c["command"] == "ACT_PUD_S_OC"]
+    assert len(starts) == 2
+    assert max(starts) < int(commands[first_pre]["clock"])
+
+
 @pytest.mark.parametrize("profile", PROFILES)
 def test_generated_chains_preserve_stream_and_overlap(tmp_path, profile):
     metadata, path = write_gemv(profile, 2, 12, tmp_path)
@@ -138,7 +158,9 @@ def test_generated_chains_preserve_stream_and_overlap(tmp_path, profile):
     assert front["physical_requests_peak_inflight"] == 2
     assert front["physical_requests_submitted"] == front["physical_requests_completed"] == len(physical)
     with open(str(recorder)+".ch0") as stream:
-        assert len(list(csv.DictReader(stream))) == front["physical_command_occurrences_completed"]
+        commands = list(csv.DictReader(stream))
+    assert len(commands) == front["physical_command_occurrences_completed"]
+    assert_generated_mat_overlap(metadata, physical, commands, 1)
     for opcode, count in metadata["request_counts"].items():
         name = opcode.lower().replace("-mov", "mov")
         assert stats["memory_system"][f"total_num_pud_{name}_requests"] == count
@@ -157,6 +179,43 @@ def test_generated_chains_preserve_stream_and_overlap(tmp_path, profile):
         assert reference_stats["frontend"][field] == front[field]
     print(profile, "serialized", reference_stats["memory_system"]["controller"]["cycles"], "concurrent",
           stats["memory_system"]["controller"]["cycles"], "peak", front["physical_requests_peak_inflight"])
+
+
+def test_generated_neighbor_ranges_execute_concurrently(tmp_path):
+    metadata, path = write_gemv("int8-gemv", 2, 516, tmp_path)
+    physical = [line for line in path.read_text().splitlines()[3:] if not line.startswith("CHAIN ")]
+    assert {(int(f[5]), int(f[6])) for line in physical
+            if (f := line.split())[0] == "GB-MOV"} == {(0, 1), (2, 3)}
+    recorder = tmp_path / "ranges.csv"
+    sim = simulation(path, recorder)
+    sim.run()
+    stats = sim.stats
+    sim.finalize()
+    with open(str(recorder)+".ch0") as stream:
+        commands = list(csv.DictReader(stream))
+    assert_generated_mat_overlap(metadata, physical, commands, 2)
+    front = stats["frontend"]
+    assert front["physical_requests_submitted"] == front["physical_requests_completed"] == metadata["request_count"]
+    assert front["physical_command_occurrences_completed"] == len(commands)
+    assert front["physical_requests_peak_inflight"] == 2
+
+
+@pytest.mark.parametrize("index", [0, 8, 64, 256, 1024, 65536, 17*65536-1])
+def test_placement_context_requests_resolve_and_complete(tmp_path, index):
+    context, subarray, base, mats = _output_placement(placement_profile(), 2, 60, index)
+    row = subarray*1024 + base
+    prefix = " ".join(map(str, context))
+    # Sample each capacity boundary with compute, LC and the required GB edge.
+    path = trace_file(tmp_path,
+        f"CHAIN 0\nRowCopy {prefix} {mats[0]} {mats[-1]} {row} {row+1}\n"
+        f"LC-MOV {prefix} {mats[-1]} {mats[-1]} {row+1} 127 {row+2} 0\n"
+        f"GB-MOV {prefix} {mats[0]} {mats[-1]} {row} 0 {row+2} 127\n")
+    sim = simulation(path)
+    sim.run()
+    stats = sim.stats
+    sim.finalize()
+    assert stats["frontend"]["physical_requests_completed"] == 3
+    assert stats["frontend"]["physical_command_occurrences_completed"] == 14
 
 
 def test_callback_order_retry_and_fairness(tmp_path):

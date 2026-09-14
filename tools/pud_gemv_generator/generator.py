@@ -22,6 +22,29 @@ def placement_profile():
     return pud_placement_profile()
 
 
+def _output_placement(geometry, k, footprint, output):
+    """Static range/chip/bank/group/subarray/band order; subarrays add no SALP."""
+    rows = geometry["rows_per_subarray"]
+    per_chip = geometry["mats_per_chip"]
+    if not 1 <= k <= per_chip or output < 0 or footprint <= 0:
+        raise ValueError("invalid GEMV placement dimensions")
+    bands = rows // footprint
+    if not bands:
+        raise ValueError("GEMV output layout exceeds local-row capacity")
+    remaining, slot = divmod(output, per_chip // k)
+    remaining, chip = divmod(remaining, geometry["chips"])
+    remaining, bank = divmod(remaining, geometry["banks_per_group"])
+    remaining, bg = divmod(remaining, geometry["bank_groups"])
+    band, subarray = divmod(remaining, geometry["rows_per_bank"] // rows)
+    if band >= bands:
+        raise ValueError("GEMV layout exceeds the one-rank placement capacity")
+    first = chip * per_chip + slot * k
+    mats = tuple(range(first, first + k))
+    if any(geometry["gb_successor"][a] != b for a, b in zip(mats, mats[1:])):
+        raise ValueError("GEMV requires a profile-supported contiguous forward range")
+    return [0, 0, bg, bank], subarray, band * footprint, mats
+
+
 def generate(profile, m, n):
     if profile not in PROFILES:
         raise ValueError("expected int8-gemv, fp8-e4m3-gemv or fp8-e5m2-gemv")
@@ -34,14 +57,7 @@ def generate(profile, m, n):
     domain_mats = geometry["mats_per_chip"]
     domain_elements = width * domain_mats
     domain_count = (n + domain_elements - 1) // domain_elements
-    mats = [0]
-    while len(mats) < domain_mats:
-        successor = geometry["gb_successor"][mats[-1]]
-        if successor < 0:
-            raise ValueError("placement profile lacks the required connected reduction domain")
-        mats.append(successor)
-    if mats != list(range(domain_mats)):
-        raise ValueError("GEMV requires the current contiguous forward-domain placement")
+    output_mats = (min(n, domain_elements) + width - 1) // width
     add_name, mul_name = PROFILES[profile]
     requirements = micro_operation_requirements()
     programs = {name: BUILDERS[name]() for name in PROFILES[profile]}
@@ -51,29 +67,21 @@ def generate(profile, m, n):
            requirements[name]["output_rows"] != bits for name in programs):
         raise ValueError("GEMV requires matching fixed-width two-input ADD/MUL profiles")
     constant_names = sorted(set().union(*(p.constants for p in programs.values())))
-    # One output owns a row band: distinct domain inputs and three reused
+    # One output owns a row band in its reserved mat range: domain inputs and three reused
     # PuD macro-operation-level temporary-row workspaces, protected constants,
     # and PuD micro-operation-level temporary rows.
     footprint = 2*bits*domain_count + 3*bits + len(constant_names) + op_rows
     rows_per_subarray = geometry["rows_per_subarray"]
-    outputs_per_subarray = rows_per_subarray // footprint
-    if not outputs_per_subarray:
-        raise ValueError("GEMV output layout exceeds local-row capacity")
-    subarrays = geometry["rows_per_bank"] // rows_per_subarray
-    contexts = geometry["bank_groups"] * geometry["banks_per_group"] * subarrays
-    if m > contexts * outputs_per_subarray:
-        raise ValueError("GEMV layout exceeds the one-rank placement capacity")
+    # Reject excessive M before lowering any arithmetic or materializing outputs.
+    _output_placement(geometry, output_mats, footprint, m - 1)
     trace, outputs, micro_operation_counts = [], [], Counter()
 
     def emit(opcode, context, first, last, *operands):
         trace.append(" ".join(map(str, (opcode, *context, first, last, *operands))))
 
     for output in range(m):
-        context_index, slot = divmod(output, outputs_per_subarray)
-        bank_index, subarray = divmod(context_index, subarrays)
-        bg, bank = divmod(bank_index, geometry["banks_per_group"])
-        context = [0, 0, bg, bank]
-        base = slot * footprint
+        context, subarray, base, mats = _output_placement(
+            geometry, output_mats, footprint, output)
         external_base = subarray * rows_per_subarray
         primary = base + 2*bits*domain_count
         reduction, movement = primary + bits, primary + 2*bits
@@ -154,13 +162,13 @@ def generate(profile, m, n):
                 arithmetic(add_name, current, movement, alternate, sink, sink)
                 current, alternate, valid = alternate, current, half
             record["domains"].append({
-                "elements": elements, "mat_count": k, "sink_mat": sink,
+                "elements": elements, "mat_begin": mats[0], "mat_count": k, "sink_mat": sink,
                 "result_rows": list(range(external_base+current, external_base+current+bits)),
                 "residual_count": valid, "completion_index": len(trace),
             })
         outputs.append(record)
     metadata = {
-        "schema_version": 2, "macro_profile": profile, "M": m, "N": n,
+        "schema_version": 3, "macro_profile": profile, "M": m, "N": n,
         "placement_profile": geometry["name"], "ranks": 1,
         "micro_operation_requirements": {name: requirements[name] for name in programs},
         "micro_operation_counts": dict(micro_operation_counts),

@@ -269,6 +269,19 @@ dependency chain per output with its physical requests in completion order.
 Use `--m 2` or larger to generate multiple chains. Requirements can also be
 generated independently as shown above.
 
+The current generator uses the Accepted **mat-level parallelism characterization
+placement**, not the final GEMV baseline placement policy. Placement fills
+disjoint legal mat ranges before advancing through chips,
+banks, bank groups, subarrays, then row bands. M=2,N=12 uses mats 0/1 and
+M=2,N=516 uses ranges 0..1/2..3 in the same bank/subarray to isolate mat-level
+MIMD, intentionally excluding bank-level placement parallelism and SALP.
+Subarrays provide capacity fallback only: no SALP is modeled or assumed.
+The actual baseline evaluation policy will be defined separately with the
+[BLP expectation](decisions/pud-gemv-output-placement.md) recorded in the decision.
+Layout schema 3 records each domain's physical `mat_begin`; regenerate older
+layouts for the current functional replay. See the
+[placement contract](references/gpu-pud-gemv-programming-model.md#prototype-placement-and-physical-trace-contract).
+
 Use the one-rank `memory_system` component tree from
 [Canonical configuration](#canonical-configuration), with `import ramulator`.
 Run this Python code in the same environment with `PYTHONPATH=python`:
@@ -310,8 +323,9 @@ Request stream, **not full end-to-end GEMV latency**. GPU launch/x duplication,
 transposition, readout/conversion, and residual/domain final combination remain
 excluded, including readout before workspace reuse. Static placement and the
 controller/substrate's timing and resource conflicts still constrain overlap.
-Representative timing evidence, its placement limits, and validation are in the
-[chain execution plan](plans/pud-gemv-chain-execution-plan.md).
+Controlled same-bank/same-subarray characterization evidence and its LC/GB
+serialization are in the [output placement plan](plans/pud-gemv-output-placement-plan.md).
+These measurements do not establish the final GEMV evaluation baseline's performance.
 
 ## Command traces and latency
 
