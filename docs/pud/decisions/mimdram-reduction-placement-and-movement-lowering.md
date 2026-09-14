@@ -53,6 +53,12 @@ reverse, wrapping, cross-chip, or magical arbitrary-distance GB edges.
 
 **C. Direct reduction placement policy**
 
+The full-fragment-then-local schedule below is the policy used by the explicit
+`MIMDRAM-InterMatFirst` GEMV baseline. The [Accepted GEMV contract](pud-gemv-macro-contract.md)
+also selects `MIMDRAM-IntraMatFirst`, which reduces mat-local fragments before
+the same directed fold. Both retain this document's topology, singleton GB
+lowering, highest reachable sink and external completion boundary.
+
 Divide each reduction input into mat-local fragments according to the Accepted
 Gate B placement profile. Within each connected GB domain, arrange and reason
 about the participating fragments in the forward order of the directed

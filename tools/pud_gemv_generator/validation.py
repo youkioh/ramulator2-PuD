@@ -10,9 +10,10 @@ from .generator import PROFILES, placement_profile
 
 
 def scalar_operations(profile):
-    if profile == "int8-gemv":
+    add_name, _ = PROFILES[profile]
+    if add_name == "int8-add":
         return lambda a, b: (a+b) & 255, lambda a, b: (a*b) & 255
-    format_ = {"fp8-e4m3-gemv": E4M3, "fp8-e5m2-gemv": E5M2}[profile]
+    format_ = {"fp8-e4m3-add": E4M3, "fp8-e5m2-add": E5M2}[add_name]
 
     @lru_cache(None)
     def add(a, b):
@@ -31,23 +32,32 @@ def scalar_graph(profile, matrix, vector):
     geometry = placement_profile()
     width, h = geometry["cells_per_mat_row"], geometry["hffs_per_mat"]
     domain_size = width * geometry["mats_per_chip"]
+
+    def reduce_local(values):
+        target = 1 << (len(values).bit_length()-1)
+        if target != len(values):
+            extra = len(values)-target
+            values = [add(values[i], values[target+i]) for i in range(extra)] + values[extra:target]
+        while len(values) > h:
+            half = len(values)//2
+            values = [add(values[i], values[half+i]) for i in range(half)]
+        return values
+
     results = []
     for row in matrix:
         output_sum = 0
         for start in range(0, len(vector), domain_size):
             products = [mul(a, x) for a, x in zip(
                 row[start:start+domain_size], vector[start:start+domain_size])]
-            accumulator = products[:width]
-            for offset in range(width, len(products), width):
-                local = products[offset:offset+width]
+            fragments = [products[offset:offset+width] for offset in range(0, len(products), width)]
+            intra_first = profile.startswith("MIMDRAM-IntraMatFirst-")
+            if intra_first:
+                fragments = [reduce_local(local) for local in fragments]
+            accumulator = fragments[0]
+            for local in fragments[1:]:
                 accumulator = [add(v, accumulator[i]) for i, v in enumerate(local)] + accumulator[len(local):]
-            target = 1 << (len(accumulator).bit_length()-1)
-            if target != len(accumulator):
-                extra = len(accumulator)-target
-                accumulator = [add(accumulator[i], accumulator[target+i]) for i in range(extra)] + accumulator[extra:target]
-            while len(accumulator) > h:
-                half = len(accumulator)//2
-                accumulator = [add(accumulator[i], accumulator[half+i]) for i in range(half)]
+            if not intra_first:
+                accumulator = reduce_local(accumulator)
             domain_sum = 0
             for value in accumulator:
                 domain_sum = add(domain_sum, value)
@@ -107,12 +117,14 @@ def execute_trace(metadata, trace, matrix, vector, poison=0xA5):
         context = (ch, rank, bg, bank)
         if opcode in ("LC-MOV", "GB-MOV"):
             src, src_group, dst, dst_group = operands
-            source, destination = memory[(*context, first)], memory[(*context, last)]
-            old = source[src]
-            word = destination.get(dst, mask if poison & 1 else 0)
-            for src_col, dst_col in zip(columns[src_group*h:(src_group+1)*h], columns[dst_group*h:(dst_group+1)*h]):
-                word = (word & ~(1 << dst_col)) | (((old >> src_col) & 1) << dst_col)
-            destination[dst] = word
+            pairs = ((mat, mat) for mat in range(first, last+1)) if opcode == "LC-MOV" else ((first, last),)
+            for source_mat, destination_mat in pairs:
+                source, destination = memory[(*context, source_mat)], memory[(*context, destination_mat)]
+                old = source[src]
+                word = destination.get(dst, mask if poison & 1 else 0)
+                for src_col, dst_col in zip(columns[src_group*h:(src_group+1)*h], columns[dst_group*h:(dst_group+1)*h]):
+                    word = (word & ~(1 << dst_col)) | (((old >> src_col) & 1) << dst_col)
+                destination[dst] = word
         else:
             primitive = LoweredPrimitive({"MAJ3": "TRA", "MAJ5": "5RA"}.get(opcode, opcode),
                                          tuple(operands), (), index, "GEMV physical replay")

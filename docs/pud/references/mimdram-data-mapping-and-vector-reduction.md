@@ -382,11 +382,13 @@ the sink, and consumers must not infer connectivity from numerically adjacent
 logical IDs. In the diagram, `mat0` through `matK-1` name consecutive selected
 positions in topology order; they need not be local mat IDs beginning at zero.
 
-The accepted special cases and reachability boundary are:
+The following special cases describe the project's **MIMDRAM-InterMatFirst**
+GEMV adaptation and its reachability boundary:
 
 - `K = 1`: perform no inter-mat reduction; use only the source-described
   LC-MOV + ADD intra-mat tree.
-- `K = 2`: use the exact Figure 6 source example, with the second mat as sink.
+- `K = 2`: use the Figure 6 movement/reduction order, with the second mat as sink;
+  GEMV's initial MUL is the project adaptation of the example's arithmetic.
 - `K > 2`: repeat the accepted forward-fold composition through consecutive
   reachable mats, then use the source-described intra-mat tree in the sink.
 - A chip or other connectivity boundary ends a reduction domain. Do not merge
@@ -396,6 +398,16 @@ The accepted special cases and reachability boundary are:
   its own four residual elements after its intra-mat tree. The Accepted project
   policy requires a higher-level host combine; it does not present that combine
   as MIMDRAM GB-MOV behavior.
+
+The [Accepted GEMV baseline contract](../decisions/pud-gemv-macro-contract.md)
+also selects **MIMDRAM-IntraMatFirst**: reduce every mat's valid products locally
+with existing LC-MOV/ADD, then fold only its residuals forward using existing
+singleton GB-MOV/ADD. Identical local stages may use Accepted ranged LC within
+one output. This is a project schedule using MIMDRAM-compatible mechanisms,
+not a sequence attributed to Figure 6. Both use identical BLP-first placement
+and the existing GPU completion boundary. The
+[canonical programming model](gpu-pud-gemv-programming-model.md) specifies both
+graphs and their separate FP8 functional validation.
 
 ---
 
@@ -422,18 +434,12 @@ not supply these application- and project-specific choices.
 
 ---
 
-## 7. Derived applicability to a future GEMV layer
+## 7. Applicability to the GEMV baselines
 
-The source-backed mechanisms support the following high-level functional
-shape for future investigation:
-
-```text
-per-mat independent arithmetic
-    -> inter-mat partial-result movement/reduction with GB-MOV
-    -> intra-mat reduction with LC-MOV
-```
-
-This applicability is a derivation, not a GEMV mapping selected by MIMDRAM or
-by this reference. A later project decision and implementation plan must still
-choose the exact GEMV dimensions, `W`/`X` row placement, reduction sink mat,
-INT8 versus FP8 accumulation policy, and host-I/O treatment.
+The source-backed local/inter-mat movement and arithmetic mechanisms support
+the project's two explicitly selected schedules. The
+[baseline contract](../decisions/pud-gemv-macro-contract.md) owns BLP-first
+placement and schedule selection; the
+[programming-model specification](gpu-pud-gemv-programming-model.cu) owns the
+exact typed graphs and GPU residual/domain combine. These are project choices,
+not a GEMV mapping, FP8 policy or physical row program supplied by MIMDRAM.

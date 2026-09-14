@@ -8,11 +8,10 @@ from tools.pud_operation_generator.requirements import (
     BUILDERS, operation_requirements as micro_operation_requirements, write_requirements,
 )
 
-PROFILES = {
-    "int8-gemv": ("int8-add", "int8-mul"),
-    "fp8-e4m3-gemv": ("fp8-e4m3-add", "fp8-e4m3-mul"),
-    "fp8-e5m2-gemv": ("fp8-e5m2-add", "fp8-e5m2-mul"),
-}
+BASELINES = ("MIMDRAM-InterMatFirst", "MIMDRAM-IntraMatFirst")
+FORMATS = ("int8", "fp8-e4m3", "fp8-e5m2")
+PROFILES = {f"{baseline}-{format_}": (f"{format_}-add", f"{format_}-mul")
+            for baseline in BASELINES for format_ in FORMATS}
 OPCODES = {"TRA": "MAJ3", "5RA": "MAJ5"}
 
 
@@ -23,7 +22,7 @@ def placement_profile():
 
 
 def _output_placement(geometry, k, footprint, output):
-    """Static range/chip/bank/group/subarray/band order; subarrays add no SALP."""
+    """Static bank/group/range/chip/subarray/band order; subarrays add no SALP."""
     rows = geometry["rows_per_subarray"]
     per_chip = geometry["mats_per_chip"]
     if not 1 <= k <= per_chip or output < 0 or footprint <= 0:
@@ -31,10 +30,10 @@ def _output_placement(geometry, k, footprint, output):
     bands = rows // footprint
     if not bands:
         raise ValueError("GEMV output layout exceeds local-row capacity")
-    remaining, slot = divmod(output, per_chip // k)
-    remaining, chip = divmod(remaining, geometry["chips"])
-    remaining, bank = divmod(remaining, geometry["banks_per_group"])
+    remaining, bank = divmod(output, geometry["banks_per_group"])
     remaining, bg = divmod(remaining, geometry["bank_groups"])
+    remaining, slot = divmod(remaining, per_chip // k)
+    remaining, chip = divmod(remaining, geometry["chips"])
     band, subarray = divmod(remaining, geometry["rows_per_bank"] // rows)
     if band >= bands:
         raise ValueError("GEMV layout exceeds the one-rank placement capacity")
@@ -47,7 +46,8 @@ def _output_placement(geometry, k, footprint, output):
 
 def generate(profile, m, n):
     if profile not in PROFILES:
-        raise ValueError("expected int8-gemv, fp8-e4m3-gemv or fp8-e5m2-gemv")
+        raise ValueError("expected an explicit baseline/profile: " + ", ".join(PROFILES))
+    baseline, format_ = profile.split("-", 2)[1:]
     geometry = placement_profile()
     width, h = geometry["cells_per_mat_row"], geometry["hffs_per_mat"]
     if type(m) is not int or m <= 0:
@@ -115,20 +115,42 @@ def generate(profile, m, n):
                 emit(OPCODES.get(primitive.opcode, primitive.opcode), context, first, last,
                      *(external_base + row for row in primitive.physical_rows))
 
-        def move(src, dst, src_mat, dst_mat, src_offset, dst_offset, count):
+        def move(src, dst, src_mat, dst_mat, src_offset, dst_offset, count, *, local_last=None):
             if any(v % h for v in (src_offset, dst_offset, count)):
                 raise ValueError("partial-group movement is unsupported")
             if not (0 <= src_offset <= src_offset+count <= width and
                     0 <= dst_offset <= dst_offset+count <= width):
                 raise ValueError("movement exceeds mat-local element extent")
             opcode = "LC-MOV" if src_mat == dst_mat else "GB-MOV"
+            if local_last is not None:
+                if opcode != "LC-MOV" or not mats[0] <= src_mat <= local_last <= mats[-1]:
+                    raise ValueError("local movement range must stay within this output")
             if opcode == "GB-MOV" and geometry["gb_successor"][src_mat] != dst_mat:
                 raise ValueError("movement is not a profile-supported directed neighbor")
             for bit in range(bits):
                 for offset in range(0, count, h):
-                    emit(opcode, context, src_mat, dst_mat,
+                    emit(opcode, context, src_mat, dst_mat if local_last is None else local_last,
                          external_base + src+bit, (src_offset+offset)//h,
                          external_base + dst+bit, (dst_offset+offset)//h)
+
+        def reduce_local(current, valid, first, last):
+            # Identical mat-local stages share one invocation only within this
+            # output. A partial final mat is reduced separately, without padding.
+            alternate = reduction if current == primary else primary
+            if valid & (valid-1):
+                target = 1 << (valid.bit_length()-1)
+                extra = valid-target
+                move(current, movement, first, first, target, 0, extra, local_last=last)
+                arithmetic(add_name, current, movement, alternate, first, last)
+                if target > extra:
+                    move(current, alternate, first, first, extra, extra, target-extra, local_last=last)
+                current, alternate, valid = alternate, current, target
+            while valid > h:
+                half = valid//2
+                move(current, movement, first, first, half, 0, half, local_last=last)
+                arithmetic(add_name, current, movement, alternate, first, last)
+                current, alternate, valid = alternate, current, half
+            return current, valid
 
         for domain in range(domain_count):
             elements = min(n - domain*domain_elements, domain_elements)
@@ -137,30 +159,35 @@ def generate(profile, m, n):
             a, x = base + domain*2*bits, base + domain*2*bits + bits
             record["input_rows"].append([external_base+a, external_base+x])
             arithmetic(mul_name, a, x, primary, mats[0], mats[k-1])
-            current = primary
-            for i in range(k-1):
-                source, destination = mats[i], mats[i+1]
-                valid = last_valid if i+1 == k-1 else width
-                move(current, movement, source, destination, 0, 0, width)
-                arithmetic(add_name, primary, movement, reduction, destination, destination)
-                if valid < width:
-                    move(movement, reduction, destination, destination, valid, valid, width-valid)
-                current = reduction
-            sink, valid = mats[k-1], last_valid if k == 1 else width
-            alternate = reduction if current == primary else primary
-            if valid & (valid-1):
-                target = 1 << (valid.bit_length()-1)
-                extra = valid-target
-                move(current, movement, sink, sink, target, 0, extra)
-                arithmetic(add_name, current, movement, alternate, sink, sink)
-                if target > extra:
-                    move(current, alternate, sink, sink, extra, extra, target-extra)
-                current, alternate, valid = alternate, current, target
-            while valid > h:
-                half = valid//2
-                move(current, movement, sink, sink, half, 0, half)
-                arithmetic(add_name, current, movement, alternate, sink, sink)
-                current, alternate, valid = alternate, current, half
+            sink = mats[k-1]
+            if baseline == "InterMatFirst":
+                current = primary
+                for i in range(k-1):
+                    source, destination = mats[i], mats[i+1]
+                    valid = last_valid if i+1 == k-1 else width
+                    move(current, movement, source, destination, 0, 0, width)
+                    arithmetic(add_name, primary, movement, reduction, destination, destination)
+                    if valid < width:
+                        move(movement, reduction, destination, destination, valid, valid, width-valid)
+                    current = reduction
+                current, valid = reduce_local(current, last_valid if k == 1 else width, sink, sink)
+            else:
+                full_mats = elements // width
+                local_rows = []
+                if full_mats:
+                    current, valid = reduce_local(primary, width, mats[0], mats[full_mats-1])
+                    local_rows = [current] * full_mats
+                if last_valid < width:
+                    current, valid = reduce_local(primary, last_valid, sink, sink)
+                    local_rows.append(current)
+                current = local_rows[0]
+                for i in range(1, k):
+                    destination = mats[i]
+                    move(current, movement, mats[i-1], destination, 0, 0, valid)
+                    local = local_rows[i]
+                    alternate = reduction if local == primary else primary
+                    arithmetic(add_name, local, movement, alternate, destination, destination)
+                    current = alternate
             record["domains"].append({
                 "elements": elements, "mat_begin": mats[0], "mat_count": k, "sink_mat": sink,
                 "result_rows": list(range(external_base+current, external_base+current+bits)),
@@ -168,7 +195,9 @@ def generate(profile, m, n):
             })
         outputs.append(record)
     metadata = {
-        "schema_version": 3, "macro_profile": profile, "M": m, "N": n,
+        "schema_version": 4, "macro_profile": profile, "M": m, "N": n,
+        "baseline": "MIMDRAM-" + baseline, "arithmetic_format": format_,
+        "output_placement": "BLP-first",
         "placement_profile": geometry["name"], "ranks": 1,
         "micro_operation_requirements": {name: requirements[name] for name in programs},
         "micro_operation_counts": dict(micro_operation_counts),

@@ -1,4 +1,4 @@
-Status: Accepted
+Status: Superseded
 
 Question
 
@@ -7,6 +7,11 @@ characterization of mat-level MIMD under the existing resolver and execution
 model, separately from the final GEMV evaluation baseline placement policy?
 
 Decision
+
+Superseded on 2026-09-14 by the [Accepted GEMV baseline contract](pud-gemv-macro-contract.md).
+The placement below is preserved only as historical characterization authority;
+it is no longer an active generator policy. Its rationale and completed
+measurements remain historical evidence.
 
 Accepted by the user on 2026-09-14 as a **mat-level parallelism characterization
 placement**, with the no-SALP boundary below. Alternative A is not the final

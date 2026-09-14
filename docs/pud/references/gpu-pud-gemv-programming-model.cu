@@ -23,11 +23,33 @@
  * Accepted GEMV domain: N > 0 and N % HFFS_PER_MAT == 0.
  * N need not be divisible by MAT_SIZE; partial final mats (e.g. N=516)
  * remain supported. No partial-group movement, masking, padding, or host
- * tail fallback is provided. These are preconditions of all three macros.
+ * tail fallback is provided. These are preconditions of all six baseline/format macros.
  */
 
 #define ELEMENTS_PER_REDUCTION_DOMAIN \
     (MAT_SIZE * MATS_PER_REDUCTION_DOMAIN)
+
+/*
+ * Exactly two active evaluation schedules, each with INT8/E4M3/E5M2 kernels:
+ * MIMDRAM-InterMatFirst and MIMDRAM-IntraMatFirst.
+ *
+ * Common static physical placement, fastest to slowest:
+ * bank -> bank group -> legal K-mat range slot -> chip -> subarray -> row band.
+ * All banks consume a slot before another same-bank slot. Chip-local ranges
+ * follow the existing resolver's directed edges. An output reserves maximum
+ * domain K; each domain uses its prefix. Subarrays are capacity fallback only;
+ * same-bank cross-subarray execution is serialized (no SALP).
+ *
+ * Mat indices in this specification are domain-local positions. The generator
+ * translates them to the output's reserved physical range and context. No
+ * different outputs share a ranged operation. External GPU completion costs
+ * remain outside PuD timing. FP8 graphs are validated separately per schedule;
+ * equality between schedules and numerical-accuracy evaluation are not required.
+ */
+enum PudGemvBaseline {
+    MIMDRAM_InterMatFirst,
+    MIMDRAM_IntraMatFirst
+};
 
 #define THREADS_PER_BLOCK           256
 
@@ -215,6 +237,28 @@ __device__
 pud_fp8_e5m2_t pud_fp8_e5m2_scalar_add(
     pud_fp8_e5m2_t a,
     pud_fp8_e5m2_t b
+);
+
+
+/*
+ * Logical same-mat slice repeated over ONE output's inclusive mat range.
+ * Offsets and element_count are mat-local and common to every selected mat.
+ * This is a spelling of existing ranged LC-MOV, not a new DRAM primitive:
+ * lower each bit plane / complete HFF group to one ranged LC Request. Each
+ * mat copies its own source to its own destination, preserving other cells.
+ * The compiler/OS maps these workspace bases to the same local rows throughout
+ * this output's range. Ranged operations are confined to one GEMV output.
+ */
+__device__
+void pud_mov_inside_mat_range(
+    const void *src,
+    int src_local_offset,
+    void *dst,
+    int dst_local_offset,
+    int element_count,
+    size_t element_size,
+    int mat_begin,
+    int mat_end
 );
 
 
@@ -624,7 +668,7 @@ pud_fp8_e5m2_t *pud_reduce_inside_mat_fp8_e5m2(
  * Same-mat PuD micro-operations are serialized.
  */
 __global__
-void pud_gemv_int8(
+void pud_gemv_intermatfirst_int8(
     const int8_t *A,
     const int8_t *x_duplicated,
     int8_t *y,
@@ -824,7 +868,7 @@ void pud_gemv_int8(
 /* -------------------------------------------------------------------------- */
 
 __global__
-void pud_gemv_fp8_e4m3(
+void pud_gemv_intermatfirst_fp8_e4m3(
     const pud_fp8_e4m3_t *A,
     const pud_fp8_e4m3_t *x_duplicated,
     pud_fp8_e4m3_t *y,
@@ -987,7 +1031,7 @@ void pud_gemv_fp8_e4m3(
 /* -------------------------------------------------------------------------- */
 
 __global__
-void pud_gemv_fp8_e5m2(
+void pud_gemv_intermatfirst_fp8_e5m2(
     const pud_fp8_e5m2_t *A,
     const pud_fp8_e5m2_t *x_duplicated,
     pud_fp8_e5m2_t *y,
@@ -1145,12 +1189,286 @@ void pud_gemv_fp8_e5m2(
 }
 
 
+
+/* -------------------------------------------------------------------------- */
+/* MIMDRAM-IntraMatFirst: local trees before residual-only forward merging     */
+/* -------------------------------------------------------------------------- */
+
+/*
+ * Full mats in one output use identical seven local stages in one range.
+ * A partial final mat uses the existing singleton irregular/tree helper.
+ * ADD's element_count below is the consumed prefix PER selected mat; physical
+ * arithmetic still covers full mat rows. Unconsumed lanes are not padded terms.
+ */
+
+__device__
+int8_t *pud_reduce_full_mat_range_int8(
+    int8_t *current_rows,
+    int8_t *alternate_rows,
+    int8_t *movement_rows,
+    int mat_begin,
+    int mat_end
+)
+{
+    for (int valid = MAT_SIZE; valid > HFFS_PER_MAT; valid /= 2) {
+        int half = valid / 2;
+        pud_mov_inside_mat_range(current_rows, half, movement_rows, 0,
+                                 half, sizeof(int8_t), mat_begin, mat_end);
+        pud_vector_add_int8(
+            current_rows + mat_begin * MAT_SIZE,
+            movement_rows + mat_begin * MAT_SIZE,
+            alternate_rows + mat_begin * MAT_SIZE,
+            half, mat_begin, mat_end);
+        int8_t *swap = current_rows;
+        current_rows = alternate_rows;
+        alternate_rows = swap;
+    }
+    return current_rows;
+}
+
+__global__
+void pud_gemv_intramatfirst_int8(
+    const int8_t *A,
+    const int8_t *x_duplicated,
+    int8_t *y,
+    int M,
+    int N,
+    int8_t *tmp_row,
+    int8_t *reduction_tmp_row,
+    int8_t *movement_tmp_row,
+    int temporary_elements_per_thread
+)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= M)
+        return;
+    int8_t *primary = tmp_row + i * temporary_elements_per_thread;
+    int8_t *reduction = reduction_tmp_row + i * temporary_elements_per_thread;
+    int8_t *movement = movement_tmp_row + i * temporary_elements_per_thread;
+    int8_t output_sum = 0;
+    for (int domain = 0; domain < CEIL_DIV(N, ELEMENTS_PER_REDUCTION_DOMAIN); domain++) {
+        int start = domain * ELEMENTS_PER_REDUCTION_DOMAIN;
+        int elements = MIN(N - start, ELEMENTS_PER_REDUCTION_DOMAIN);
+        int mats = CEIL_DIV(elements, MAT_SIZE);
+        int full_mats = elements / MAT_SIZE;
+        int last_valid = elements - (mats - 1) * MAT_SIZE;
+        pud_vector_mul_int8(A + i * N + start, x_duplicated + i * N + start,
+                                primary, elements, 0, mats - 1);
+
+        int8_t *local_rows[MATS_PER_REDUCTION_DOMAIN];
+        if (full_mats > 0) {
+            int8_t *rows = pud_reduce_full_mat_range_int8(
+                primary, reduction, movement, 0, full_mats - 1);
+            for (int mat = 0; mat < full_mats; mat++)
+                local_rows[mat] = rows;
+        }
+        int remaining = HFFS_PER_MAT;
+        if (last_valid < MAT_SIZE) {
+            local_rows[mats - 1] = pud_reduce_inside_mat_int8(
+                primary, reduction, movement, last_valid, mats - 1, &remaining);
+        }
+
+        int8_t *accumulator = local_rows[0];
+        for (int dst_mat = 1; dst_mat < mats; dst_mat++) {
+            int dst_offset = dst_mat * MAT_SIZE;
+            pud_mov(accumulator, (dst_mat - 1) * MAT_SIZE,
+                    movement, dst_offset, remaining, sizeof(int8_t));
+            int8_t *local = local_rows[dst_mat];
+            int8_t *alternate = (local == primary) ? reduction : primary;
+            pud_vector_add_int8(local + dst_offset, movement + dst_offset,
+                                    alternate + dst_offset, remaining, dst_mat, dst_mat);
+            accumulator = alternate;
+        }
+        int8_t domain_sum = 0;
+        for (int lane = 0; lane < remaining; lane++)
+            domain_sum = wrap_add_int8(domain_sum, accumulator[(mats - 1) * MAT_SIZE + lane]);
+        output_sum = wrap_add_int8(output_sum, domain_sum);
+    }
+    y[i] = output_sum;
+}
+
+
+__device__
+pud_fp8_e4m3_t *pud_reduce_full_mat_range_fp8_e4m3(
+    pud_fp8_e4m3_t *current_rows,
+    pud_fp8_e4m3_t *alternate_rows,
+    pud_fp8_e4m3_t *movement_rows,
+    int mat_begin,
+    int mat_end
+)
+{
+    for (int valid = MAT_SIZE; valid > HFFS_PER_MAT; valid /= 2) {
+        int half = valid / 2;
+        pud_mov_inside_mat_range(current_rows, half, movement_rows, 0,
+                                 half, sizeof(pud_fp8_e4m3_t), mat_begin, mat_end);
+        pud_vector_add_fp8_e4m3(
+            current_rows + mat_begin * MAT_SIZE,
+            movement_rows + mat_begin * MAT_SIZE,
+            alternate_rows + mat_begin * MAT_SIZE,
+            half, mat_begin, mat_end);
+        pud_fp8_e4m3_t *swap = current_rows;
+        current_rows = alternate_rows;
+        alternate_rows = swap;
+    }
+    return current_rows;
+}
+
+__global__
+void pud_gemv_intramatfirst_fp8_e4m3(
+    const pud_fp8_e4m3_t *A,
+    const pud_fp8_e4m3_t *x_duplicated,
+    pud_fp8_e4m3_t *y,
+    int M,
+    int N,
+    pud_fp8_e4m3_t *tmp_row,
+    pud_fp8_e4m3_t *reduction_tmp_row,
+    pud_fp8_e4m3_t *movement_tmp_row,
+    int temporary_elements_per_thread
+)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= M)
+        return;
+    pud_fp8_e4m3_t *primary = tmp_row + i * temporary_elements_per_thread;
+    pud_fp8_e4m3_t *reduction = reduction_tmp_row + i * temporary_elements_per_thread;
+    pud_fp8_e4m3_t *movement = movement_tmp_row + i * temporary_elements_per_thread;
+    pud_fp8_e4m3_t output_sum = 0;
+    for (int domain = 0; domain < CEIL_DIV(N, ELEMENTS_PER_REDUCTION_DOMAIN); domain++) {
+        int start = domain * ELEMENTS_PER_REDUCTION_DOMAIN;
+        int elements = MIN(N - start, ELEMENTS_PER_REDUCTION_DOMAIN);
+        int mats = CEIL_DIV(elements, MAT_SIZE);
+        int full_mats = elements / MAT_SIZE;
+        int last_valid = elements - (mats - 1) * MAT_SIZE;
+        pud_vector_mul_fp8_e4m3(A + i * N + start, x_duplicated + i * N + start,
+                                primary, elements, 0, mats - 1);
+
+        pud_fp8_e4m3_t *local_rows[MATS_PER_REDUCTION_DOMAIN];
+        if (full_mats > 0) {
+            pud_fp8_e4m3_t *rows = pud_reduce_full_mat_range_fp8_e4m3(
+                primary, reduction, movement, 0, full_mats - 1);
+            for (int mat = 0; mat < full_mats; mat++)
+                local_rows[mat] = rows;
+        }
+        int remaining = HFFS_PER_MAT;
+        if (last_valid < MAT_SIZE) {
+            local_rows[mats - 1] = pud_reduce_inside_mat_fp8_e4m3(
+                primary, reduction, movement, last_valid, mats - 1, &remaining);
+        }
+
+        pud_fp8_e4m3_t *accumulator = local_rows[0];
+        for (int dst_mat = 1; dst_mat < mats; dst_mat++) {
+            int dst_offset = dst_mat * MAT_SIZE;
+            pud_mov(accumulator, (dst_mat - 1) * MAT_SIZE,
+                    movement, dst_offset, remaining, sizeof(pud_fp8_e4m3_t));
+            pud_fp8_e4m3_t *local = local_rows[dst_mat];
+            pud_fp8_e4m3_t *alternate = (local == primary) ? reduction : primary;
+            pud_vector_add_fp8_e4m3(local + dst_offset, movement + dst_offset,
+                                    alternate + dst_offset, remaining, dst_mat, dst_mat);
+            accumulator = alternate;
+        }
+        pud_fp8_e4m3_t domain_sum = 0;
+        for (int lane = 0; lane < remaining; lane++)
+            domain_sum = pud_fp8_e4m3_scalar_add(domain_sum, accumulator[(mats - 1) * MAT_SIZE + lane]);
+        output_sum = pud_fp8_e4m3_scalar_add(output_sum, domain_sum);
+    }
+    y[i] = output_sum;
+}
+
+
+__device__
+pud_fp8_e5m2_t *pud_reduce_full_mat_range_fp8_e5m2(
+    pud_fp8_e5m2_t *current_rows,
+    pud_fp8_e5m2_t *alternate_rows,
+    pud_fp8_e5m2_t *movement_rows,
+    int mat_begin,
+    int mat_end
+)
+{
+    for (int valid = MAT_SIZE; valid > HFFS_PER_MAT; valid /= 2) {
+        int half = valid / 2;
+        pud_mov_inside_mat_range(current_rows, half, movement_rows, 0,
+                                 half, sizeof(pud_fp8_e5m2_t), mat_begin, mat_end);
+        pud_vector_add_fp8_e5m2(
+            current_rows + mat_begin * MAT_SIZE,
+            movement_rows + mat_begin * MAT_SIZE,
+            alternate_rows + mat_begin * MAT_SIZE,
+            half, mat_begin, mat_end);
+        pud_fp8_e5m2_t *swap = current_rows;
+        current_rows = alternate_rows;
+        alternate_rows = swap;
+    }
+    return current_rows;
+}
+
+__global__
+void pud_gemv_intramatfirst_fp8_e5m2(
+    const pud_fp8_e5m2_t *A,
+    const pud_fp8_e5m2_t *x_duplicated,
+    pud_fp8_e5m2_t *y,
+    int M,
+    int N,
+    pud_fp8_e5m2_t *tmp_row,
+    pud_fp8_e5m2_t *reduction_tmp_row,
+    pud_fp8_e5m2_t *movement_tmp_row,
+    int temporary_elements_per_thread
+)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= M)
+        return;
+    pud_fp8_e5m2_t *primary = tmp_row + i * temporary_elements_per_thread;
+    pud_fp8_e5m2_t *reduction = reduction_tmp_row + i * temporary_elements_per_thread;
+    pud_fp8_e5m2_t *movement = movement_tmp_row + i * temporary_elements_per_thread;
+    pud_fp8_e5m2_t output_sum = 0;
+    for (int domain = 0; domain < CEIL_DIV(N, ELEMENTS_PER_REDUCTION_DOMAIN); domain++) {
+        int start = domain * ELEMENTS_PER_REDUCTION_DOMAIN;
+        int elements = MIN(N - start, ELEMENTS_PER_REDUCTION_DOMAIN);
+        int mats = CEIL_DIV(elements, MAT_SIZE);
+        int full_mats = elements / MAT_SIZE;
+        int last_valid = elements - (mats - 1) * MAT_SIZE;
+        pud_vector_mul_fp8_e5m2(A + i * N + start, x_duplicated + i * N + start,
+                                primary, elements, 0, mats - 1);
+
+        pud_fp8_e5m2_t *local_rows[MATS_PER_REDUCTION_DOMAIN];
+        if (full_mats > 0) {
+            pud_fp8_e5m2_t *rows = pud_reduce_full_mat_range_fp8_e5m2(
+                primary, reduction, movement, 0, full_mats - 1);
+            for (int mat = 0; mat < full_mats; mat++)
+                local_rows[mat] = rows;
+        }
+        int remaining = HFFS_PER_MAT;
+        if (last_valid < MAT_SIZE) {
+            local_rows[mats - 1] = pud_reduce_inside_mat_fp8_e5m2(
+                primary, reduction, movement, last_valid, mats - 1, &remaining);
+        }
+
+        pud_fp8_e5m2_t *accumulator = local_rows[0];
+        for (int dst_mat = 1; dst_mat < mats; dst_mat++) {
+            int dst_offset = dst_mat * MAT_SIZE;
+            pud_mov(accumulator, (dst_mat - 1) * MAT_SIZE,
+                    movement, dst_offset, remaining, sizeof(pud_fp8_e5m2_t));
+            pud_fp8_e5m2_t *local = local_rows[dst_mat];
+            pud_fp8_e5m2_t *alternate = (local == primary) ? reduction : primary;
+            pud_vector_add_fp8_e5m2(local + dst_offset, movement + dst_offset,
+                                    alternate + dst_offset, remaining, dst_mat, dst_mat);
+            accumulator = alternate;
+        }
+        pud_fp8_e5m2_t domain_sum = 0;
+        for (int lane = 0; lane < remaining; lane++)
+            domain_sum = pud_fp8_e5m2_scalar_add(domain_sum, accumulator[(mats - 1) * MAT_SIZE + lane]);
+        output_sum = pud_fp8_e5m2_scalar_add(output_sum, domain_sum);
+    }
+    y[i] = output_sum;
+}
+
 /* -------------------------------------------------------------------------- */
 /* Example host setup                                                        */
 /* -------------------------------------------------------------------------- */
 
 int main()
 {
+    /* Select either explicit baseline; each launch below names its schedule. */
+    const PudGemvBaseline baseline = MIMDRAM_InterMatFirst;
     /*
      * Attention-score GEMV during decode.
      *
@@ -1254,17 +1572,31 @@ int main()
      * requirement handled by the compiler/OS; it is not passed as a kernel
      * pointer and is not initialized as a PuD object.
      */
-    pud_gemv_int8<<<gemv_blocks, THREADS_PER_BLOCK>>>(
-        A_int8,
-        x_duplicated_int8,
-        y_int8,
-        M,
-        N,
-        temporary_row_workspace_int8,
-        reduction_temporary_row_workspace_int8,
-        movement_temporary_row_workspace_int8,
-        temporary_elements_per_thread
-    );
+    if (baseline == MIMDRAM_InterMatFirst) {
+        pud_gemv_intermatfirst_int8<<<gemv_blocks, THREADS_PER_BLOCK>>>(
+            A_int8,
+            x_duplicated_int8,
+            y_int8,
+            M,
+            N,
+            temporary_row_workspace_int8,
+            reduction_temporary_row_workspace_int8,
+            movement_temporary_row_workspace_int8,
+            temporary_elements_per_thread
+        );
+    } else {
+        pud_gemv_intramatfirst_int8<<<gemv_blocks, THREADS_PER_BLOCK>>>(
+            A_int8,
+            x_duplicated_int8,
+            y_int8,
+            M,
+            N,
+            temporary_row_workspace_int8,
+            reduction_temporary_row_workspace_int8,
+            movement_temporary_row_workspace_int8,
+            temporary_elements_per_thread
+        );
+    }
 
 
     /* ---------------------------------------------------------------------- */
@@ -1328,17 +1660,31 @@ int main()
         N
     );
 
-    pud_gemv_fp8_e4m3<<<gemv_blocks, THREADS_PER_BLOCK>>>(
-        A_fp8_e4m3,
-        x_duplicated_fp8_e4m3,
-        y_fp8_e4m3,
-        M,
-        N,
-        temporary_row_workspace_fp8_e4m3,
-        reduction_temporary_row_workspace_fp8_e4m3,
-        movement_temporary_row_workspace_fp8_e4m3,
-        temporary_elements_per_thread
-    );
+    if (baseline == MIMDRAM_InterMatFirst) {
+        pud_gemv_intermatfirst_fp8_e4m3<<<gemv_blocks, THREADS_PER_BLOCK>>>(
+            A_fp8_e4m3,
+            x_duplicated_fp8_e4m3,
+            y_fp8_e4m3,
+            M,
+            N,
+            temporary_row_workspace_fp8_e4m3,
+            reduction_temporary_row_workspace_fp8_e4m3,
+            movement_temporary_row_workspace_fp8_e4m3,
+            temporary_elements_per_thread
+        );
+    } else {
+        pud_gemv_intramatfirst_fp8_e4m3<<<gemv_blocks, THREADS_PER_BLOCK>>>(
+            A_fp8_e4m3,
+            x_duplicated_fp8_e4m3,
+            y_fp8_e4m3,
+            M,
+            N,
+            temporary_row_workspace_fp8_e4m3,
+            reduction_temporary_row_workspace_fp8_e4m3,
+            movement_temporary_row_workspace_fp8_e4m3,
+            temporary_elements_per_thread
+        );
+    }
 
 
     /* ---------------------------------------------------------------------- */
@@ -1402,17 +1748,31 @@ int main()
         N
     );
 
-    pud_gemv_fp8_e5m2<<<gemv_blocks, THREADS_PER_BLOCK>>>(
-        A_fp8_e5m2,
-        x_duplicated_fp8_e5m2,
-        y_fp8_e5m2,
-        M,
-        N,
-        temporary_row_workspace_fp8_e5m2,
-        reduction_temporary_row_workspace_fp8_e5m2,
-        movement_temporary_row_workspace_fp8_e5m2,
-        temporary_elements_per_thread
-    );
+    if (baseline == MIMDRAM_InterMatFirst) {
+        pud_gemv_intermatfirst_fp8_e5m2<<<gemv_blocks, THREADS_PER_BLOCK>>>(
+            A_fp8_e5m2,
+            x_duplicated_fp8_e5m2,
+            y_fp8_e5m2,
+            M,
+            N,
+            temporary_row_workspace_fp8_e5m2,
+            reduction_temporary_row_workspace_fp8_e5m2,
+            movement_temporary_row_workspace_fp8_e5m2,
+            temporary_elements_per_thread
+        );
+    } else {
+        pud_gemv_intramatfirst_fp8_e5m2<<<gemv_blocks, THREADS_PER_BLOCK>>>(
+            A_fp8_e5m2,
+            x_duplicated_fp8_e5m2,
+            y_fp8_e5m2,
+            M,
+            N,
+            temporary_row_workspace_fp8_e5m2,
+            reduction_temporary_row_workspace_fp8_e5m2,
+            movement_temporary_row_workspace_fp8_e5m2,
+            temporary_elements_per_thread
+        );
+    }
 
     cudaDeviceSynchronize();
 

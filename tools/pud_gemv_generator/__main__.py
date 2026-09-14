@@ -1,4 +1,4 @@
-"""Generate one explicitly typed GEMV physical trace; CUDA is not runtime input."""
+"""Generate one explicit MIMDRAM GEMV baseline/format trace; CUDA is not runtime input."""
 import argparse
 from pathlib import Path
 from .generator import PROFILES, write_gemv

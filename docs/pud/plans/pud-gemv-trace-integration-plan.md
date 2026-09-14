@@ -4,6 +4,11 @@ Status: Complete. The user accepted the HFF-aligned positive-N domain on
 2026-09-14. WU1-WU4 gates and the final fresh-context audit passed. The
 integration milestone can be closed; no commit was made.
 
+Historical note: this completed plan preserves the integration milestone's
+profile, placement and execution descriptions and measurements. Its GEMV
+baseline policy is superseded by the [current Accepted contract](../decisions/pud-gemv-macro-contract.md)
+and [completed baseline plan](pud-gemv-baselines-plan.md).
+
 ## Authority and recovery
 
 Read `AGENTS.md`, the
@@ -74,7 +79,7 @@ not separate phases or commits. Recheck the decision gate before WU2.
 Trace fields must describe only the selected placement profile/context, ordered
 primitive type and row operands, explicit mat range(s), and movement groups,
 plus fields required by the current Request contract. The current `PUD_TRACE`
-encoding is defined by the [physical trace contract](../references/gpu-pud-gemv-programming-model.md#prototype-placement-and-physical-trace-contract);
+encoding is defined by the [physical trace contract](../references/gpu-pud-gemv-programming-model.md#baseline-placement-and-physical-trace-contract);
 no GEMV instruction, functional payload, or general compiler IR belongs
 in Ramulator. Callback-ordered execution must cover temporary-row reuse as well
 as arithmetic and movement dependencies.

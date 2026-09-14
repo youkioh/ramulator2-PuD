@@ -256,9 +256,11 @@ cmake -S . -B build
 cmake --build build --target _ramulator -j $(nproc)
 
 PYTHONPATH=python python3 -m tools.pud_operation_generator.requirements --out build/pud-gemv/generated
-PYTHONPATH=python python3 -m tools.pud_gemv_generator --profile int8-gemv --m 1 --n 516 --out build/pud-gemv
-PYTHONPATH=python python3 -m tools.pud_gemv_generator --profile fp8-e4m3-gemv --m 1 --n 516 --out build/pud-gemv
-PYTHONPATH=python python3 -m tools.pud_gemv_generator --profile fp8-e5m2-gemv --m 1 --n 516 --out build/pud-gemv
+for baseline in MIMDRAM-InterMatFirst MIMDRAM-IntraMatFirst; do
+  for format in int8 fp8-e4m3 fp8-e5m2; do
+    PYTHONPATH=python python3 -m tools.pud_gemv_generator --profile "$baseline-$format" --m 2 --n 516 --out build/pud-gemv
+  done
+done
 ```
 
 Each GEMV invocation writes `<profile>.layout.json` and `<profile>.trace`
@@ -269,18 +271,25 @@ dependency chain per output with its physical requests in completion order.
 Use `--m 2` or larger to generate multiple chains. Requirements can also be
 generated independently as shown above.
 
-The current generator uses the Accepted **mat-level parallelism characterization
-placement**, not the final GEMV baseline placement policy. Placement fills
-disjoint legal mat ranges before advancing through chips,
-banks, bank groups, subarrays, then row bands. M=2,N=12 uses mats 0/1 and
-M=2,N=516 uses ranges 0..1/2..3 in the same bank/subarray to isolate mat-level
-MIMD, intentionally excluding bank-level placement parallelism and SALP.
-Subarrays provide capacity fallback only: no SALP is modeled or assumed.
-The actual baseline evaluation policy will be defined separately with the
-[BLP expectation](decisions/pud-gemv-output-placement.md) recorded in the decision.
-Layout schema 3 records each domain's physical `mat_begin`; regenerate older
-layouts for the current functional replay. See the
-[placement contract](references/gpu-pud-gemv-programming-model.md#prototype-placement-and-physical-trace-contract).
+The only active schedules are **MIMDRAM-InterMatFirst** (full-vector forward
+GB-MOV/ADD, then the sink's LC-MOV/ADD tree) and **MIMDRAM-IntraMatFirst**
+(local LC-MOV/ADD trees first, then residual-only forward GB-MOV/ADD).
+Each supports `int8`, `fp8-e4m3`, and `fp8-e5m2`, yielding the six exact
+`--profile` values constructed above. The generic profiles `int8-gemv`,
+`fp8-e4m3-gemv`, and `fp8-e5m2-gemv` are rejected; no aliases or old
+placement modes remain. FP8 profiles are validated against their own schedule
+graphs; the two orders need not produce equal results.
+
+Both use identical [Accepted BLP-first placement](decisions/pud-gemv-macro-contract.md):
+all bank-group/bank pairs before another legal K-mat range slot, then chip,
+subarray capacity fallback and row-band capacity fallback. M=2,N=12 uses
+bank0/mat0 and bank1/mat0; M=2,N=516 uses bank0/mats0..1 and bank1/mats0..1.
+Subarrays provide capacity only; no SALP is modeled or assumed. Each output
+reserves its maximum domain K and each domain uses the required prefix.
+No ranged operation combines different outputs. Layout schema 4 records the
+explicit baseline, arithmetic format and placement policy, alongside each
+domain's physical `mat_begin`. Regenerate older layouts/traces. See the
+[placement contract](references/gpu-pud-gemv-programming-model.md#baseline-placement-and-physical-trace-contract).
 
 Use the one-rank `memory_system` component tree from
 [Canonical configuration](#canonical-configuration), with `import ramulator`.
@@ -289,7 +298,7 @@ Run this Python code in the same environment with `PYTHONPATH=python`:
 ```python
 frontend = ramulator.frontend.PuDTrace(
     clock_ratio=1,
-    path="build/pud-gemv/int8-gemv.trace",
+    path="build/pud-gemv/MIMDRAM-InterMatFirst-int8.trace",
 )
 sim = ramulator.Simulation(frontend, memory_system)
 sim.run()
@@ -299,7 +308,7 @@ print(stats["frontend"])
 print(stats["memory_system"]["controller"])
 ```
 
-Select either FP8 trace by changing `path`. Frontend counters
+Select another explicit baseline/format trace by changing `path`. Frontend counters
 `physical_requests_submitted`, `physical_requests_completed`, and
 `physical_command_occurrences_completed` show stream execution; compare the
 request counts with the layout's `request_count` and `request_counts`.
@@ -311,7 +320,7 @@ Controller counters are described under [Statistics](#statistics).
 [Command traces and latency](#command-traces-and-latency) for its output.
 
 PuDTrace reads `PUD_TRACE` with `CHAIN <id>` selections, as defined in the
-[physical trace contract](references/gpu-pud-gemv-programming-model.md#prototype-placement-and-physical-trace-contract).
+[physical trace contract](references/gpu-pud-gemv-programming-model.md#baseline-placement-and-physical-trace-contract).
 The frontend treats IDs as opaque dependency identities. It permits one
 outstanding Request per chain and releases the next only on full completion.
 Its fair ready queue makes at most one send attempt per frontend tick, rotating
@@ -323,9 +332,12 @@ Request stream, **not full end-to-end GEMV latency**. GPU launch/x duplication,
 transposition, readout/conversion, and residual/domain final combination remain
 excluded, including readout before workspace reuse. Static placement and the
 controller/substrate's timing and resource conflicts still constrain overlap.
-Controlled same-bank/same-subarray characterization evidence and its LC/GB
-serialization are in the [output placement plan](plans/pud-gemv-output-placement-plan.md).
-These measurements do not establish the final GEMV evaluation baseline's performance.
+The [baseline plan](plans/pud-gemv-baselines-plan.md) reports compute primitive,
+LC-MOV, GB-MOV and total physical Request counts, controller cycles and peak
+inflight for both baselines under identical placement. Repeat with `--n 12`
+for the focused K=1 case. Cycles are performance evidence, not a fixed oracle.
+Historical same-bank characterization remains in its completed plan and is
+not an active evaluation policy.
 
 ## Command traces and latency
 

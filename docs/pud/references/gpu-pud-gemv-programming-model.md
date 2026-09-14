@@ -11,17 +11,17 @@ PRADA source facts. The
 [MIMDRAM mapping/reduction reference](mimdram-data-mapping-and-vector-reduction.md)
 separately records those papers' mechanisms and evidence limits.
 
-The `.cu` preserves the reviewed INT8, FP8-E4M3, and FP8-E5M2 specification.
+The `.cu` specifies both accepted baselines for INT8, FP8-E4M3 and FP8-E5M2.
 It is specification code, not a required build target: operation interfaces
 are declarations. The operation generator emits the requirements header.
 Repository recovery uses this source and its summary together.
 
-The [prototype Python GEMV macro generator](../../../tools/pud_gemv_generator/generator.py)
+The [Python GEMV macro generator](../../../tools/pud_gemv_generator/generator.py)
 implements the same semantics directly, without parsing CUDA or using the `.cu`
 as runtime input. It emits physical primitive and movement requests for the
 existing unified substrate. The GPU interfaces remain specification declarations.
 The
-[integration plan](../plans/pud-gemv-trace-integration-plan.md) tracks that work.
+[baseline plan](../plans/pud-gemv-baselines-plan.md) tracks that work.
 
 The [Accepted macro contract](../decisions/pud-gemv-macro-contract.md) requires
 N > 0 and N divisible by HFFS_PER_MAT (four). N need not be divisible by
@@ -73,12 +73,18 @@ truncation operation. Each FP8 interface uses its corresponding
 including its bounded numerical domain and approximation/truncation behavior;
 this specification adds no rounding or special-value policy.
 
-The separate `pud_gemv_int8`, `pud_gemv_fp8_e4m3`, and
-`pud_gemv_fp8_e5m2` GPU kernels are **PuD macro-operation interfaces**,
-corresponding to prototype profiles `int8-gemv`, `fp8-e4m3-gemv`, and
-`fp8-e5m2-gemv`. Each takes typed A, duplicated x, and y pointers; M and N;
-`tmp_row`, `reduction_tmp_row`, `movement_tmp_row`; and
-`temporary_elements_per_thread`. One GPU thread computes one y[i].
+The six explicit GPU kernels are **PuD macro-operation interfaces**:
+
+| Baseline | INT8 CLI profile | FP8-E4M3 CLI profile | FP8-E5M2 CLI profile |
+| --- | --- | --- | --- |
+| MIMDRAM-InterMatFirst | `MIMDRAM-InterMatFirst-int8` | `MIMDRAM-InterMatFirst-fp8-e4m3` | `MIMDRAM-InterMatFirst-fp8-e5m2` |
+| MIMDRAM-IntraMatFirst | `MIMDRAM-IntraMatFirst-int8` | `MIMDRAM-IntraMatFirst-fp8-e4m3` | `MIMDRAM-IntraMatFirst-fp8-e5m2` |
+
+The corresponding kernels are `pud_gemv_intermatfirst_{int8,fp8_e4m3,fp8_e5m2}`
+and `pud_gemv_intramatfirst_{int8,fp8_e4m3,fp8_e5m2}`. Each takes typed A,
+duplicated x, and y pointers; M and N; `tmp_row`, `reduction_tmp_row`,
+`movement_tmp_row`; and `temporary_elements_per_thread`. One GPU thread computes
+one y[i]. Generic GEMV profiles and old placement aliases are removed.
 
 E4M3 and E5M2 remain separate public operations and macros. Shared internal
 implementation does not replace these with a generic FP8-plus-format API.
@@ -162,8 +168,9 @@ bit-plane, not four complete values. Group selectors and movement legality
 come from the existing location authority; the logical offsets do not
 authorize arbitrary physical shifts or partial-group writes.
 
-For each output, process domains in increasing input-index order. Within
-each domain:
+For each output, process domains in increasing input-index order.
+**MIMDRAM-InterMatFirst** uses the Figure-6-style adaptation below within each
+domain, preserving the previous physical reduction order:
 
 1. Let L be its valid element count, K=`ceil(L/512)`, and
    v=`L - (K-1)*512`. Multiply its A and duplicated-x elements into the
@@ -189,8 +196,30 @@ governs low-to-high GB-MOV and the highest reachable sink. Domains remain
 separate across unsupported chip/connectivity boundaries; no reverse,
 wraparound, or cross-chip GB path is implied.
 
+**MIMDRAM-IntraMatFirst** uses this schedule within each domain:
+
+1. Multiply the domain's A and duplicated x over its participating K-mat range.
+2. Apply the local tree below to each mat's valid products. The full-mat prefix
+   uses `pud_reduce_full_mat_range_*`: seven identical local stages over one
+   range within this output. A partial final mat uses the existing singleton
+   helper with its own valid count. No padding is used.
+3. Starting at the first mat, move only its four residuals into the next mat's
+   movement workspace. ADD that destination's local residuals as the left
+   operand and the moved accumulator as the right operand. Write the opposite
+   primary/reduction workspace from the destination's local result, preserving
+   distinct input/output rows. Repeat forward to the highest participating mat.
+4. Perform the same GPU residual/domain combine. No additional sink tree follows
+   the residual merge.
+
+`pud_mov_inside_mat_range` in the specification is a spelling of Accepted
+ranged LC-MOV: one invocation per bit plane/group copies independently within
+each selected mat, with common rows and selectors. It adds no DRAM operation.
+Ranged arithmetic also acts on whole mat rows, even though only the stated
+prefix per mat is consumed. Ranged operations are confined to one GEMV output;
+each output retains its own dependency chain.
+
 The three `pud_reduce_inside_mat_*` helpers use this exact graph, with offsets
-relative to the sink mat and corresponding typed operations:
+relative to the selected mat and corresponding typed operations:
 
 ```text
 current, alternate, movement = the three distinct workspace roles
@@ -243,28 +272,31 @@ Ramulator does not interpret GEMV or hold functional payload values.
 
 The [Accepted completion boundary](../decisions/mimdram-substrate-and-movement-request-boundary.md)
 places GPU/host readout, conversion, and final arithmetic outside PuD substrate
-timing. The programming model does not assign these costs. Functional
-composition validation must follow this complete graph for each explicit
-profile, without claiming complete OFP8 arithmetic beyond the operation
-generator's documented scope.
+timing. The programming model does not assign these costs. FP8 addition is
+non-associative, so the baselines can return different results. Functional
+composition validates each explicit profile against its own complete scalar
+graph. Cross-baseline FP8 equality and model-accuracy evaluation are outside
+this milestone; the operation generator's documented numerical scope remains.
 
-## Prototype placement and physical trace contract
+## Baseline placement and physical trace contract
 
 Build, generation, and execution instructions are in the
 [DDR4 PuD user guide](../ddr4-pud-user-guide.md#gemv-trace-generation-and-execution).
 
-The deterministic one-rank layout implements the Accepted
-[mat-level parallelism characterization placement](../decisions/pud-gemv-output-placement.md),
-not the final GEMV baseline placement policy. Its enumeration is:
-disjoint legal K-mat range, chip, bank, bank group, subarray, then row band.
+Both baselines use the same deterministic one-rank
+[Accepted BLP-first placement](../decisions/pud-gemv-macro-contract.md).
+Its fastest-to-slowest enumeration is bank within group, bank group, legal
+K-mat range slot within chip, chip, subarray, then row band. All banks consume
+one slot before the next slot in any bank. The generator checks each required
+forward edge against the existing profile and never crosses chip boundaries.
+
 Each domain uses K=`ceil(elements_this_domain/512)` forward-connected mats;
 an output reserves the maximum domain K and reuses that range's prefix across
-its sequential domains. M=2,N=12 uses mats 0 and 1; M=2,N=516 uses ranges
-0..1 and 2..3, all in the same bank/subarray. These experiments isolate
-mat-level MIMD by intentionally excluding bank-level placement parallelism and
-SALP. The actual baseline evaluation policy will be defined separately under
-the decision's BLP expectation. Subarrays supply static capacity fallback only; SALP under the
-open-bitline organization is undecided and is neither modeled nor assumed.
+its sequential domains. M=2,N=12 uses bank0/mat0 and bank1/mat0; M=2,N=516
+uses bank0/mats0..1 and bank1/mats0..1, all in subarray0. After disjoint slots
+are exhausted across all banks, another subarray supplies capacity; after all
+subarrays, another row band supplies capacity. Neither creates an independent
+same-bank execution resource. No SALP is modeled or assumed.
 
 Each output's row band within its reserved range holds all input domains,
 three eight-row macro workspaces, protected constants, and the generated
@@ -342,13 +374,16 @@ combination remain outside this timing boundary. External domain readout before
 workspace reuse still has no modeled cost. Static placement capacity and the
 accepted engine, mat, subarray, Bank movement, command-bus and timing constraints
 remain authoritative. A peak above one establishes outstanding-request overlap,
-not necessarily simultaneous command execution on conflicting resources. See the
-[output placement plan](../plans/pud-gemv-output-placement-plan.md) for controlled
-same-bank/same-subarray characterization evidence and its remaining movement
-serialization; these measurements do not establish the final baseline's performance.
+not necessarily simultaneous command execution on conflicting resources.
+The [baseline plan](../plans/pud-gemv-baselines-plan.md) records the identical
+placement/configuration comparison. The completed characterization plan retains
+only historical same-bank evidence.
 
-Layout metadata schema 3 adds per-domain `mat_begin`, the physical logical-mat
-origin; `mat_count` gives the active prefix length and `sink_mat` its final mat.
+Layout metadata schema 4 identifies `baseline`, `arithmetic_format` and
+`output_placement: BLP-first`, with an explicit `macro_profile`. Regenerate old
+artifacts; replay does not support generic profile aliases. Per-domain
+`mat_begin` remains the physical logical-mat origin; `mat_count` gives the active
+prefix length and `sink_mat` its final mat.
 Replay must use this origin rather than initializing every output at mat zero.
 The existing explicit temporary-row scope names remain:
 `micro_operation_requirements`, `micro_operation_counts`,

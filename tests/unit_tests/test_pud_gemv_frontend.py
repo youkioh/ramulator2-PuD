@@ -1,5 +1,6 @@
 """Thin frontend integration over the existing unified-substrate test setup."""
 import csv
+import json
 from collections import Counter
 import pytest
 import ramulator
@@ -8,6 +9,19 @@ from ramulator.dram.spec import REQUEST_TYPE_IDS
 from tools.pud_gemv_generator.generator import PROFILES, _output_placement, placement_profile, write_gemv
 from tests.unit_tests.test_pud_request_locations import controller
 from tests.unit_tests.test_pud_location import resolver
+
+
+def report_baseline(metadata, stats):
+    counts = metadata["request_counts"]
+    result = dict(profile=metadata["macro_profile"], M=metadata["M"], N=metadata["N"],
+                  placement=[dict(context=r["context"], first=d["mat_begin"],
+                                  last=d["sink_mat"]) for r in metadata["outputs"] for d in r["domains"]],
+                  compute=sum(v for k, v in counts.items() if k not in ("LC-MOV", "GB-MOV")),
+                  LC=counts.get("LC-MOV", 0), GB=counts.get("GB-MOV", 0),
+                  requests=metadata["request_count"],
+                  cycles=stats["memory_system"]["controller"]["cycles"],
+                  peak=stats["frontend"]["physical_requests_peak_inflight"])
+    print("BASELINE_RESULT " + json.dumps(result))
 
 
 def simulation(path, recorder=None, install=True):
@@ -116,19 +130,20 @@ def test_empty_and_missing_resolver(tmp_path):
         simulation(path, install=False)
 
 
-def assert_generated_mat_overlap(metadata, physical, commands, k):
-    assert [r["context"] for r in metadata["outputs"]] == [[0, 0, 0, 0]] * 2
-    assert [r["domains"][0]["mat_begin"] for r in metadata["outputs"]] == [0, k]
+def assert_generated_bank_overlap(metadata, physical, commands, k):
+    assert [r["context"] for r in metadata["outputs"]] == [[0, 0, 0, bank] for bank in (0, 1)]
+    assert [r["domains"][0]["mat_begin"] for r in metadata["outputs"]] == [0, 0]
     assert all(d["mat_count"] == k for r in metadata["outputs"] for d in r["domains"])
     end = metadata["outputs"][0]["domains"][-1]["completion_index"]
-    for start, first in ((0, 0), (end, k)):
+    for start, bank in ((0, 0), (end, 1)):
         fields = physical[start].split()
-        assert fields[:7] == ["RowCopy", "0", "0", "0", "0", str(first), str(first+k-1)]
-    assert all([int(c[level]) for level in ("Channel", "Rank", "BankGroup", "Bank")] == [0]*4
+        assert fields[:7] == ["RowCopy", "0", "0", "0", str(bank), "0", str(k-1)]
+    assert all([int(c[level]) for level in ("Channel", "Rank", "BankGroup")] == [0]*3
+               and int(c["Bank"]) in (0, 1)
                and int(c["Row"]) < 1024 for c in commands)
     # Both chains' first Requests are single-destination RowCopy. With one
     # outstanding Request per chain, two source ACTs before either PRE prove
-    # that the generated disjoint compute ranges execute concurrently.
+    # that the generated bank-striped outputs execute concurrently.
     first_pre = next(i for i, c in enumerate(commands) if c["command"] == "PREpb")
     starts = [int(c["clock"]) for c in commands[:first_pre]
               if c["command"] == "ACT_PUD_S_OC"]
@@ -160,7 +175,8 @@ def test_generated_chains_preserve_stream_and_overlap(tmp_path, profile):
     with open(str(recorder)+".ch0") as stream:
         commands = list(csv.DictReader(stream))
     assert len(commands) == front["physical_command_occurrences_completed"]
-    assert_generated_mat_overlap(metadata, physical, commands, 1)
+    assert_generated_bank_overlap(metadata, physical, commands, 1)
+    report_baseline(metadata, stats)
     for opcode, count in metadata["request_counts"].items():
         name = opcode.lower().replace("-mov", "mov")
         assert stats["memory_system"][f"total_num_pud_{name}_requests"] == count
@@ -181,11 +197,12 @@ def test_generated_chains_preserve_stream_and_overlap(tmp_path, profile):
           stats["memory_system"]["controller"]["cycles"], "peak", front["physical_requests_peak_inflight"])
 
 
-def test_generated_neighbor_ranges_execute_concurrently(tmp_path):
-    metadata, path = write_gemv("int8-gemv", 2, 516, tmp_path)
+@pytest.mark.parametrize("profile", PROFILES)
+def test_generated_neighbor_ranges_execute_concurrently(tmp_path, profile):
+    metadata, path = write_gemv(profile, 2, 516, tmp_path)
     physical = [line for line in path.read_text().splitlines()[3:] if not line.startswith("CHAIN ")]
-    assert {(int(f[5]), int(f[6])) for line in physical
-            if (f := line.split())[0] == "GB-MOV"} == {(0, 1), (2, 3)}
+    assert {(int(f[4]), int(f[5]), int(f[6])) for line in physical
+            if (f := line.split())[0] == "GB-MOV"} == {(0, 0, 1), (1, 0, 1)}
     recorder = tmp_path / "ranges.csv"
     sim = simulation(path, recorder)
     sim.run()
@@ -193,14 +210,31 @@ def test_generated_neighbor_ranges_execute_concurrently(tmp_path):
     sim.finalize()
     with open(str(recorder)+".ch0") as stream:
         commands = list(csv.DictReader(stream))
-    assert_generated_mat_overlap(metadata, physical, commands, 2)
+    assert_generated_bank_overlap(metadata, physical, commands, 2)
     front = stats["frontend"]
     assert front["physical_requests_submitted"] == front["physical_requests_completed"] == metadata["request_count"]
     assert front["physical_command_occurrences_completed"] == len(commands)
     assert front["physical_requests_peak_inflight"] == 2
+    for opcode, count in metadata["request_counts"].items():
+        name = opcode.lower().replace("-mov", "mov")
+        assert stats["memory_system"]["controller"][f"num_pud_{name}_reqs_completed"] == count
+    report_baseline(metadata, stats)
 
 
-@pytest.mark.parametrize("index", [0, 8, 64, 256, 1024, 65536, 17*65536-1])
+@pytest.mark.parametrize("profile", [p for p in PROFILES if "IntraMatFirst" in p])
+def test_generated_ranged_local_reduction(tmp_path, profile):
+    metadata, path = write_gemv(profile, 2, 1024, tmp_path)
+    sim = simulation(path)
+    sim.run()
+    stats = sim.stats
+    sim.finalize()
+    assert stats["frontend"]["physical_requests_completed"] == metadata["request_count"]
+    counts = metadata["request_counts"]
+    assert stats["memory_system"]["controller"]["pud_lcmov_moved_bits"] == counts["LC-MOV"]*2*4
+    assert stats["memory_system"]["controller"]["pud_gbmov_moved_bits"] == counts["GB-MOV"]*4
+
+
+@pytest.mark.parametrize("index", [0, 1, 4, 15, 16, 128, 1024, 65536, 17*65536-1])
 def test_placement_context_requests_resolve_and_complete(tmp_path, index):
     context, subarray, base, mats = _output_placement(placement_profile(), 2, 60, index)
     row = subarray*1024 + base

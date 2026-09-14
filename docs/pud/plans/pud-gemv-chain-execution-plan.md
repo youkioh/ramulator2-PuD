@@ -3,6 +3,11 @@
 Status: Complete. One phase, four work units and the final fresh-context audit
 passed. No commit made.
 
+Historical note: this completed plan preserves the chain-execution milestone's
+profile, placement and execution descriptions and measurements. Its GEMV
+baseline policy is superseded by the [current Accepted contract](../decisions/pud-gemv-macro-contract.md)
+and [completed baseline plan](pud-gemv-baselines-plan.md).
+
 ## Authority and focused audit
 
 Recover the [canonical CUDA specification](../references/gpu-pud-gemv-programming-model.cu),
