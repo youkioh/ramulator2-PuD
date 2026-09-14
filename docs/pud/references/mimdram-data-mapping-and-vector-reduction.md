@@ -405,8 +405,8 @@ The paper does not define any of the following for this project:
 
 - a PRADA INT8 or FP8 primitive sequence;
 - an E4M3 FP8 GEMV arithmetic or reduction mapping;
-- exact operand, scratch, carry, result, or temporary-row allocation for this
-  project's generated ADD/MUL programs;
+- exact operand, carry, result, or temporary-row allocation for this project's
+  generated ADD/MUL programs;
 - exact Llama or other GEMV workload dimensions and placement;
 - a project-specific host read/write amplification or traffic-accounting model;
 - accumulator precision, rounding, overflow, or other INT8/FP8 numerical

@@ -133,7 +133,7 @@ No refresh deadline admission, deferral-credit, retention guarantee, pause/resum
 or scope-aware priority bypass is added.
 
 Dependent macro operations must wait for all required producer completions,
-including destructive-operand/scratch reuse. Submission order and conflict
+including destructive-operand/temporary-row reuse. Submission order and conflict
 exclusion alone do not establish dependencies. No dependency-graph scheduler
 or earliest electrical data-visibility claim is introduced.
 

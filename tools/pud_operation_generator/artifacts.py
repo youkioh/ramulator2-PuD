@@ -75,6 +75,7 @@ def physical_layout_record(layout):
         "inputs": dict(layout.inputs),
         "constants": dict(layout.constants),
         "outputs": dict(layout.outputs),
+        **({"temporary_rows": list(layout.temporary_rows)} if layout.temporary_rows is not None else {}),
     }
 
 

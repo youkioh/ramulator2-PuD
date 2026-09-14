@@ -74,18 +74,25 @@ class NormalizedProgram:
 
 @dataclass(frozen=True)
 class PhysicalRowLayout:
-    """Exact caller-designated local rows within one execution context."""
+    """Exact caller-designated local rows within one execution context.
+
+    temporary_rows selects exactly the PuD micro-operation-level temporary rows
+    required by this lowering; its length must equal additional_temporary_rows.
+    """
 
     local_row_count: int
     inputs: Mapping[str, int]
     constants: Mapping[str, int]
     outputs: Mapping[str, int]
     work: Mapping[str, int] | None = None
+    temporary_rows: tuple[int, ...] | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "inputs", MappingProxyType(dict(self.inputs)))
         object.__setattr__(self, "constants", MappingProxyType(dict(self.constants)))
         object.__setattr__(self, "outputs", MappingProxyType(dict(self.outputs)))
+        if self.temporary_rows is not None:
+            object.__setattr__(self, "temporary_rows", tuple(self.temporary_rows))
         object.__setattr__(
             self, "work", MappingProxyType({} if self.work is None else dict(self.work))
         )
@@ -100,7 +107,7 @@ class PhysicalAllocation:
     identity_bindings: tuple[tuple[str, int], ...]
     work_abstract_colors: tuple[tuple[str, int], ...]
     color_to_local_row: tuple[tuple[int, int], ...]
-    additional_scratch_rows: int
+    additional_temporary_rows: int
     designated_rows: int
     physical_footprint_rows: int
     peak_live_identities: int
@@ -172,10 +179,11 @@ class PhysicalLoweredProgram:
     result_bindings: tuple[ResultBinding, ...]
     removed_exports: tuple[RemovedExport, ...]
     local_row_count: int
-    additional_scratch_rows: int
+    additional_temporary_rows: int
     designated_rows: int
     physical_footprint_rows: int
     peak_live_identities: int
+    temporary_rows: tuple[int, ...] | None = None
 
     @property
     def bindings(self) -> dict[str, int]:
@@ -184,7 +192,7 @@ class PhysicalLoweredProgram:
     @property
     def metrics(self) -> dict[str, int]:
         return {
-            "additional_scratch_rows": self.additional_scratch_rows,
+            "additional_temporary_rows": self.additional_temporary_rows,
             "designated_rows": self.designated_rows,
             "physical_footprint_rows": self.physical_footprint_rows,
             "peak_live_identities": self.peak_live_identities,
@@ -192,7 +200,7 @@ class PhysicalLoweredProgram:
 
     def to_dict(self) -> dict:
         return {
-            "schema_version": 1,
+            "schema_version": 2,
             "kind": "pud-physical-lowered-program",
             "local_row_count": self.local_row_count,
             "local_row_scope": (
@@ -220,11 +228,12 @@ class PhysicalLoweredProgram:
             ],
             "lowered_primitives": [item.to_dict() for item in self.primitives],
             "allocation_metrics": self.metrics,
+            "temporary_rows": None if self.temporary_rows is None else list(self.temporary_rows),
         }
 
     @classmethod
     def from_dict(cls, value: Mapping) -> "PhysicalLoweredProgram":
-        if value.get("schema_version") != 1 or value.get("kind") != "pud-physical-lowered-program":
+        if value.get("schema_version") != 2 or value.get("kind") != "pud-physical-lowered-program":
             raise PhysicalLoweringError("unsupported physical-lowered artifact schema")
         designated = value["designated_bindings"]
         metrics = value["allocation_metrics"]
@@ -249,10 +258,11 @@ class PhysicalLoweredProgram:
                 for item in value["removed_terminal_exports"]
             ),
             local_row_count=value["local_row_count"],
-            additional_scratch_rows=metrics["additional_scratch_rows"],
+            additional_temporary_rows=metrics["additional_temporary_rows"],
             designated_rows=metrics["designated_rows"],
             physical_footprint_rows=metrics["physical_footprint_rows"],
             peak_live_identities=metrics["peak_live_identities"],
+            temporary_rows=None if value.get("temporary_rows") is None else tuple(value["temporary_rows"]),
         )
 
 
@@ -611,19 +621,31 @@ def allocate_physical_rows(
         | set(layout.constants.values())
         | set(layout.outputs.values())
     )
-    scratch_colors = [color for color in range(color_count) if color not in color_rows]
-    eligible_rows = (
-        row
-        for row in range(layout.local_row_count)
-        if row not in designated_physical_rows
-    )
-    for color in scratch_colors:
+    temporary_colors = [color for color in range(color_count) if color not in color_rows]
+    if layout.temporary_rows is None:
+        eligible_rows = (
+            row for row in range(layout.local_row_count)
+            if row not in designated_physical_rows
+        )
+    else:
+        rows = layout.temporary_rows
+        if any(type(row) is not int or not 0 <= row < layout.local_row_count for row in rows):
+            raise PhysicalLoweringError("temporary_rows must contain in-range integer local rows")
+        if len(set(rows)) != len(rows) or set(rows) & designated_physical_rows:
+            raise PhysicalLoweringError("temporary_rows must be distinct and disjoint from designations")
+        if len(rows) != len(temporary_colors):
+            raise PhysicalLoweringError(
+                f"temporary_rows must contain exactly {len(temporary_colors)} "
+                f"PuD micro-operation-level temporary rows; got {len(rows)}"
+            )
+        eligible_rows = iter(rows)
+    for color in temporary_colors:
         try:
             color_rows[color] = next(eligible_rows)
         except StopIteration as error:
             raise PhysicalLoweringError(
-                f"insufficient local-row capacity: need {len(scratch_colors)} "
-                "additional scratch rows after caller designations"
+                f"insufficient local-row capacity: need {len(temporary_colors)} "
+                "additional temporary rows after caller designations"
             ) from error
 
     protected_bindings = {
@@ -636,11 +658,11 @@ def allocate_physical_rows(
     bindings = {**protected_bindings, **work_bindings}
     output_count = len(normalized.outputs)
     protected_count = len(normalized.protected_identities)
-    additional_scratch = color_count - output_count
+    additional_temporary = color_count - output_count
     designated_count = protected_count + output_count
     footprint = len(set(bindings.values()))
     peak_live = protected_count + work_depth
-    if additional_scratch < 0:
+    if additional_temporary < 0:
         raise AssertionError("more output producers than work colors")
     if footprint != protected_count + color_count or peak_live != footprint:
         raise AssertionError("physical allocation metric invariant failed")
@@ -651,7 +673,7 @@ def allocate_physical_rows(
         identity_bindings=tuple(sorted(bindings.items())),
         work_abstract_colors=tuple(sorted(identity_colors.items())),
         color_to_local_row=tuple(sorted(color_rows.items())),
-        additional_scratch_rows=additional_scratch,
+        additional_temporary_rows=additional_temporary,
         designated_rows=designated_count,
         physical_footprint_rows=footprint,
         peak_live_identities=peak_live,
@@ -705,8 +727,9 @@ def lower_to_physical(
         result_bindings=result_bindings,
         removed_exports=normalized.removed_exports,
         local_row_count=layout.local_row_count,
-        additional_scratch_rows=allocation.additional_scratch_rows,
+        additional_temporary_rows=allocation.additional_temporary_rows,
         designated_rows=allocation.designated_rows,
         physical_footprint_rows=allocation.physical_footprint_rows,
         peak_live_identities=allocation.peak_live_identities,
+        temporary_rows=layout.temporary_rows,
     )

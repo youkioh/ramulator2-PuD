@@ -515,7 +515,7 @@ in the generator [README](../../../tools/pud_operation_generator/README.md).
   participants by copying zero to `C`, `A` to `X`, and `B` to `Y`, then invokes
   `TRA(X,Y,C)`. This is a source-supported operation sequence using three
   writable participant rows; the checked-in material does not claim that it is
-  a globally minimum scratch-row allocation.
+  a globally minimum temporary-row allocation.
 
 - **Source fact.** The generator README attributes its UINT8 addition
   structure to PRADA Section 5.2/Table 2, its multiplication structure to
@@ -545,7 +545,7 @@ in the generator [README](../../../tools/pud_operation_generator/README.md).
   designated compute rows and its any-row compute capability as source-backed
   eligibility. That fact does not determine this project's legal allocation
   pool, protection and precoloring contract, placement restrictions, or a
-  scratch-row minimum for any generated profile.
+  temporary-row minimum for any generated profile.
 
 ## 7. Derived validation requirements
 

@@ -33,15 +33,15 @@ One symbolic-to-local-row binding applies uniformly across the selected
 
 Every input symbolic row has a caller-provided designated physical row. Inputs
 are precolored to those rows and protected for the complete operation. The
-allocator must not reuse an input row as scratch, including after that input's
-final arithmetic read. This preserves the current generator contract and
+allocator must not reuse an input row as a temporary row, including after
+that input's final arithmetic read. This preserves the current generator contract and
 permits later macro operations to reuse operands.
 
 ## Constants
 
 Every declared `CONST_ZERO` or `CONST_ONE` symbolic row has a designated
 physical row. Declared constants are precolored to those rows and protected
-for the complete operation; their rows are not part of the reusable scratch
+for the complete operation; their rows are not part of the reusable temporary-row
 pool. This decision does not prescribe how a higher-level runtime initializes
 or shares constant rows across separate operation invocations.
 
@@ -138,14 +138,14 @@ constants, and designated outputs.
 The primary objective is:
 
 ```text
-minimize additional scratch physical rows
+minimize additional PuD micro-operation-level temporary rows
 ```
 
 subject to all precoloring, protection, lifetime, placement-capacity, and
 primitive-legality constraints above. Report these quantities separately:
 
-1. `additional_scratch_rows`: physical local rows required beyond the
-   caller-provided designated input, constant, and output rows.
+1. `additional_temporary_rows`: PuD micro-operation-level temporary rows required
+   beyond the caller-provided designated input, constant, and output rows.
 2. `designated_rows`: the number of unique caller-provided input, constant,
    and output physical rows.
 3. `physical_footprint_rows`: the number of unique physical local-row numbers
@@ -153,7 +153,7 @@ primitive-legality constraints above. Report these quantities separately:
 4. `peak_live_identities`: the maximum number of simultaneously live symbolic
    identities under this lifetime contract.
 
-Do not equate `peak_live_identities` with the optimal scratch requirement when
+Do not equate `peak_live_identities` with the optimal temporary-row requirement when
 precoloring constraints are present. Do not claim a global minimum across
 variants that permit reordering, recomputation, value-equivalence merging, or
 different arithmetic programs.
@@ -206,8 +206,8 @@ terminal copy whose independent output identity is not otherwise needed. It
 also permits safe earlier use of that row, while keeping output placement
 explicit and preserving the result through operation completion.
 
-Separating designated rows, additional scratch, total physical footprint, and
-peak live identities prevents an unconstrained liveness bound from being
+Separating designated rows, additional temporary rows, total physical footprint,
+and peak live identities prevents an unconstrained liveness bound from being
 reported as the optimum of a constrained precolored allocation. Explicit
 failure keeps capacity shortages visible instead of silently changing the
 program or placement.

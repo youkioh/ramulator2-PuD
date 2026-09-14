@@ -773,7 +773,7 @@ omissions below are source/specification gaps, not established paper errors.
 4. **What is the supported reachability for non-neighbor GB-MOV targets?**
    - The physical connection shown is `SA_(i-1) -> SA_i`.
    - The paper does not specify how forward multi-hop routes are generated,
-     how intermediate scratch rows are used, or another direct route for
+     how intermediate temporary rows are used, or another direct route for
      arbitrary non-neighbor source/destination mats.
    - Reverse-direction routing where the depicted graph has no reverse edge
      is unspecified.

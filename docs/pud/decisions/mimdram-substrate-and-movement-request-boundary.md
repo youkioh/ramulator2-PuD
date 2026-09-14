@@ -176,7 +176,7 @@ elements. The curated source supplies no subsequent 4-to-1 mechanism.
 Accepted Gate A substrate requirement: provide mat-scoped compute, GB-MOV,
 LC-MOV, and dependency-safe request execution/completion sufficient to express
 that source-described path under Gate B. The concrete ADD primitive sequence,
-scratch placement, precision-specific movement counts, arithmetic policy, and
+temporary-row placement, precision-specific movement counts, arithmetic policy, and
 complete reduction request stream belong to the later operation/macro layer.
 Neither an INT/FP ADD implementation nor a reduction macro is a substrate
 implementation requirement. Submission order alone must not be assumed to
@@ -193,7 +193,7 @@ Substrate reduction timing, when a later explicit macro is evaluated, ends
 after recovery of its final required primitive. Host readout, representation
 conversion, and remaining arithmetic require separate accounting before
 claiming scalar-result latency. A concrete macro's correctness and timing
-require its precision, scratch use, legal movements, and dependencies to be
+require its precision, temporary-row use, legal movements, and dependencies to be
 specified; Gate A supplies no reduction latency or request count.
 
 **Connectivity and experiment limits**
@@ -205,7 +205,7 @@ placement context. A chip-crossing LC range does not transfer data across
 chips. Retain this topology without refinement. Arbitrary non-neighbor or
 reverse GB, wrapping, cross-chip movement, wider GB endpoint ranges, and
 automatic multihop routing remain unsupported. A later supplied stream may
-compose legal operations with explicit scratch/dependencies; Gate A promises
+compose legal operations with explicit temporary rows/dependencies; Gate A promises
 neither arbitrary endpoint reachability nor an automatic routing service.
 
 Accepted Gate A experiment boundary: inputs may already be allocated,

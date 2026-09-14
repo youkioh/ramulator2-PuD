@@ -244,22 +244,23 @@ rows 18..25 because it declares both constants. Old INT8 layouts containing
 
 The integer multiplication and fixed-width INT8 baselines are:
 
-| Profile | Retained physical primitives | Work peak | Designated rows | Additional scratch | Footprint / total peak |
+| Profile | Retained physical primitives | Work peak | Designated rows | Additional temporary rows | Footprint / total peak |
 |---|---:|---:|---:|---:|---:|
 | `uint8-mul` | 592 | 26 | 33 | 10 | 43 |
 | `int8-add` | 46 | 14 | 25 | 6 | 31 |
 | `int8-mul` | 612 | 26 | 26 | 18 | 44 |
 
 UINT8 MUL still emits 608 symbolic primitives and removes 16 terminal exports
-during physical lowering. Column streaming reduces its scratch from 52 to 10
-rows and footprint from 85 to 43, preserving its full product and output width.
+during physical lowering. Column streaming reduces its PuD micro-operation-level
+temporary rows from 52 to 10 and footprint from 85 to 43, preserving its full
+product and output width.
 
 Physical lowering removes exactly eight terminal exports in each INT8 case. MUL
 bits 8..14 actually reuse rows during later columns; bit 15 and ADD bit 8
 finish at the final arithmetic command and are also not live-outs. ADD's
-footprint is unchanged: removing a designation moves one row into scratch
-accounting. Counts are for the fixed emitted sequence, not a global optimum
-over different arithmetic schedules.
+footprint is unchanged: removing a designation moves one row into the PuD
+micro-operation-level temporary-row count. Counts are for the fixed emitted sequence,
+not a global optimum over different arithmetic schedules.
 
 The generated `default-physical-layout.json` uses exactly the same reusable
 per-profile `local_row_count`, `inputs`, `constants`, and `outputs` structure
@@ -277,7 +278,7 @@ python3 -m tools.pud_operation_generator \
   --out build/pud-operation-generator-edited
 ```
 
-A caller-provided JSON is the actual operation-level local physical-row
+A caller-provided JSON is the actual micro-operation-level local physical-row
 placement. The generated layout is only a built-in default placement for easy
 validation and use. Both become the same `PhysicalRowLayout` and feed the same
 `lower_to_physical()` implementation. Bank, subarray, and `MatRange` selection
@@ -311,6 +312,19 @@ layout option, the CLI reports symbolic primitives and derives the required
 temporary-row count from interval depth, labeling it `required for physical
 lowering`; it still emits only symbolic artifacts.
 
+The live Python allocation/program field and serialized allocation metric are
+`additional_temporary_rows`. They count **PuD micro-operation-level temporary rows**
+beyond the designated input, constant, and output rows; the count does not
+include **PuD macro-operation-level temporary rows** holding values across operations.
+Symbolic work-row identities and output rows reused during an operation do not
+introduce another temporary-row category.
+
+Physical program artifacts use schema version 2 with this metric name.
+Regenerate older physical artifacts with the current generator; the reader
+rejects schema version 1. Symbolic artifacts and arithmetic are unchanged.
+The [GPU-PuD programming-model specification](../../docs/pud/references/gpu-pud-gemv-programming-model.md)
+defines the GEMV interface and the two temporary-row ownership scopes.
+
 Each profile produces:
 
 - `<profile>.primitives.txt`: ordered symbolic primitive trace
@@ -329,6 +343,27 @@ map them to legal physical rows or operands. The primitive order must be
 preserved because the trace models destructive row semantics.
 
 ## Python API
+
+Generate the six GEMV operation requirements without repeating exhaustive
+arithmetic validation:
+
+```bash
+python3 -m tools.pud_operation_generator.requirements --out build/pud-gemv/generated
+```
+
+This emits `pud_operation_requirements.json` and
+`pud_operation_requirements.h` from actual physical lowering. Each profile
+reports input/output/constant rows, `additional_temporary_rows`, and retained
+primitive count. The header exposes the corresponding `PUD_*_TMP_ROWS` values.
+
+`PhysicalRowLayout(..., temporary_rows=(...))` optionally supplies the exact statically
+selected PuD micro-operation-level temporary rows. The ordered
+list must contain distinct in-range rows disjoint from all designations;
+its length must equal `additional_temporary_rows`. Both insufficient and excess
+rows are rejected. Without it, existing ascending-row allocation is
+unchanged. The optional `temporary_rows` field is retained in physical artifacts
+and accepted in caller layout JSON, so validation reproduces the same allocation.
+This is static placement, not a runtime allocator.
 
 Copy this directory to another repository root and import it directly:
 

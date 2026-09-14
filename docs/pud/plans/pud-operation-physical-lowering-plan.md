@@ -15,7 +15,7 @@ not this subsequently authorized arithmetic-interface revision.
 UINT8 MUL follow-up: the same column-streaming loop now processes all columns
 0..15 while retaining the exact 16-bit public product. Exhaustive 65,536-pair
 symbolic/physical validation and allocation checks passed. Its 608 symbolic
-and 592 physical primitives are unchanged; scratch fell from 52 to 10 rows
+and 592 physical primitives are unchanged; temporary-row use fell from 52 to 10 rows
 and footprint from 85 to 43. INT8 and FP8 traces are unchanged by this follow-up.
 
 ## Goal and completion state
@@ -129,7 +129,7 @@ producer remains a work identity and is extended through `E`.
    output rows have already been consumed by final-producer colors.
 6. For optimality, take any legal allocation under this contract and ignore
    its physical row labels. Its work bindings form a coloring using the `O`
-   designated output rows plus `S` additional scratch rows, so
+   designated output rows plus `S` additional temporary rows, so
    `O + S >= C`. Hence `S >= C - O`. The construction above attains
    `S = C - O`; it is optimal for the accepted fixed-order,
    identity-preserving problem.
@@ -137,7 +137,7 @@ producer remains a work identity and is extended through `E`.
 Consequently:
 
 ```text
-additional_scratch_rows = C - O
+additional_temporary_rows = C - O
 designated_rows = H + O
 physical_footprint_rows = H + C
 ```
@@ -205,7 +205,7 @@ lowering error before allocation; it must not fall back to a heuristic.
 | Duplicate designated output rows | Reject. All final producers overlap at `E`, so live outputs require distinct rows. |
 | Final producer is an input or declared constant | Reject. Its protected binding cannot equal the disjoint designated output binding required after export removal. |
 | Invalid caller precoloring | Reject missing/extra symbolic keys, non-local or out-of-range row IDs, overlapping protected bindings, duplicate output bindings, protected/output overlap, and unsupported precoloring of arbitrary work identities. |
-| No-output trace | Accept if otherwise structurally valid. Remove no suffix, set `O = 0`, and obtain `additional_scratch_rows = C` and `physical_footprint_rows = H + C`. An empty retained trace has `C = 0`. |
+| No-output trace | Accept if otherwise structurally valid. Remove no suffix, set `O = 0`, and obtain `additional_temporary_rows = C` and `physical_footprint_rows = H + C`. An empty retained trace has `C = 0`. |
 | Output producer's last ordinary use is early | Extend its interval through `E`; its designated output row cannot be reused after the producer becomes live. |
 | One interval ends where another starts | Treat both as live at that command. Do not reuse the color unless `old_end < new_start`. |
 
@@ -238,7 +238,7 @@ valid terminal export suffix, pairwise-distinct nonprotected final producers,
 and the following interval-partitioning result. These values are regression
 baselines; the implementation recomputes rather than hard-codes them.
 
-| Profile | Retained physical primitives | `H` | `O` | Work colors `C` | Additional scratch | Designated rows | Footprint / accepted peak live |
+| Profile | Retained physical primitives | `H` | `O` | Work colors `C` | Additional temporary rows | Designated rows | Footprint / accepted peak live |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | `uint8-add` | 41 | 17 | 9 | 13 | 4 | 26 | 30 |
 | `uint8-mul` | 592 | 17 | 16 | 26 | 10 | 33 | 43 |
@@ -256,7 +256,7 @@ remain 46 and 612; only export counts and MUL generation order changed.
 
 All eight fit within the accepted 1,024-local-row profile under any valid
 in-range choice of distinct designated rows that leaves the listed additional
-scratch capacity. This is a physical-local-row bound only, not a complete
+temporary-row capacity. This is a physical-local-row bound only, not a complete
 canonical Ramulator address or a claim about concurrent `MatRange` placement.
 
 ## Intended API and artifact boundary
@@ -397,9 +397,9 @@ formats.
   intervals before their final-producer interval.
 - Implement the selected closed-interval heap algorithm and deterministic
   color-to-row renaming exactly as described in Gate A.
-- Scratch rows are selected in ascending local-row order after excluding all
+- Temporary rows are selected in ascending local-row order after excluding all
   caller-designated rows. Insufficient capacity is an explicit error.
-- Report `additional_scratch_rows`, `designated_rows`,
+- Report `additional_temporary_rows`, `designated_rows`,
   `physical_footprint_rows`, and inclusive `peak_live_identities` with the
   Accepted meanings.
 - Do not spill, split live ranges, insert copies, merge equal values, reorder
@@ -414,7 +414,7 @@ formats.
 - Check an output row is reused by an eligible earlier temporary and is not
   reused once its final producer starts.
 - Independently calculate maximum interval depth and assert color count,
-  `additional_scratch_rows = C - O`, and all four metrics.
+  `additional_temporary_rows = C - O`, and all four metrics.
 - Lock the eight plan-time metric baselines without hard-coding them in the
   allocator.
 - Reject insufficient capacity, missing/extra/wrong-category designations,
@@ -696,7 +696,7 @@ This milestone does not implement:
 
 Gate A has no remaining allocator-selection blocker: deterministic heap-based
 interval partitioning plus final-color renaming is optimal under the Accepted
-contract, with `additional_scratch_rows = C - O` and footprint derived from
+contract, with `additional_temporary_rows = C - O` and footprint derived from
 protected rows plus work peak liveness. The implementation is organized into
 six gated work units: normalized analysis, allocation, explicit lowering,
 physical replay, exhaustive validation, and artifacts/user surface.

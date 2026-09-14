@@ -57,9 +57,9 @@ def _load_physical_layouts(path, selected, parser):
         if not isinstance(record, dict):
             parser.error(f"--physical-layout: profile {name} must be an object")
         actual = set(record)
-        if actual != required:
+        if not required <= actual or actual - required - {"temporary_rows"}:
             missing = sorted(required - actual)
-            extra = sorted(actual - required)
+            extra = sorted(actual - required - {"temporary_rows"})
             details = []
             if missing:
                 details.append("missing " + ", ".join(missing))
@@ -77,6 +77,7 @@ def _load_physical_layouts(path, selected, parser):
                 record["inputs"],
                 record["constants"],
                 record["outputs"],
+                temporary_rows=record.get("temporary_rows"),
             )
             layouts[name] = layout
         except (PhysicalLoweringError, TypeError, ValueError) as error:
@@ -199,7 +200,7 @@ def main():
                 f"{len(lowered.primitives)} primitives (physical; "
                 f"{len(program.trace)} symbolic)"
             )
-            temporary_rows = lowered.additional_scratch_rows
+            temporary_rows = lowered.additional_temporary_rows
         else:
             primitive_summary = f"{len(program.trace)} primitives (symbolic)"
             normalized = analyze_physical_lowering(program)

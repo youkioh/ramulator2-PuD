@@ -362,7 +362,7 @@ def validate_physical_lowering(builder, lowered):
     protected_count = len(normalized.protected_identities)
     output_count = len(normalized.outputs)
     expected_metrics = {
-        "additional_scratch_rows": work_depth - output_count,
+        "additional_temporary_rows": work_depth - output_count,
         "designated_rows": protected_count + output_count,
         "physical_footprint_rows": len(set(bindings.values())),
         "peak_live_identities": protected_count + work_depth,
@@ -380,6 +380,7 @@ def validate_physical_lowering(builder, lowered):
         designated_inputs,
         designated_constants,
         designated_outputs,
+        temporary_rows=lowered.temporary_rows,
     )
     if lower_to_physical(normalized, layout) != lowered:
         raise PhysicalLoweringError("physical allocation is not deterministic canonical lowering")

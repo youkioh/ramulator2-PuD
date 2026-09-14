@@ -259,20 +259,20 @@ class AllocationTests(unittest.TestCase):
                 normalized = analyze_physical_lowering(builder)
                 first = allocate_physical_rows(normalized, dense_layout(builder))
                 second = allocate_physical_rows(builder, dense_layout(builder, reverse=True))
-                retained, colors, scratch, designated, footprint = BASELINES[name]
+                retained, colors, temporary, designated, footprint = BASELINES[name]
                 self.assertEqual(len(normalized.retained_primitives), retained)
                 self.assertEqual(maximum_interval_depth(normalized.work_intervals), colors)
                 self.assertEqual(first.identity_bindings, second.identity_bindings)
                 self.assertEqual(first.color_to_local_row, second.color_to_local_row)
-                self.assertEqual(first.additional_scratch_rows, colors - len(normalized.outputs))
+                self.assertEqual(first.additional_temporary_rows, colors - len(normalized.outputs))
                 self.assertEqual(
                     (
-                        first.additional_scratch_rows,
+                        first.additional_temporary_rows,
                         first.designated_rows,
                         first.physical_footprint_rows,
                         first.peak_live_identities,
                     ),
-                    (scratch, designated, footprint, footprint),
+                    (temporary, designated, footprint, footprint),
                 )
 
     def test_closed_endpoints_and_next_command_reuse(self):
@@ -315,12 +315,12 @@ class AllocationTests(unittest.TestCase):
             ]
         )
         allocation = allocate_physical_rows(builder, dense_layout(builder, 3))
-        self.assertEqual(allocation.additional_scratch_rows, 2)
+        self.assertEqual(allocation.additional_temporary_rows, 2)
         self.assertEqual(allocation.designated_rows, 1)
         self.assertEqual(allocation.physical_footprint_rows, 3)
         empty = synthetic([])
         empty_allocation = allocate_physical_rows(empty, dense_layout(empty, 1))
-        self.assertEqual(empty_allocation.additional_scratch_rows, 0)
+        self.assertEqual(empty_allocation.additional_temporary_rows, 0)
         self.assertEqual(empty_allocation.physical_footprint_rows, 1)
 
     def test_layout_rejections_and_capacity_failure(self):
@@ -359,7 +359,7 @@ class AllocationTests(unittest.TestCase):
                 two_outputs, PhysicalRowLayout(4, {"A": 0}, {}, {"R0": 1, "R1": 1})
             )
 
-        needs_scratch = synthetic(
+        needs_temporary = synthetic(
             [
                 Primitive("RowCopy", ("A", "x")),
                 Primitive("RowCopy", ("A", "y")),
@@ -369,7 +369,7 @@ class AllocationTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(PhysicalLoweringError, "insufficient"):
             allocate_physical_rows(
-                needs_scratch, PhysicalRowLayout(2, {"A": 0}, {}, {"R0": 1})
+                needs_temporary, PhysicalRowLayout(2, {"A": 0}, {}, {"R0": 1})
             )
 
 
@@ -414,6 +414,14 @@ class LoweredTraceTests(unittest.TestCase):
         lowered = lower_to_physical(builder, dense_layout(builder))
         encoded = json.loads(json.dumps(lowered.to_dict()))
         self.assertEqual(PhysicalLoweredProgram.from_dict(encoded), lowered)
+        self.assertEqual(encoded["schema_version"], 2)
+        self.assertEqual(set(encoded["allocation_metrics"]), {
+            "additional_temporary_rows", "designated_rows",
+            "physical_footprint_rows", "peak_live_identities",
+        })
+        self.assertEqual(encoded["allocation_metrics"]["additional_temporary_rows"], 6)
+        with self.assertRaisesRegex(PhysicalLoweringError, "unsupported.*schema"):
+            PhysicalLoweredProgram.from_dict({**encoded, "schema_version": 1})
         self.assertEqual(
             [item.original_index for item in lowered.primitives],
             list(range(len(lowered.primitives))),
@@ -440,7 +448,7 @@ def replay_fixture(primitives, *, protected=()):
         result_bindings=(),
         removed_exports=(),
         local_row_count=16,
-        additional_scratch_rows=0,
+        additional_temporary_rows=0,
         designated_rows=len(protected),
         physical_footprint_rows=len(protected),
         peak_live_identities=len(protected),
@@ -612,12 +620,12 @@ class PhysicalValidationTests(unittest.TestCase):
                     self.assertTrue(physical["closed_interval_interference"])
                     self.assertTrue(physical["primitive_physical_distinctness"])
                     self.assertTrue(physical["deterministic_allocation"])
-                    _, depth, scratch, designated, footprint = BASELINES[name]
+                    _, depth, temporary, designated, footprint = BASELINES[name]
                     self.assertEqual(physical["work_interval_depth"], depth)
                     self.assertEqual(
                         physical["allocation_metrics"],
                         {
-                            "additional_scratch_rows": scratch,
+                            "additional_temporary_rows": temporary,
                             "designated_rows": designated,
                             "physical_footprint_rows": footprint,
                             "peak_live_identities": footprint,
@@ -675,7 +683,7 @@ class PhysicalValidationTests(unittest.TestCase):
             ),
         )
         inconsistent_metrics = replace(
-            lowered, additional_scratch_rows=lowered.additional_scratch_rows + 1
+            lowered, additional_temporary_rows=lowered.additional_temporary_rows + 1
         )
 
         normalized = analyze_physical_lowering(builder)
@@ -935,7 +943,7 @@ class PhysicalSurfaceTests(unittest.TestCase):
                 "uint8-add", lowered, Path(second)
             )
             self.assertEqual(first_path.read_bytes(), second_path.read_bytes())
-            self.assertEqual(artifact["schema_version"], 1)
+            self.assertEqual(artifact["schema_version"], 2)
             self.assertEqual(artifact["kind"], "pud-physical-lowered-program")
             self.assertEqual(artifact["profile"], "uint8-add")
             self.assertEqual(len(artifact["lowered_primitives"]), 41)
