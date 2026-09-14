@@ -181,7 +181,16 @@ def write_gemv(profile, m, n, directory):
     (directory / f"{profile}.layout.json").write_text(
         json.dumps(metadata, indent=2)+"\n", encoding="utf-8"
     )
-    header = f"PUD_TRACE 1\nPROFILE {metadata['placement_profile']}\nRANKS {metadata['ranks']}\n"
+    header = f"PUD_TRACE\nPROFILE {metadata['placement_profile']}\nRANKS {metadata['ranks']}\n"
     path = directory / f"{profile}.trace"
-    path.write_text(header+"\n".join(trace)+"\n", encoding="utf-8")
+    # Keep physical requests and their flattened completion indices unchanged.
+    # Only the serialized stream adds dependency-chain selection directives.
+    with path.open("w", encoding="utf-8") as stream:
+        stream.write(header)
+        start = 0
+        for chain_id, output in enumerate(metadata["outputs"]):
+            end = output["domains"][-1]["completion_index"]
+            stream.write(f"CHAIN {chain_id}\n")
+            stream.write("\n".join(trace[start:end])+"\n")
+            start = end
     return metadata, path

@@ -983,6 +983,56 @@ class ControllerUnderTestCpp {
   }
 };
 
+// Controlled completion/backpressure for the real PuDTrace frontend. This
+// test-only memory endpoint assigns no DRAM timing or GEMV meaning to requests.
+class PuDTraceUnderTestCpp final : public IMemorySystem {
+ public:
+  PuDTraceUnderTestCpp(const std::string& path, LocationResolverUnderTest& resolver)
+      : m_resolver(resolver.resolver()) {
+    m_trace.reset(Factory::create_frontend(ConfigNode(ConfigNode::Map{
+        {"frontend", ConfigNode::Map{{"impl", "PuDTrace"}, {"clock_ratio", 1}, {"path", path}}}})));
+    m_trace->connect_memory_system(this);
+  }
+
+  std::shared_ptr<const PuD::LocationResolver> location_resolver() const override { return m_resolver; }
+  int get_clock_ratio() override { return 1; }
+  int get_tx_bytes() override { return 64; }
+  void tick() override { m_trace->tick(); }
+  bool send(Request& request) override {
+    if (m_attempted != -1) throw std::logic_error("more than one send attempt per tick");
+    const int row = request.operands.at(0).at(4);
+    m_attempted = row;
+    auto [it, inserted] = m_first_attempt.emplace(row, &request);
+    if (!inserted && it->second != &request)
+      throw std::logic_error("retry replaced the canonical Request");
+    if (m_accept && !m_pending.emplace(row, request).second)
+      throw std::logic_error("request accepted twice");
+    return m_accept;
+  }
+  int step(bool accept) {
+    m_accept = accept;
+    m_attempted = -1;
+    tick();
+    return m_attempted;
+  }
+  void complete(int row, const std::vector<Clk_t>& history) {
+    Request request = std::move(m_pending.at(row));
+    m_pending.erase(row);
+    request.occurrence_issue_history = history;
+    request.callback(request);
+  }
+  bool finished() { return m_trace->is_finished(); }
+  nb::dict stats() const { return nb::cast<nb::dict>(confignode_to_py(m_trace->collect_stats())); }
+
+ private:
+  std::shared_ptr<const PuD::LocationResolver> m_resolver;
+  std::unique_ptr<IFrontEnd> m_trace;
+  std::map<int, Request> m_pending;
+  std::map<int, const Request*> m_first_attempt;
+  bool m_accept = true;
+  int m_attempted = -1;
+};
+
 // ---- nanobind module ----
 
 #include "pud_request_harness.h"
@@ -991,6 +1041,13 @@ NB_MODULE(_ramulator_test, m) {
   m.doc() = "Ramulator2 test harness bindings";
   bind_pud_location_harness(m);
   bind_pud_request_harness(m);
+
+  nb::class_<PuDTraceUnderTestCpp>(m, "_PuDTraceUnderTest")
+      .def(nb::init<const std::string&, LocationResolverUnderTest&>())
+      .def("step", &PuDTraceUnderTestCpp::step)
+      .def("complete", &PuDTraceUnderTestCpp::complete)
+      .def("finished", &PuDTraceUnderTestCpp::finished)
+      .def("stats", &PuDTraceUnderTestCpp::stats);
 
   nb::class_<DeviceUnderTestCpp>(m, "_DeviceUnderTest")
       .def(nb::init<nb::dict, int>(), nb::arg("dram_config"), nb::arg("channel_id") = 0)

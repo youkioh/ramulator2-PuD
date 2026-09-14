@@ -73,8 +73,9 @@ not separate phases or commits. Recheck the decision gate before WU2.
 
 Trace fields must describe only the selected placement profile/context, ordered
 primitive type and row operands, explicit mat range(s), and movement groups,
-plus fields required by the current Request contract. Encoding is the versioned `PUD_TRACE 1` stream (profile/ranks header,
-then opcode, channel/rank/bank-group/bank, mat endpoints and row/group operands); no GEMV instruction, functional payload, or general compiler IR belongs
+plus fields required by the current Request contract. The current `PUD_TRACE`
+encoding is defined by the [physical trace contract](../references/gpu-pud-gemv-programming-model.md#prototype-placement-and-physical-trace-contract);
+no GEMV instruction, functional payload, or general compiler IR belongs
 in Ramulator. Callback-ordered execution must cover temporary-row reuse as well
 as arithmetic and movement dependencies.
 

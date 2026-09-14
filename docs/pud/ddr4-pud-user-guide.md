@@ -264,8 +264,10 @@ PYTHONPATH=python python3 -m tools.pud_gemv_generator --profile fp8-e5m2-gemv --
 Each GEMV invocation writes `<profile>.layout.json` and `<profile>.trace`
 under `build/pud-gemv/`, plus `generated/pud_operation_requirements.json`
 and `generated/pud_operation_requirements.h`. The layout records placement,
-resources, and expected request counts; the trace contains ordered physical
-requests. Requirements can also be generated independently as shown above.
+resources, and expected request counts; the trace contains one
+dependency chain per output with its physical requests in completion order.
+Use `--m 2` or larger to generate multiple chains. Requirements can also be
+generated independently as shown above.
 
 Use the one-rank `memory_system` component tree from
 [Canonical configuration](#canonical-configuration), with `import ramulator`.
@@ -288,13 +290,28 @@ Select either FP8 trace by changing `path`. Frontend counters
 `physical_requests_submitted`, `physical_requests_completed`, and
 `physical_command_occurrences_completed` show stream execution; compare the
 request counts with the layout's `request_count` and `request_counts`.
+`physical_requests_peak_inflight` reports peak accepted but not yet completed
+Requests, including queued work and recovery. Values above one verify
+outstanding-request overlap, not necessarily simultaneous DRAM command execution.
 Controller counters are described under [Statistics](#statistics).
 `sim.finalize()` flushes the configured command recorder; see
 [Command traces and latency](#command-traces-and-latency) for its output.
 
-PuDTrace is a correctness/integration frontend with one outstanding Request at
-a time. Its controller-cycle count is **not the final GEMV performance result**.
-Concurrency/dependency-aware trace submission is future work.
+PuDTrace reads `PUD_TRACE` with `CHAIN <id>` selections, as defined in the
+[physical trace contract](references/gpu-pud-gemv-programming-model.md#prototype-placement-and-physical-trace-contract).
+The frontend treats IDs as opaque dependency identities. It permits one
+outstanding Request per chain and releases the next only on full completion.
+Its fair ready queue makes at most one send attempt per frontend tick, rotating
+rejected chains for retry and appending newly ready chains after callbacks.
+A `CHAIN` selection is mandatory before any physical Request.
+
+Controller cycles model concurrent execution of the generated PuD physical
+Request stream, **not full end-to-end GEMV latency**. GPU launch/x duplication,
+transposition, readout/conversion, and residual/domain final combination remain
+excluded, including readout before workspace reuse. Static placement and the
+controller/substrate's timing and resource conflicts still constrain overlap.
+Representative timing evidence, its placement limits, and validation are in the
+[chain execution plan](plans/pud-gemv-chain-execution-plan.md).
 
 ## Command traces and latency
 

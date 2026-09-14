@@ -260,20 +260,37 @@ constants, and its generated micro-operation-level maximum. It rejects layouts
 exceeding that static capacity; there is no runtime row allocator. Inputs and
 constants are assumed preplaced. The JSON records their row locations, macro
 workspaces, private PuD micro-operation-level temporary rows, domain sinks/residual rows, and one-based
-physical completion indices for GPU readout before workspace reuse. Those
-indices describe the existing external completion boundary, not simulated host
-requests or host timing.
+physical completion indices for GPU readout before workspace reuse. Each
+`completion_index` identifies a Request in the flattened physical sequence,
+excluding headers and chain directives; it is not a concurrent completion
+counter or a global barrier. Those indices describe the existing external
+completion boundary, not simulated host requests or host timing.
 
 The value-free trace schema is:
 
 ```text
-PUD_TRACE 1
+PUD_TRACE
 PROFILE <existing PlacementProfile.name>
 RANKS <configured rank count>
+CHAIN <id>
 <compute opcode> channel rank bank_group bank first_mat last_mat row...
 LC-MOV channel rank bank_group bank first_mat last_mat source_row source_group destination_row destination_group
 GB-MOV channel rank bank_group bank source_mat destination_mat source_row source_group destination_row destination_group
 ```
+
+`CHAIN` selects an opaque nonnegative integer ID (0 through 2147483647).
+Subsequent physical requests append to that chain in file order until another
+selection; selecting an existing ID resumes the same chain. IDs need not be
+consecutive, and empty chains are allowed. A `CHAIN` selection is mandatory
+before any physical Request. There is no implicit chain.
+
+The GEMV writer emits one chain per output, numbered from zero, containing all
+of that output's domains and the unchanged physical Request sequence. This
+mapping belongs to the generator: PuDTrace does not interpret IDs as outputs,
+arithmetic formats, resources, or Request source IDs. There are no cross-chain
+dependencies. Producers must place all mutually dependent requests in the same
+chain; the frontend does not infer dependencies from addresses. The layout and
+its physical indices/counts remain unchanged.
 
 Compute opcodes are `RowCopy`, `MAJ3`, `MAJ5`, `NOT`, and `NOT_COPY`,
 with the existing ordered operand counts and semantics. All integers are
@@ -287,10 +304,16 @@ while Ramulator sees only their fully lowered primitive streams.
 
 The `PuDTrace` frontend checks profile/rank agreement, resolves operands through the
 installed resolver, supplies the existing compute transaction size or movement
-N/A size, and submits one Request at a time through full completion/recovery.
-It retains rejected Requests for retry. It adds no scheduling policy to the
-controller and no compute/movement timing. Request completion and command
-occurrence counters report full stream execution.
+N/A size, and allows at most one outstanding Request per chain. Only the full
+completion/recovery callback releases that chain's successor. Different ready
+chains may overlap. A FIFO ready queue starts in first-selection order; failed
+sends rotate to its tail with the same Request at the chain head, and completed
+chains with remaining work join the tail. There is at most one send attempt per
+frontend tick, matching the existing load/store trace convention. The frontend
+finishes only after all requests complete. It adds no controller scheduling or
+compute/movement timing. Request completion and command occurrence counters
+report full stream execution; `physical_requests_peak_inflight` counts the
+peak accepted but not yet completed Requests, including queued/recovering work.
 
 [Focused composition checks](../../../tools/pud_gemv_generator/test_integration.py)
 use existing physical arithmetic replay, with movement effects outside Ramulator.
@@ -298,10 +321,15 @@ use existing physical arithmetic replay, with movement effects outside Ramulator
 existing simulator setup and command recorder. Neither repeats exhaustive
 arithmetic or the broad substrate regression matrix.
 
-PuDTrace is a correctness/integration frontend with one request outstanding at
-a time. Reported controller cycles are **not the final GEMV performance result**.
-Concurrency/dependency-aware trace submission is future work; this milestone
-retains serialized submission and unchanged GEMV semantics.
+Controller cycles now model concurrent execution of the generated PuD physical
+Request stream. They are **not full end-to-end GEMV latency**: GPU launch and
+x duplication, transposition, readout/conversion, and GPU residual/domain final
+combination remain outside this timing boundary. External domain readout before
+workspace reuse still has no modeled cost. Static placement capacity and the
+accepted engine, mat, subarray, Bank movement, command-bus and timing constraints
+remain authoritative. A peak above one establishes outstanding-request overlap,
+not necessarily simultaneous command execution on conflicting resources. See the
+[chain execution plan](../plans/pud-gemv-chain-execution-plan.md) for timing evidence.
 
 Layout metadata schema 2 names the scopes explicitly:
 `micro_operation_requirements`, `micro_operation_counts`,
