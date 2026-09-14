@@ -238,6 +238,64 @@ for engines in 1 2 8; do
 done
 ```
 
+## GEMV trace generation and execution
+
+Authoritative semantics are in the
+[programming-model reference](references/gpu-pud-gemv-programming-model.md)
+and [canonical CUDA specification](references/gpu-pud-gemv-programming-model.cu).
+The `.cu` is specification code, not generator runtime input.
+The accepted restriction is `N > 0 && N % HFFS_PER_MAT == 0`, with
+`HFFS_PER_MAT=4`. N need not be divisible by 512: N=516 is supported.
+One-to-three-element tails are rejected; no masking, padding, or host tail
+fallback is provided.
+
+From the repository root, using the repository Python environment:
+
+```bash
+cmake -S . -B build
+cmake --build build --target _ramulator -j $(nproc)
+
+PYTHONPATH=python python3 -m tools.pud_operation_generator.requirements --out build/pud-gemv/generated
+PYTHONPATH=python python3 -m tools.pud_gemv_generator --profile int8-gemv --m 1 --n 516 --out build/pud-gemv
+PYTHONPATH=python python3 -m tools.pud_gemv_generator --profile fp8-e4m3-gemv --m 1 --n 516 --out build/pud-gemv
+PYTHONPATH=python python3 -m tools.pud_gemv_generator --profile fp8-e5m2-gemv --m 1 --n 516 --out build/pud-gemv
+```
+
+Each GEMV invocation writes `<profile>.layout.json` and `<profile>.trace`
+under `build/pud-gemv/`, plus `generated/pud_operation_requirements.json`
+and `generated/pud_operation_requirements.h`. The layout records placement,
+resources, and expected request counts; the trace contains ordered physical
+requests. Requirements can also be generated independently as shown above.
+
+Use the one-rank `memory_system` component tree from
+[Canonical configuration](#canonical-configuration), with `import ramulator`.
+Run this Python code in the same environment with `PYTHONPATH=python`:
+
+```python
+frontend = ramulator.frontend.PuDTrace(
+    clock_ratio=1,
+    path="build/pud-gemv/int8-gemv.trace",
+)
+sim = ramulator.Simulation(frontend, memory_system)
+sim.run()
+stats = sim.stats
+sim.finalize()
+print(stats["frontend"])
+print(stats["memory_system"]["controller"])
+```
+
+Select either FP8 trace by changing `path`. Frontend counters
+`physical_requests_submitted`, `physical_requests_completed`, and
+`physical_command_occurrences_completed` show stream execution; compare the
+request counts with the layout's `request_count` and `request_counts`.
+Controller counters are described under [Statistics](#statistics).
+`sim.finalize()` flushes the configured command recorder; see
+[Command traces and latency](#command-traces-and-latency) for its output.
+
+PuDTrace is a correctness/integration frontend with one outstanding Request at
+a time. Its controller-cycle count is **not the final GEMV performance result**.
+Concurrency/dependency-aware trace submission is future work.
+
 ## Command traces and latency
 
 `CmdTraceRecorder` writes one file per channel by appending `.ch0`,

@@ -248,21 +248,10 @@ composition validation must follow this complete graph for each explicit
 profile, without claiming complete OFP8 arithmetic beyond the operation
 generator's documented scope.
 
-## Prototype use and physical trace
+## Prototype placement and physical trace contract
 
-Build the existing Python extension (`cmake --build build --target _ramulator`)
-and use the repository Python environment:
-
-```bash
-python -m tools.pud_gemv_generator --profile int8-gemv --m 1 --n 516 --out build/pud-gemv
-python -m tools.pud_gemv_generator --profile fp8-e4m3-gemv --m 1 --n 516 --out build/pud-gemv
-python -m tools.pud_gemv_generator --profile fp8-e5m2-gemv --m 1 --n 516 --out build/pud-gemv
-```
-
-Each emits a `<profile>.layout.json` and one `<profile>.trace`, plus
-`generated/pud_operation_requirements.json` and
-`generated/pud_operation_requirements.h`. The requirements command can also
-run independently as `python -m tools.pud_operation_generator.requirements`.
+Build, generation, and execution instructions are in the
+[DDR4 PuD user guide](../ddr4-pud-user-guide.md#gemv-trace-generation-and-execution).
 
 The deterministic layout uses one rank, chip-local mats beginning at logical
 mat zero, and disjoint output row bands within subarrays. Each band holds all
@@ -296,11 +285,7 @@ Physical requests contain no arithmetic format field: separate macro/profile
 identities and generated arithmetic remain explicit in the generator/layout,
 while Ramulator sees only their fully lowered primitive streams.
 
-Configure frontend `PuDTrace` with `clock_ratio=1` and `path=<trace>`, using
-the existing `GenericDRAM` / `GenericDDR` /
-`DDR4_PuD_Movement` configuration and
-`pud_placement_profile="MIMDRAM_DDR4_8Gb_x8_v1"`.
-The frontend checks profile/rank agreement, resolves operands through the
+The `PuDTrace` frontend checks profile/rank agreement, resolves operands through the
 installed resolver, supplies the existing compute transaction size or movement
 N/A size, and submits one Request at a time through full completion/recovery.
 It retains rejected Requests for retry. It adds no scheduling policy to the
