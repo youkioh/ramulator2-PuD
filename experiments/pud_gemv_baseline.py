@@ -5,6 +5,7 @@ from collections import Counter
 import csv
 import json
 from pathlib import Path
+from time import perf_counter
 
 import ramulator
 from tools.pud_gemv_generator import write_gemv
@@ -12,8 +13,13 @@ from tools.pud_gemv_generator.generator import PROFILES
 
 
 def run(profile, m, n, out):
+    start = perf_counter()
     layout, trace = write_gemv(profile, m, n, out)
+    trace_generation_seconds = perf_counter() - start
     command_path = trace.with_suffix(".commands.csv")
+    # Infrastructure wall time, including simulator setup, run and finalization.
+    # Neither metric is modeled GEMV latency.
+    start = perf_counter()
     # Experiment configuration from docs/pud/ddr4-pud-user-guide.md,
     # "Canonical configuration"; presets own organization and timing values.
     dram = ramulator.dram.DDR4_PuD_Movement(
@@ -45,6 +51,7 @@ def run(profile, m, n, out):
         stats = sim.stats
     finally:
         sim.finalize()
+    simulation_wall_seconds = perf_counter() - start
 
     front = stats["frontend"]
     ctrl = stats["memory_system"]["controller"]
@@ -104,6 +111,8 @@ def run(profile, m, n, out):
         "profile": profile,
         "M": m,
         "N": n,
+        "trace_generation_seconds": trace_generation_seconds,
+        "simulation_wall_seconds": simulation_wall_seconds,
         "baseline": layout["baseline"],
         "arithmetic_format": layout["arithmetic_format"],
         "placement_profile": layout["placement_profile"],

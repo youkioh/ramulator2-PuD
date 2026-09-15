@@ -75,6 +75,9 @@ def generate(profile, m, n):
     # Reject excessive M before lowering any arithmetic or materializing outputs.
     _output_placement(geometry, output_mats, footprint, m - 1)
     trace, outputs, micro_operation_counts = [], [], Counter()
+    # Programs are fixed for this generate() call. Cache only local-row lowering;
+    # each invocation still emits its own context, mat range and external rows.
+    lowering_cache = {}
 
     def emit(opcode, context, first, last, *operands):
         trace.append(" ".join(map(str, (opcode, *context, first, last, *operands))))
@@ -107,7 +110,14 @@ def generate(profile, m, n):
                 dict(zip(program.outputs["R"], range(dst, dst+bits))),
                 temporary_rows=temporary[:count],
             )
-            lowered = lower_to_physical(program, layout)
+            key = (name, layout.local_row_count,
+                   tuple(sorted(layout.inputs.items())),
+                   tuple(sorted(layout.constants.items())),
+                   tuple(sorted(layout.outputs.items())),
+                   tuple(sorted(layout.work.items())), layout.temporary_rows)
+            if key not in lowering_cache:
+                lowering_cache[key] = lower_to_physical(program, layout)
+            lowered = lowering_cache[key]
             if lowered.additional_temporary_rows != count or len(lowered.primitives) != requirements[name]["primitive_count"]:
                 raise AssertionError("operation requirements differ from physical instantiation")
             micro_operation_counts[name] += 1

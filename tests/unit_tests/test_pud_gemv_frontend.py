@@ -68,6 +68,23 @@ def test_complete_generated_trace(tmp_path, profile):
           stats["memory_system"]["controller"]["cycles"])
 
 
+def test_experiment_reports_separate_wall_times(tmp_path, monkeypatch):
+    from experiments import pud_gemv_baseline as experiment
+
+    ticks = iter((10.0, 12.5, 20.0, 24.0))
+    monkeypatch.setattr(experiment, "perf_counter", lambda: next(ticks))
+    result = experiment.run("MIMDRAM-InterMatFirst-int8", 1, 4, tmp_path)
+    assert result["trace_generation_seconds"] == 2.5
+    assert result["simulation_wall_seconds"] == 4.0
+    assert result["controller_cycles"] > 0
+    path = tmp_path / "results.csv"
+    experiment.append_csv(path, result)
+    with path.open(newline="", encoding="utf-8") as stream:
+        row, = csv.DictReader(stream)
+    assert float(row["trace_generation_seconds"]) == 2.5
+    assert float(row["simulation_wall_seconds"]) == 4.0
+
+
 def test_location_translation_and_order(tmp_path):
     path = trace_file(tmp_path,
         "CHAIN 917\n"

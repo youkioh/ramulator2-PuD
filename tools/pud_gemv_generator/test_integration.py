@@ -41,7 +41,7 @@ def test_physical_composition(profile, m, n):
     names = generator.PROFILES[profile]
     assert set(metadata["micro_operation_requirements"]) == set(names)
     assert metadata["micro_operation_temporary_rows_per_mat"] == max(requirements[name]["additional_temporary_rows"] for name in names)
-    assert len(calls) == sum(metadata["micro_operation_counts"].values())
+    assert 0 < len(calls) <= sum(metadata["micro_operation_counts"].values())
     assert metadata["request_counts"] == dict(Counter(line.split()[0] for line in trace))
     assert len(trace) == metadata["request_count"]
     geometry = generator.placement_profile()
@@ -87,6 +87,42 @@ def test_physical_composition(profile, m, n):
             assert list(map(int, (ch, rank, bg, bank))) == record["context"]
             assert first <= int(begin) <= int(last) < first+k
         start = end
+
+
+@pytest.mark.parametrize("profile", generator.PROFILES)
+def test_repeated_lowerings_are_reused_across_outputs(profile):
+    with patch.object(generator, "lower_to_physical", wraps=generator.lower_to_physical) as lower:
+        metadata, _ = generator.generate(profile, 128, 128)
+    # One MUL layout and the two alternating ADD workspace layouts.
+    assert lower.call_count == 3
+    assert sum(metadata["micro_operation_counts"].values()) == 128*6
+
+
+@pytest.mark.parametrize("field", ["inputs", "outputs", "constants", "temporary_rows"])
+def test_lowering_cache_distinguishes_local_bindings(field):
+    original_layout = generator.PhysicalRowLayout
+    layouts = []
+
+    def make_layout(*args, **kwargs):
+        from dataclasses import replace
+        layout = original_layout(*args, **kwargs)
+        # Shift one binding class for the second output into unused local rows.
+        # All other bindings, program and execution shape remain identical.
+        if len(layouts) >= 6:
+            rows = getattr(layout, field)
+            shifted = (tuple(row+512 for row in rows) if field == "temporary_rows"
+                       else {name: row+512 for name, row in rows.items()})
+            layout = replace(layout, **{field: shifted})
+        layouts.append(layout)
+        return layout
+
+    with patch.object(generator, "PhysicalRowLayout", side_effect=make_layout), \
+         patch.object(generator, "lower_to_physical", wraps=generator.lower_to_physical) as lower:
+        generator.generate("MIMDRAM-InterMatFirst-int8", 2, 128)
+    assert len(layouts) == 12
+    assert lower.call_count == 6
+    # Both outputs' distinct layouts must reach the real lowerer.
+    assert [call.args[1] for call in lower.call_args_list] == [layouts[i] for i in (0, 1, 2, 6, 7, 8)]
 
 
 @pytest.mark.parametrize("format_", generator.FORMATS)
