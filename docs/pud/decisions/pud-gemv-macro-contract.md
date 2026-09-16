@@ -98,6 +98,15 @@ hold values across operations. Same-mat micro-operations are serialized.
 This acceptance closes the length gate before WU2 in the
 [integration plan](../plans/pud-gemv-trace-integration-plan.md).
 
+Accepted by the user on 2026-09-15: the standalone phase-latency experiment
+measures MUL and reduction within one normal full execution, using generator
+layout boundary indices and opaque PuDTrace acceptance/completion checkpoints.
+It rejects multi-domain inputs because their chains interleave MUL and
+reduction; general GEMV generation/execution retains multi-domain support.
+Physical Requests, traces, placement, scheduling and controller timing stay
+unchanged. The [user guide](../ddr4-pud-user-guide.md#gemv-trace-generation-and-execution)
+defines the timestamp and output conventions.
+
 Rationale
 
 Bank striping exposes BLP before additional same-bank mat placement. Comparing

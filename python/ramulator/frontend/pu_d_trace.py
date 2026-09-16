@@ -14,3 +14,5 @@ class PuDTrace(Component):
     impl = "PuDTrace"
     clock_ratio = Param(int, required=True, cpp_type="unsigned int")
     path = Param(str, required=True)
+    latency_chain_ids = Param(list, default=[], cpp_type="std::vector<int>")
+    latency_checkpoint_requests = Param(list, default=[], cpp_type="std::vector<int>")

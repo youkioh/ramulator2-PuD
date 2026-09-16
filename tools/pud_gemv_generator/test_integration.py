@@ -98,6 +98,28 @@ def test_repeated_lowerings_are_reused_across_outputs(profile):
     assert sum(metadata["micro_operation_counts"].values()) == 128*6
 
 
+@pytest.mark.parametrize("format_", generator.FORMATS)
+@pytest.mark.parametrize("m,n", [(2, 128), (8, 128), (2, 516)])
+def test_chain_phase_metadata(format_, m, n):
+    generated = [generator.generate(f"{baseline}-{format_}", m, n) for baseline in generator.BASELINES]
+    for layout, trace in generated:
+        first = 1
+        mul_count = layout["micro_operation_requirements"][f"{format_}-mul"]["primitive_count"]
+        for chain_id, output in enumerate(layout["outputs"]):
+            assert output["chain_id"] == chain_id
+            assert output["first_request_index"] == first
+            mul_end = output["initial_mul_final_request_index"]
+            assert mul_end == first + mul_count - 1
+            final = output["domains"][-1]["completion_index"]
+            assert first <= mul_end < final <= len(trace)
+            assert trace[mul_end].startswith(("LC-MOV", "GB-MOV"))
+            first = final + 1
+        assert first == len(trace) + 1
+    if n == 128:
+        assert generated[0][1] == generated[1][1]
+        assert generated[0][0]["outputs"] == generated[1][0]["outputs"]
+
+
 @pytest.mark.parametrize("field", ["inputs", "outputs", "constants", "temporary_rows"])
 def test_lowering_cache_distinguishes_local_bindings(field):
     original_layout = generator.PhysicalRowLayout

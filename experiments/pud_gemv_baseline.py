@@ -5,14 +5,55 @@ from collections import Counter
 import csv
 import json
 from pathlib import Path
+from statistics import mean
 from time import perf_counter
 
 import ramulator
 from tools.pud_gemv_generator import write_gemv
-from tools.pud_gemv_generator.generator import PROFILES
+from tools.pud_gemv_generator.generator import PROFILES, placement_profile
 
 
-def run(profile, m, n, out):
+def chain_latencies(layout, front):
+    """Interpret opaque frontend checkpoints only at the GEMV experiment layer."""
+    ids = front["latency_chain_ids"]
+    expected = [output["chain_id"] for output in layout["outputs"]]
+    timestamps = [front[field] for field in
+                  ("first_submit_cycles", "checkpoint_complete_cycles", "final_complete_cycles")]
+    if len(set(ids)) != len(ids) or set(ids) != set(expected) or any(len(v) != len(ids) for v in timestamps):
+        raise RuntimeError("latency timestamps do not match generated output chains")
+    rows = []
+    for chain_id, first, mul, final in zip(ids, *timestamps):
+        if not 0 <= first <= mul <= final:
+            raise RuntimeError(f"missing or unordered latency timestamps for chain {chain_id}")
+        rows.append(dict(chain_id=chain_id, first_submit_cycle=first,
+                         mul_complete_cycle=mul, final_complete_cycle=final,
+                         start_delay_cycles=first, mul_cycles=mul-first,
+                         reduction_cycles=final-mul, chain_cycles=final-first))
+    return rows
+
+
+def aggregate_latencies(rows):
+    """Percentiles linearly interpolate sorted samples at (count - 1) * p."""
+    result = {}
+    for field in ("mul_cycles", "reduction_cycles", "chain_cycles"):
+        values = sorted(row[field] for row in rows)
+        result.update({f"{field}_mean": mean(values), f"{field}_min": values[0],
+                       f"{field}_max": values[-1]})
+        for percentile in (50, 95, 99):
+            position = (len(values) - 1) * percentile / 100
+            lower = int(position)
+            upper = min(lower + 1, len(values) - 1)
+            result[f"{field}_p{percentile}"] = values[lower] + (values[upper] - values[lower]) * (position - lower)
+    result["start_delay_cycles_mean"] = mean(row["start_delay_cycles"] for row in rows)
+    return result
+
+
+def run(profile, m, n, out, *, chain_csv=False):
+    geometry = placement_profile()
+    domain_elements = geometry["cells_per_mat_row"] * geometry["mats_per_chip"]
+    if n > domain_elements:
+        raise ValueError("phase latency experiment requires one domain per chain "
+                         f"(N <= {domain_elements}); multi-domain chains interleave MUL and reduction")
     start = perf_counter()
     layout, trace = write_gemv(profile, m, n, out)
     trace_generation_seconds = perf_counter() - start
@@ -44,7 +85,12 @@ def run(profile, m, n, out):
         controllers=[controller],
         channel_mapper=ramulator.channel_mapper.CacheLineInterleave(),
     )
-    frontend = ramulator.frontend.PuDTrace(clock_ratio=1, path=str(trace))
+    frontend = ramulator.frontend.PuDTrace(
+        clock_ratio=1, path=str(trace),
+        latency_chain_ids=[output["chain_id"] for output in layout["outputs"]],
+        latency_checkpoint_requests=[output["initial_mul_final_request_index"] - output["first_request_index"] + 1
+                                     for output in layout["outputs"]],
+    )
     sim = ramulator.Simulation(frontend, memory_system)
     try:
         sim.run()
@@ -54,6 +100,13 @@ def run(profile, m, n, out):
     simulation_wall_seconds = perf_counter() - start
 
     front = stats["frontend"]
+    chains = chain_latencies(layout, front)
+    chain_path = trace.with_suffix(".chains.csv") if chain_csv else None
+    if chain_path is not None:
+        with chain_path.open("w", newline="", encoding="utf-8") as stream:
+            writer = csv.DictWriter(stream, fieldnames=list(chains[0]))
+            writer.writeheader()
+            writer.writerows(chains)
     ctrl = stats["memory_system"]["controller"]
     # CmdTraceRecorder closes its per-channel file during finalize(). Count
     # actual issue records, independently of generated primitive requirements.
@@ -133,6 +186,8 @@ def run(profile, m, n, out):
                            "A*_S": "ACT_PUD_S_OC", "P": "PREpb", "N": "N"},
         "peak_inflight_requests": front["physical_requests_peak_inflight"],
         "controller_cycles": ctrl["cycles"],
+        **aggregate_latencies(chains),
+        "chain_csv_path": str(chain_path.resolve()) if chain_path is not None else "",
     }
 
 
@@ -159,9 +214,11 @@ def main():
     parser.add_argument("--n", type=int, required=True)
     parser.add_argument("--out", type=Path, default=Path("build/pud-gemv"))
     parser.add_argument("--csv", type=Path, help="append one result row (structured fields are JSON)")
+    parser.add_argument("--chain-csv", action="store_true",
+                        help="write per-chain phase latencies to <out>/<profile>.chains.csv")
     args = parser.parse_args()
     try:
-        result = run(args.profile, args.m, args.n, args.out)
+        result = run(args.profile, args.m, args.n, args.out, chain_csv=args.chain_csv)
         if args.csv is not None:
             append_csv(args.csv, result)
     except (ValueError, OSError, RuntimeError) as error:

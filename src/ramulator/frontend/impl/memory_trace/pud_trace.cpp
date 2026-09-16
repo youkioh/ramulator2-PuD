@@ -19,9 +19,14 @@ class PuDTrace : public IFrontEnd, public Implementation {
   RAMULATOR_REGISTER_IMPLEMENTATION(IFrontEnd, PuDTrace, "PuDTrace")
 
   std::string m_path;
+  // Optional opaque, one-based Request checkpoints within selected chains.
+  std::vector<int> m_latency_chain_ids, m_latency_checkpoint_requests;
+  std::vector<Clk_t> s_first_submit, s_checkpoint_complete, s_final_complete;
   struct Chain {
     std::vector<Request> requests;
     size_t next = 0;
+    size_t checkpoint_request = 0;  // Zero disables latency collection.
+    size_t latency_index = 0;
   };
   std::vector<Chain> m_chains;
   std::deque<size_t> m_ready;
@@ -33,6 +38,21 @@ class PuDTrace : public IFrontEnd, public Implementation {
   void init() override {
     RAMULATOR_PARSE_PARAM(m_clock_ratio, unsigned int, "clock_ratio").required();
     RAMULATOR_PARSE_PARAM(m_path, std::string, "path").required();
+    RAMULATOR_PARSE_PARAM(m_latency_chain_ids, std::vector<int>, "latency_chain_ids")
+        .default_val(std::vector<int>{});
+    RAMULATOR_PARSE_PARAM(m_latency_checkpoint_requests, std::vector<int>, "latency_checkpoint_requests")
+        .default_val(std::vector<int>{});
+    if (m_latency_chain_ids.size() != m_latency_checkpoint_requests.size())
+      throw std::runtime_error("PuDTrace latency chain IDs and checkpoints must have equal lengths");
+    if (!m_latency_chain_ids.empty()) {
+      s_first_submit.assign(m_latency_chain_ids.size(), -1);
+      s_checkpoint_complete.assign(m_latency_chain_ids.size(), -1);
+      s_final_complete.assign(m_latency_chain_ids.size(), -1);
+      m_stats.add("latency_chain_ids", m_latency_chain_ids);
+      m_stats.add("first_submit_cycles", s_first_submit);
+      m_stats.add("checkpoint_complete_cycles", s_checkpoint_complete);
+      m_stats.add("final_complete_cycles", s_final_complete);
+    }
     m_stats.add("physical_requests_submitted", s_submitted);
     m_stats.add("physical_requests_completed", s_completed);
     m_stats.add("physical_command_occurrences_completed", s_completed_occurrences);
@@ -40,6 +60,8 @@ class PuDTrace : public IFrontEnd, public Implementation {
   }
 
   void setup(IFrontEnd*, IMemorySystem* memory) override {
+    if (!m_latency_chain_ids.empty() && m_clock_ratio != memory->get_clock_ratio())
+      throw std::runtime_error("PuDTrace latency collection requires equal frontend and memory clock ratios");
     auto resolver = memory->location_resolver();
     if (!resolver) throw std::runtime_error("PuDTrace requires an installed location resolver");
     std::ifstream input(m_path);
@@ -129,6 +151,12 @@ class PuDTrace : public IFrontEnd, public Implementation {
               [](Clk_t clock) { return clock != Request::kOccurrenceNotIssued; });
           --m_inflight;
           auto& chain = m_chains[chain_index];
+          if (chain.checkpoint_request) {
+            if (chain.next + 1 == chain.checkpoint_request)
+              record_cycle(s_checkpoint_complete[chain.latency_index], m_clk);
+            if (chain.next + 1 == chain.requests.size())
+              record_cycle(s_final_complete[chain.latency_index], m_clk);
+          }
           ++chain.next;
           if (chain.next < chain.requests.size()) m_ready.push_back(chain_index);
         };
@@ -137,20 +165,40 @@ class PuDTrace : public IFrontEnd, public Implementation {
         throw std::runtime_error("PuDTrace line " + std::to_string(line_number) + ": " + error.what());
       }
     }
+    for (size_t i = 0; i < m_latency_chain_ids.size(); ++i) {
+      const auto entry = chain_indices.find(m_latency_chain_ids[i]);
+      if (entry == chain_indices.end())
+        throw std::runtime_error("PuDTrace latency checkpoint names an unknown chain");
+      auto& chain = m_chains[entry->second];
+      const int checkpoint = m_latency_checkpoint_requests[i];
+      if (checkpoint <= 0 || static_cast<size_t>(checkpoint) > chain.requests.size())
+        throw std::runtime_error("PuDTrace latency checkpoint is outside the chain");
+      if (chain.checkpoint_request)
+        throw std::runtime_error("PuDTrace duplicate latency chain ID");
+      chain.checkpoint_request = checkpoint;
+      chain.latency_index = i;
+    }
     for (size_t i = 0; i < m_chains.size(); ++i) {
       if (!m_chains[i].requests.empty()) m_ready.push_back(i);
     }
   }
 
   void tick() override {
+    // Simulation submits before ticking memory. With equal ratios, acceptance
+    // sees cycle m_clk-1; the following memory tick's callbacks see m_clk.
+    // Advance even while waiting for callbacks; simulation starts at cycle 0.
+    ++m_clk;
     if (m_ready.empty()) return;
     // One attempt per frontend tick, matching the existing memory traces.
     // A chain leaves the ready queue until full completion or failed admission.
     const size_t index = m_ready.front();
     m_ready.pop_front();
     auto& chain = m_chains[index];
+    const size_t request_index = chain.next;
     ++m_inflight;
     if (m_memory_system->send(chain.requests[chain.next])) {
+      if (chain.checkpoint_request && request_index == 0)
+        record_cycle(s_first_submit[chain.latency_index], m_clk - 1);
       ++s_submitted;
       s_peak_inflight = std::max(s_peak_inflight, m_inflight);
     } else {
@@ -161,6 +209,12 @@ class PuDTrace : public IFrontEnd, public Implementation {
 
   bool is_finished() override {
     return m_ready.empty() && m_inflight == 0;
+  }
+
+ private:
+  static void record_cycle(Clk_t& timestamp, Clk_t cycle) {
+    if (timestamp != -1) throw std::logic_error("PuDTrace duplicate latency timestamp");
+    timestamp = cycle;
   }
 };
 

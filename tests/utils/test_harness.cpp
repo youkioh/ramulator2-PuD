@@ -987,10 +987,15 @@ class ControllerUnderTestCpp {
 // test-only memory endpoint assigns no DRAM timing or GEMV meaning to requests.
 class PuDTraceUnderTestCpp final : public IMemorySystem {
  public:
-  PuDTraceUnderTestCpp(const std::string& path, LocationResolverUnderTest& resolver)
+  PuDTraceUnderTestCpp(const std::string& path, LocationResolverUnderTest& resolver,
+                      const std::vector<int>& chain_ids, const std::vector<int>& checkpoints)
       : m_resolver(resolver.resolver()) {
+    ConfigNode ids(ConfigNode::Seq{}), requests(ConfigNode::Seq{});
+    for (int id : chain_ids) ids.push_back(id);
+    for (int checkpoint : checkpoints) requests.push_back(checkpoint);
     m_trace.reset(Factory::create_frontend(ConfigNode(ConfigNode::Map{
-        {"frontend", ConfigNode::Map{{"impl", "PuDTrace"}, {"clock_ratio", 1}, {"path", path}}}})));
+        {"frontend", ConfigNode::Map{{"impl", "PuDTrace"}, {"clock_ratio", 1}, {"path", path},
+                                    {"latency_chain_ids", ids}, {"latency_checkpoint_requests", requests}}}})));
     m_trace->connect_memory_system(this);
   }
 
@@ -1043,7 +1048,9 @@ NB_MODULE(_ramulator_test, m) {
   bind_pud_request_harness(m);
 
   nb::class_<PuDTraceUnderTestCpp>(m, "_PuDTraceUnderTest")
-      .def(nb::init<const std::string&, LocationResolverUnderTest&>())
+      .def(nb::init<const std::string&, LocationResolverUnderTest&, const std::vector<int>&, const std::vector<int>&>(),
+           nb::arg("path"), nb::arg("resolver"), nb::arg("chain_ids") = std::vector<int>{},
+           nb::arg("checkpoints") = std::vector<int>{})
       .def("step", &PuDTraceUnderTestCpp::step)
       .def("complete", &PuDTraceUnderTestCpp::complete)
       .def("finished", &PuDTraceUnderTestCpp::finished)

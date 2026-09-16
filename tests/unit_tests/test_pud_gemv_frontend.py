@@ -2,6 +2,7 @@
 import csv
 import json
 from collections import Counter
+from pathlib import Path
 import pytest
 import ramulator
 from ramulator._ramulator_test import _PuDTraceUnderTest
@@ -24,14 +25,14 @@ def report_baseline(metadata, stats):
     print("BASELINE_RESULT " + json.dumps(result))
 
 
-def simulation(path, recorder=None, install=True):
+def simulation(path, recorder=None, install=True, **frontend_options):
     config = controller()
     if install:
         config["pud_placement_profile"] = "MIMDRAM_DDR4_8Gb_x8_v1"
     if recorder:
         config["controller_plugins"] = [dict(impl="CmdTraceRecorder", path=str(recorder))]
     return ramulator.Simulation(
-        dict(impl="PuDTrace", clock_ratio=1, path=str(path)),
+        dict(impl="PuDTrace", clock_ratio=1, path=str(path), **frontend_options),
         dict(impl="GenericDRAM", clock_ratio=1,
              channel_mapper=dict(impl="CacheLineInterleave"), controllers=[config]))
 
@@ -77,12 +78,154 @@ def test_experiment_reports_separate_wall_times(tmp_path, monkeypatch):
     assert result["trace_generation_seconds"] == 2.5
     assert result["simulation_wall_seconds"] == 4.0
     assert result["controller_cycles"] > 0
+    assert result["reduction_cycles_mean"] == 0  # N=4 has no physical reduction.
+    assert result["mul_cycles_mean"] == result["chain_cycles_mean"] == result["controller_cycles"]
+    assert result["start_delay_cycles_mean"] == 0
+    assert result["chain_csv_path"] == ""
+    assert not list(tmp_path.glob("*.chains.csv"))
     path = tmp_path / "results.csv"
     experiment.append_csv(path, result)
     with path.open(newline="", encoding="utf-8") as stream:
         row, = csv.DictReader(stream)
     assert float(row["trace_generation_seconds"]) == 2.5
     assert float(row["simulation_wall_seconds"]) == 4.0
+
+
+@pytest.mark.parametrize("profile", PROFILES)
+@pytest.mark.parametrize("m,n", [(2, 128), (8, 128), (2, 516)])
+def test_experiment_chain_phases_preserve_execution(tmp_path, profile, m, n):
+    from experiments import pud_gemv_baseline as experiment
+
+    result = experiment.run(profile, m, n, tmp_path, chain_csv=True)
+    layout = json.loads(Path(result["layout_json_path"]).read_text())
+    trace = tmp_path / f"{profile}.trace"
+    original_trace = trace.read_bytes()
+    with Path(result["chain_csv_path"]).open() as stream:
+        chains = [{key: int(value) for key, value in row.items()} for row in csv.DictReader(stream)]
+    assert len(chains) == m
+    assert {row["chain_id"] for row in chains} == {output["chain_id"] for output in layout["outputs"]}
+    assert min(row["first_submit_cycle"] for row in chains) == 0
+    assert max(row["final_complete_cycle"] for row in chains) == result["controller_cycles"]
+    for row in chains:
+        assert 0 <= row["first_submit_cycle"] <= row["mul_complete_cycle"] <= row["final_complete_cycle"]
+        assert row["start_delay_cycles"] == row["first_submit_cycle"]
+        assert row["mul_cycles"] == row["mul_complete_cycle"] - row["first_submit_cycle"]
+        assert row["reduction_cycles"] == row["final_complete_cycle"] - row["mul_complete_cycle"]
+        assert row["chain_cycles"] == row["final_complete_cycle"] - row["first_submit_cycle"]
+        assert row["chain_cycles"] == row["mul_cycles"] + row["reduction_cycles"]
+    assert all(result[key] == value for key, value in experiment.aggregate_latencies(chains).items())
+    summary = tmp_path / "results.csv"
+    experiment.append_csv(summary, result)
+    with summary.open() as stream:
+        summary_row, = csv.DictReader(stream)
+    for key, value in experiment.aggregate_latencies(chains).items():
+        assert float(summary_row[key]) == value
+
+    # The same complete physical trace, with latency collection disabled.
+    recorder = tmp_path / "uninstrumented.csv"
+    reference = simulation(trace, recorder)
+    reference.run()
+    stats = reference.stats
+    reference.finalize()
+    assert stats["memory_system"]["controller"]["cycles"] == result["controller_cycles"]
+    front = stats["frontend"]
+    assert front["physical_requests_submitted"] == front["physical_requests_completed"] == result["physical_requests"]
+    assert front["physical_requests_peak_inflight"] == result["peak_inflight_requests"]
+    assert front["physical_command_occurrences_completed"] == result["issued_dram_commands"]
+    assert Path(str(recorder) + ".ch0").read_bytes() == Path(result["command_trace_path"]).read_bytes()
+    assert trace.read_bytes() == original_trace
+
+
+def test_phase_percentiles_and_multidomain_rejection(tmp_path, monkeypatch):
+    from experiments import pud_gemv_baseline as experiment
+
+    rows = [dict(mul_cycles=v, reduction_cycles=v, chain_cycles=2*v, start_delay_cycles=0)
+            for v in (0, 10)]
+    result = experiment.aggregate_latencies(rows)
+    assert result["mul_cycles_mean"] == result["mul_cycles_p50"] == 5
+    assert result["mul_cycles_min"] == 0
+    assert result["mul_cycles_max"] == 10
+    assert result["mul_cycles_p95"] == 9.5
+    assert result["mul_cycles_p99"] == 9.9
+    assert result["chain_cycles_p99"] == 19.8
+    monkeypatch.setattr(experiment, "write_gemv", lambda *args: pytest.fail("must reject before generation"))
+    with pytest.raises(ValueError, match="one domain per chain"):
+        experiment.run("MIMDRAM-InterMatFirst-int8", 2, 8196, tmp_path)
+
+
+def test_checkpoint_timestamps_track_acceptance_and_full_callbacks(tmp_path):
+    path = trace_file(tmp_path,
+        "CHAIN 91\nNOT 0 0 0 0 0 0 10\n"
+        "CHAIN 7\nNOT 0 0 0 0 1 1 20\n"
+        "CHAIN 91\nNOT 0 0 0 0 0 0 11\nNOT 0 0 0 0 0 0 12\n")
+    dut = _PuDTraceUnderTest(str(path), resolver(), [91, 7], [2, 1])
+    assert dut.step(False) == 10
+    assert dut.stats()["first_submit_cycles"] == [-1, -1]
+    assert dut.step(True) == 20
+    dut.complete(20, [1000])  # Occurrence issue clocks are not callback clocks.
+    assert dut.step(False) == 10
+    assert dut.step(True) == 10
+    assert dut.stats()["first_submit_cycles"] == [3, 1]
+    for _ in range(2):
+        assert dut.step(True) == -1
+    dut.complete(10, [1000])
+    assert dut.step(True) == 11
+    assert dut.step(True) == -1
+    assert dut.stats()["checkpoint_complete_cycles"] == [-1, 2]
+    dut.complete(11, [1000])
+    assert dut.stats()["checkpoint_complete_cycles"] == [8, 2]
+    # All delay before the reduction Request's acceptance belongs after the checkpoint.
+    assert dut.step(False) == 12
+    assert dut.step(False) == 12
+    assert dut.step(True) == 12
+    assert dut.stats()["final_complete_cycles"] == [-1, 2]
+    assert dut.step(True) == -1
+    dut.complete(12, [1000])
+    assert dut.finished()
+    from experiments.pud_gemv_baseline import chain_latencies
+    chains = chain_latencies({"outputs": [{"chain_id": 91}, {"chain_id": 7}]}, dut.stats())
+    assert chains[0] == dict(chain_id=91, first_submit_cycle=3, mul_complete_cycle=8,
+                            final_complete_cycle=12, start_delay_cycles=3,
+                            mul_cycles=5, reduction_cycles=4, chain_cycles=9)
+    assert chains[1]["reduction_cycles"] == 0
+
+
+@pytest.mark.parametrize("ids,checkpoints", [([91], []), ([], [1]), ([7], [1]),
+    ([-1], [1]), ([91], [0]), ([91], [-1]), ([91], [2]), ([91, 91], [1, 1]), ([8], [1])])
+def test_invalid_latency_checkpoints(tmp_path, ids, checkpoints):
+    path = trace_file(tmp_path, "CHAIN 91\nNOT 0 0 0 0 0 0 10\nCHAIN 8\n")
+    with pytest.raises(RuntimeError, match="PuDTrace"):
+        _PuDTraceUnderTest(str(path), resolver(), ids, checkpoints)
+
+
+def test_latency_requires_equal_clocks(tmp_path):
+    path = trace_file(tmp_path, "CHAIN 0\nNOT 0 0 0 0 0 0 10\n")
+    config = controller()
+    config["pud_placement_profile"] = "MIMDRAM_DDR4_8Gb_x8_v1"
+    with pytest.raises(RuntimeError, match="equal frontend and memory clock ratios"):
+        ramulator.Simulation(dict(impl="PuDTrace", clock_ratio=2, path=str(path),
+                                  latency_chain_ids=[0], latency_checkpoint_requests=[1]),
+                             dict(impl="GenericDRAM", clock_ratio=1,
+                                  channel_mapper=dict(impl="CacheLineInterleave"), controllers=[config]))
+
+
+def test_checkpoint_includes_terminal_recovery(tmp_path):
+    from ramulator._ramulator_test import _DeviceUnderTest
+
+    path = trace_file(tmp_path, "CHAIN 42\nRowCopy 0 0 0 0 0 0 0 1\nNOT 0 0 0 0 0 0 1\n")
+    recorder = tmp_path / "recovery.csv"
+    sim = simulation(path, recorder, latency_chain_ids=[42], latency_checkpoint_requests=[1])
+    sim.run()
+    stats = sim.stats
+    sim.finalize()
+    with Path(str(recorder) + ".ch0").open() as stream:
+        precharges = [int(row["clock"]) for row in csv.DictReader(stream) if row["command"] == "PREpb"]
+    recovery = _DeviceUnderTest(controller()["dram"]).timings["nRP"]
+    assert len(precharges) == 2
+    assert stats["frontend"]["first_submit_cycles"] == [0]
+    assert stats["frontend"]["checkpoint_complete_cycles"] == [precharges[0] + recovery]
+    assert stats["frontend"]["final_complete_cycles"] == [precharges[1] + recovery]
+    assert precharges[1] + recovery == stats["memory_system"]["controller"]["cycles"]
 
 
 def test_location_translation_and_order(tmp_path):

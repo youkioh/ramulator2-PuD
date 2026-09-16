@@ -283,6 +283,44 @@ It uses the canonical one-rank configuration above and prints JSON with output
 placement, compute/LC-MOV/GB-MOV and total Request counts, peak inflight and
 controller cycles. Omit `--csv` to skip appending the same fields to a CSV file.
 
+The standalone runner also measures each output chain's MUL and reduction
+phases within that same full execution. It requires one domain per output
+(currently N <= 8192); longer inputs interleave MUL and reduction across domains
+and are rejected by this experiment. General GEMV generation and PuDTrace
+execution still support multiple domains.
+
+Add `--chain-csv` to write `<out>/<profile>.chains.csv` with `chain_id`,
+`first_submit_cycle`, `mul_complete_cycle`, `final_complete_cycle`,
+`start_delay_cycles`, `mul_cycles`, `reduction_cycles`, and `chain_cycles`.
+Cycles start at zero. First-submit is successful admission, and both completion
+timestamps come from full Request callbacks, including terminal recovery:
+
+```text
+start_delay_cycles = first_submit_cycle
+mul_cycles        = mul_complete_cycle - first_submit_cycle
+reduction_cycles  = final_complete_cycle - mul_complete_cycle
+chain_cycles      = final_complete_cycle - first_submit_cycle
+```
+
+Waiting before the first accepted Request contributes only to start delay;
+waiting after MUL completion contributes to reduction. With no physical
+reduction (N=4), MUL and final completion coincide. The JSON/summary CSV adds
+mean, min, max, p50, p95 and p99 for each phase and the whole chain, plus mean
+start delay. Percentiles interpolate sorted samples at `(count - 1) * p`.
+Use a new summary CSV when its existing header predates these fields.
+
+Layout schema 4 adds `chain_id`, `first_request_index`, and
+`initial_mul_final_request_index` per output, using one-based flattened
+physical indices; the final Request is already identified by the last domain's
+`completion_index`. Trace contents are unchanged. The runner converts the MUL
+boundary to a one-based index within its chain and configures PuDTrace's optional
+`latency_chain_ids` and `latency_checkpoint_requests` parallel lists. The frontend
+reports matching `first_submit_cycles`, `checkpoint_complete_cycles`, and
+`final_complete_cycles` lists with opaque `latency_chain_ids`; it assigns no
+arithmetic meaning. Unreached timestamps are -1. Collection requires equal
+frontend/memory clock ratios (both one here), so acceptance and callback clocks
+share controller-cycle units.
+
 The only active schedules are **MIMDRAM-InterMatFirst** (full-vector forward
 GB-MOV/ADD, then the sink's LC-MOV/ADD tree) and **MIMDRAM-IntraMatFirst**
 (local LC-MOV/ADD trees first, then residual-only forward GB-MOV/ADD).

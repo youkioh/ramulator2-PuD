@@ -91,6 +91,8 @@ def generate(profile, m, n):
         constants = {name: primary + 3*bits + i for i, name in enumerate(constant_names)}
         temporary = tuple(range(primary + 3*bits + len(constants), base + footprint))
         record = {
+            "chain_id": output,
+            "first_request_index": len(trace) + 1,
             "context": context,
             "input_rows": [],
             "macro_operation_temporary_row_bases": {name: external_base + row for name, row in
@@ -169,6 +171,11 @@ def generate(profile, m, n):
             a, x = base + domain*2*bits, base + domain*2*bits + bits
             record["input_rows"].append([external_base+a, external_base+x])
             arithmetic(mul_name, a, x, primary, mats[0], mats[k-1])
+            if domain == 0:
+                # Flattened one-based physical index, like completion_index.
+                # Later domains have their own MUL/reduction; this marks only
+                # the initial MUL without changing their execution order.
+                record["initial_mul_final_request_index"] = len(trace)
             sink = mats[k-1]
             if baseline == "InterMatFirst":
                 current = primary
