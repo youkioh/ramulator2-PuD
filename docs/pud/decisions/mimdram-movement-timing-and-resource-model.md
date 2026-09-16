@@ -8,6 +8,16 @@ timing graph, numeric baseline, and recovery boundary?
 
 Decision
 
+**Finite-engine amendment (Accepted 2026-09-16).** The
+[common execution-model decision](pud-multistandard-substrate.md#accepted-common-execution-model--no-finite-control-engine-capacity-2026-09-16)
+supersedes only this document's finite primitive-engine-accounting clauses.
+Finite SIMDRAM/MIMDRAM control-unit capacity is outside the performance model:
+compute primitives and LC-MOV/GB-MOV all have no finite control-engine charge.
+Physical footprint ownership/conflicts, no-SALP, command/movement timing,
+terminal recovery and conventional/PuD protection remain in force. The old
+Phase-1 E=8 implementation persists until separately authorized code correction;
+its results are historical implementation evidence, not the amended model.
+
 **Current status (2026-09-10).** W1-W9 implemented the range-local timing and
 resource rules in the canonical
 [unified DDR4 PuD substrate](ddr4-pud-unified-substrate.md). T-A resolved-target
@@ -42,8 +52,8 @@ PuD conflict scope = physical mat-footprint intersection + separately modeled
 shared command/timing constraints. The [execution authority](mimdram-movement-execution-ownership-and-device.md)
 defines the single derived footprint and acquisition/recovery lifetime for all
 six compute/LC/GB pair classes. Same-Bank different-subarray concurrency stays
-unsupported; compute engines, ordinary traffic and maintenance policy do not
-change.
+unsupported; ordinary traffic and maintenance policy do not change.
+Finite-engine accounting is separately superseded by the common amendment.
 
 LC/GB Device relationships formerly applied to latest target-Bank history now
 apply to latest history of that movement invocation. Source PRE→destination
@@ -159,9 +169,10 @@ The initial **simulator queue semantics**, not pin-accurate source claims, are:
 
 Queue pressure and FIFO head blocking are modeled costs. Q bounds outstanding
 target information, not active engines: dequeue releases queue space while
-the request continues. Engine capacity E=8 and release at terminal recovery
-are independently defined by the execution authority. Do not substitute a
-blanket min(E,Q) active-request limit or one permanent queue slot per request.
+the request continues. Historically, the execution authority independently
+required E=8 and engine release at terminal recovery; the common finite-engine
+amendment now supersedes that requirement. Neither a blanket min(E,Q)
+active-request limit nor one permanent queue slot per request is current policy.
 
 Alternative B (one target load with persistent selection for the whole range
 context) is rejected for the initial profile. It is smaller but removes
@@ -206,7 +217,7 @@ or conventional ACT timings.
 
 With resolved targets and no contention, first-ACT-through-terminal-recovery
 totals remain RowCopy(D)=40+5D+16 CK, MAJ3=66, MAJ5=76, NOT=99, and
-NOT_COPY=104 CK. Range/engine or maintenance waiting and shared command
+NOT_COPY=104 CK. Physical-range or maintenance waiting and shared command
 arbitration can still increase request latency. Distinguish these costs from
 local primitive execution and recovery; target-transport latency, mat-queue
 stalls and target-delivery-specific C/A contention are omitted under the

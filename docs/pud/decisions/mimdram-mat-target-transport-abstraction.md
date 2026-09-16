@@ -7,6 +7,16 @@ resolved mat range to each PuD activation?
 
 Decision
 
+**Finite-engine amendment (Accepted 2026-09-16).** The
+[common execution-model decision](pud-multistandard-substrate.md#accepted-common-execution-model--no-finite-control-engine-capacity-2026-09-16)
+supersedes only this document's finite primitive-engine-accounting clauses.
+Finite SIMDRAM/MIMDRAM control-unit capacity is outside the performance model:
+compute primitives and LC-MOV/GB-MOV all have no finite control-engine charge.
+Physical footprint ownership/conflicts, no-SALP, command/movement timing,
+terminal recovery and conventional/PuD protection remain in force. The old
+Phase-1 E=8 implementation persists until separately authorized code correction;
+its results are historical implementation evidence, not the amended model.
+
 Accept the user-selected resolved-target abstraction on 2026-09-09. This is
 the current baseline mat-target transport authority. It supersedes only the
 Alternative-A/Q=8 transport requirements in the canonical
@@ -44,8 +54,8 @@ applicable shared timing remain modeled.
 Keep W1 canonical geometry and resolved `MatRange`, profile-defined mat/chip
 topology, explicit range association on every compute occurrence, range-local
 compute state, PRADA local primitive timing, and W4/W5 recovery, ownership and
-conflict rules. Later W7 engine/range allocation and MIMD scheduling retain
-their accepted policies, including the independent E=8 engine default.
+conflict rules. W7 physical-range allocation and MIMD scheduling remain;
+its former independent E=8 engine default is superseded by the common amendment.
 LC/GB local timing and their existing transport-fidelity boundary are unchanged.
 
 **Alternative-A status.** Alternative A was the project's mapping of
@@ -88,7 +98,7 @@ Evidence
   facts do not mandate an explicit simulator queue.
 - **Accepted project contracts:** [Gate B](mimdram-addressing-geometry-and-payload.md)
   supplies resolved geometry/ranges; [Gate C execution](mimdram-movement-execution-ownership-and-device.md)
-  supplies occurrence association, range-local state, engine ownership and
+  supplies occurrence association, range-local state, physical ownership and
   recovery. The abstraction above is the user's project choice, not a source fact.
 - **Implementation evidence:** the prior `dram/pud_target_queue.*` and
   Device/controller setup, PRE pairing and successor mechanics are retained

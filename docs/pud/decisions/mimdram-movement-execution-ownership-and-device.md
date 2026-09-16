@@ -8,6 +8,16 @@ states/actions, maintenance, and accounting govern the retained LC/GB model?
 
 Decision
 
+**Finite-engine amendment (Accepted 2026-09-16).** The
+[common execution-model decision](pud-multistandard-substrate.md#accepted-common-execution-model--no-finite-control-engine-capacity-2026-09-16)
+supersedes only this document's finite primitive-engine-accounting clauses.
+Finite SIMDRAM/MIMDRAM control-unit capacity is outside the performance model:
+compute primitives and LC-MOV/GB-MOV all have no finite control-engine charge.
+Physical footprint ownership/conflicts, no-SALP, command/movement timing,
+terminal recovery and conventional/PuD protection remain in force. The old
+Phase-1 E=8 implementation persists until separately authorized code correction;
+its results are historical implementation evidence, not the amended model.
+
 **Current status (2026-09-10).** W1-W9 implemented this range-local execution,
 protected recovery, conflict, maintenance, and completion authority inside the
 canonical [unified DDR4 PuD substrate](ddr4-pud-unified-substrate.md).
@@ -69,20 +79,19 @@ cannot select its state or timing effect. Closing A cannot close/reset B.
 
 **Resources and admission**
 
-Use configurable E compute engines per modeled MIMDRAM control-unit instance,
-initially E=8. E=2 is a small overlap-validation configuration; E=1 is a
-serialized control and cannot establish the MIMD claim. For the initial
-GenericDRAM profile, associate one control-unit instance with one
-controller/channel instance, sharing its pool across that instance's Banks
-and Ranks. This profile association is a simulator choice grounded in the
-current one-controller-per-channel mapping, not a requirement on C++ storage.
+**Superseded finite-engine rule / current implementation history:** the
+original profile used configurable E (default eight), one compute primitive
+Request per slot, shared across each controller/Channel's Ranks/Banks, with
+E=1/2 overlap controls. This was a project implementation choice, not faithful
+bbop/microProgram accounting. The common amendment removes that performance
+constraint; it does not replace it with per-Bank or parent-operation pools.
 
 Scan pending compute oldest-to-newest using online first fit: allocate the
-first request whose complete range is available and for which an engine is
-free, subject to ordinary/movement, subarray, and maintenance eligibility.
+first request whose complete range is available, subject to ordinary/movement,
+subarray, and maintenance eligibility. No finite control-engine slot is required.
 Allocation is distinct from command arbitration and local timing readiness.
-Reserve engine and range atomically on allocation, including any pre-first-ACT
-wait for normal arbitration or local timing. T-A adds no target-delivery wait.
+Reserve the complete physical range atomically on allocation, including any
+pre-first-ACT wait for normal arbitration or local timing. T-A adds no target-delivery wait.
 An unallocated pending request owns nothing.
 Retain request-count pending buffering; do not reproduce the 2 kB bbop-buffer
 hardware or equate its byte capacity with engine count.
@@ -91,8 +100,8 @@ Within a Bank, permit independent disjoint compute ranges in one subarray.
 Intersecting mat resources conflict even when operand rows differ. Do not
 allocate compute in a different subarray of that Bank until all protected
 contexts there, including recovery, drain. SALP is not implicit in distinct
-Gate B CellIDs. Different Banks may progress subject to the engine pool,
-shared issue, maintenance, and applicable timing constraints.
+Gate B CellIDs. Different Banks may progress subject to shared issue,
+maintenance, and applicable timing constraints.
 
 **Accepted movement footprint refinement (2026-09-16).** Every PuD invocation
 exclusively protects its physical mat footprint: compute and LC use the selected
@@ -111,9 +120,10 @@ Movement acquires its complete footprint atomically with first ACT_MOV, owns
 nothing before that issue (including preparatory ordinary PRE), and retains
 protection through terminal PRE+nRP. Terminal PRE retires the sequence; recovery
 completion releases protection and completes accounting/callback exactly once.
-It consumes no compute engine. Failed admission is retryable without partial
-ownership. A per-invocation context replaces Bank movement state; the existing
-Request remains the sole cursor/history and endpoint authority.
+Like compute, it has no finite control-engine charge. Failed admission is
+retryable without partial ownership. A per-invocation context replaces Bank
+movement state; the existing Request remains the sole cursor/history and
+endpoint authority.
 
 Ordinary Device-issued ACT/RD/WR/RDA/WRA and unrelated Bank PRE
 conflict with protected same-Bank PuD contexts. Existing ordinary activity must
@@ -129,20 +139,19 @@ do not monopolize shared command issue.
 **Recovery, maintenance, and completion**
 
 At terminal compute PRE issue T, remove the sequence from command scheduling
-but retain its engine allocation and range recovery exclusion. At T+nRP:
+but retain its range recovery exclusion. At T+nRP:
 
 ```text
-release compute engine
 release range recovery exclusion
 complete request/accounting and invoke callback exactly once
 ```
 
 Use the shared delayed-completion mechanism. Extract/erase a ready completion
 before callback; preserve departure reordering and reentrant submission safety.
-Early compute-engine reuse at terminal PRE is not part of the initial profile.
-Movement consumes no compute engine; it retains only footprint protection
-through recovery. Recovery does not reset another context, but occupied compute
-engines remain a finite resource.
+Compute and movement both retain physical footprint protection through
+recovery, independently of any engine ID. Recovery does not reset another
+context. The former compute-engine retention/release rule is superseded;
+current code still releases its old engine record at this same recovery boundary.
 
 Queued priority maintenance stops new allocations through the retained priority
 policy; already allocated contexts drain without interruption. PREab/refresh
@@ -382,10 +391,9 @@ For v2, shared state per lockstep range avoids duplicated per-mat phase/history
 while preserving independent rows, progress, and recovery. Physical-mat
 movement exclusion follows the accepted project inference from
 MIMDRAM selection and circuitry; the single occupied-subarray boundary avoids
-importing SALP. Holding a compute engine through recovery applies only to
-compute and remains the accepted conservative policy; movement consumes no
-compute engine. Early compute-engine release would require a later justified
-optimization. Canonical location identity does not require timing
+importing SALP. Footprint protection through recovery is a physical execution
+constraint independent of finite control-engine accounting, which the common
+amendment excludes. Canonical location identity does not require timing
 simulation to store functional values.
 
 The rationale below applies to the retained movement protocol.
@@ -419,6 +427,8 @@ records source facts: shared range state, oldest-to-newest first fit, eight
 evaluated engines, a 2 kB bbop buffer, per-chip mat queues, and LC/GB temporal
 conditions. The user accepted the v2 simulator choices on 2026-09-09, including
 E=8, the timing/functional split, same-subarray MIMD, and recovery-time release.
+Only the finite primitive-engine choice is now superseded; the reported
+prior-work eight engines operate at bbop/microProgram granularity.
 
 Current implementation: [RequestLocations](../../../src/ramulator/base/request.cpp)
 derives one normalized physical footprint union; [GenericDDR](../../../src/ramulator/controller/impl/generic_ddr_controller.cpp)
@@ -482,7 +492,8 @@ Open issues
   compatible with movement operands.
 - Implementation and v2 verification progress are recorded in the
   [implementation plan](../plans/mimdram-pud-substrate-v2-implementation-plan.md).
-- SALP-style cross-subarray execution, early engine reuse, host/cache coherence,
-  and mixed ordinary/PuD functional coherence are outside the accepted profile.
+- SALP-style cross-subarray execution, finite control-engine modeling,
+  host/cache coherence, and mixed ordinary/PuD functional coherence are outside
+  the accepted profile.
 - Future refresh deadline, retention, credit, and maximum-deferral fidelity
   beyond the accepted initial F-A policy.

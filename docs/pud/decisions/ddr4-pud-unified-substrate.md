@@ -8,6 +8,16 @@ the complete modeled mat range or a narrower compute range?
 
 Decision
 
+**Finite-engine amendment (Accepted 2026-09-16).** The
+[common execution-model decision](pud-multistandard-substrate.md#accepted-common-execution-model--no-finite-control-engine-capacity-2026-09-16)
+supersedes only this document's finite primitive-engine-accounting clauses.
+Finite SIMDRAM/MIMDRAM control-unit capacity is outside the performance model:
+compute primitives and LC-MOV/GB-MOV all have no finite control-engine charge.
+Physical footprint ownership/conflicts, no-SALP, command/movement timing,
+terminal recovery and conventional/PuD protection remain in force. The old
+Phase-1 E=8 implementation persists until separately authorized code correction;
+its results are historical implementation evidence, not the amended model.
+
 Use the completed W1-W9 PRADA/MIMDRAM substrate as the single canonical public
 DDR4 PuD execution model. The public substrate combines compute and movement;
 there is no separate public compute-only versus movement-capable PuD execution
@@ -97,14 +107,16 @@ GB-MOV interpretation and must not be used to invent one.
 
 The old Bank-wide PRADA compute path and the W1-W9 range-aware compute path are
 not two supported runtime models after consolidation. Runtime or configuration
-selection may choose a supported placement profile or compute-engine capacity,
-but must not select legacy versus range-aware compute semantics. Absence of an
+selection may choose a supported placement profile, but must not select legacy
+versus range-aware compute semantics. Finite compute-engine capacity is no
+longer a modeled option under the common amendment. Absence of an
 explicitly selected supported placement profile makes canonical PuD execution
 unavailable; it must never select Bank-wide compute. Movement uses the same
 protected invocation machinery with the
 [Accepted physical-mat footprint scope](mimdram-movement-execution-ownership-and-device.md).
-It acquires at first ACT, consumes no compute engine, and protects only its
-footprint through recovery. There is no Bank-wide movement fallback.
+It acquires at first ACT and protects only its footprint through recovery.
+Neither compute nor movement has a finite control-engine charge. There is
+no Bank-wide movement fallback.
 
 Historical `v2` terminology identifies the development and verification effort
 that produced the canonical substrate. It is non-normative in the final user
@@ -124,9 +136,9 @@ of the final user model.
 Rationale
 
 The completed substrate already provides one canonical placement authority,
-resolved request-location lifetime, explicit range contexts, first-fit engine
-allocation, range-local timing and recovery, physical-mat movement interaction,
-and exact-once completion. Keeping an alternate no-range Bank-wide compute path
+resolved request-location lifetime, explicit range contexts, first-fit physical
+range allocation, range-local timing and recovery, physical-mat movement
+interaction, and exact-once completion. Keeping an alternate no-range Bank-wide compute path
 would preserve two meanings for the same public compute primitives, bypass the
 canonical location authority, and make configuration rather than request
 semantics determine affected resources.
@@ -174,8 +186,10 @@ Evidence
 
 Open issues
 
-- No execution-semantics or implementation-packaging issue remains for the
-  canonical public path. Reusable `DDR4_PuD` and `DDR4_PuD_Movement`
+- The common finite-engine correction remains to be implemented; current code
+  still has the superseded E=8 admission behavior. Otherwise no execution-semantics
+  or implementation-packaging issue remains for the canonical public path.
+  Reusable `DDR4_PuD` and `DDR4_PuD_Movement`
   definitions remain implementation structure, not separate public models.
 - Additional placement profiles, physical transport fidelity, functional value
   simulation, and higher-level arithmetic or reduction execution require

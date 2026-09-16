@@ -2,11 +2,16 @@
 
 Investigation date: 2026-09-16. Source checkout:
 `b8081b2f7c9e4f6c9e010cc09d7577700a234e2e`; working tree clean at entry.
-Scope: Phase-2 gates G1/G2/G3/G4/G6 only. This reference contains evidence,
+Scope: GDDR7 G1/G2/G3/G4/G6 and the common finite-control-engine
+abstraction audit, including public MIMDRAM and Proteus artifacts. The initial
+investigation started from a clean tree; this follow-up retains the preceding
+documentation edits.
+This reference contains evidence,
 calculations, modeling alternatives and their limitations; it selects no policy.
 The [canonical decision](../decisions/pud-multistandard-substrate.md) owns
-Accepted, Proposed and Open items, including the GDDR7 ACT-overhead exclusion
-accepted on 2026-09-16. **All five gates remain unresolved as wholes.**
+Accepted, Proposed and Open items; see it for G1/G2/G3/G4, the common
+finite-engine scope amendment, and the unchanged Open G6 candidate.
+This reference does not reopen Accepted choices.
 No production code or tests were changed.
 
 ## 1. Evidence and verification boundary
@@ -32,6 +37,12 @@ No production code or tests were changed.
   lists a 32-bit device, four channels/package and 32-byte access/channel.
   This supports interpreting the repository instance as one x8 channel slice;
   it does not supply internal mat placement.
+- **GPUHammer address granularity:** the user supplies evidence that real GPU
+  DRAM bank/row mapping has 256-B granularity. This is recorded as supplied
+  realistic-address-mapping evidence, not an independently checked GDDR7
+  part-specific result. No exact bank hash/XOR functions or equivalence to
+  Ramulator channel interleaving were supplied. It does not determine a
+  `CacheLineInterleave` setting or replace explicit PuD placement.
 - **HBM3, deferred:** the user supplies two pages per Channel, each 1 KB.
   This is retained as a source claim for the HBM3 milestone, not independently
   verified here. `1024×8/512 = 16` mats per page is a **derived hypothesis**
@@ -112,7 +123,7 @@ The preset names are not per-instance capacities. Density fields are
 an invented package multiplier. Arithmetic consistency does not establish
 physical PuD placement for any of the three presets.
 
-### Candidate geometry and transfer model
+### Geometry and transfer-width derivation
 
 Given 512 rows/mat, 512 cells/mat-row, 32 mats/subarray and 512 rows/subarray:
 
@@ -151,7 +162,24 @@ application to GDDR7. It does not uniquely determine:
 - GDDR7 realization of mat-selective activation/close and the PRADA/MIMDRAM
   hybrid, including HFF retention across LC source PRE.
 
-For example, the following is a **hypothetical mapping alternative**:
+The current DDR4 PuD integration uses `CacheLineInterleave + RoBaRaCoCh`:
+see the [binding](../../../src/ramulator/dram/pud_binding_ddr4.cpp),
+[resolver checks](../../../src/ramulator/dram/pud_location_ddr4.cpp), and
+[example configuration](../../../examples/ddr4_pud_microbenchmark_config.py).
+The channel mapper selects bits above the transaction offset, plus its
+`interleave_bits`; RoBaRaCoCh decodes the intra-channel address separately.
+GDDR7's 32-B transaction and GPUHammer's supplied 256-B bank/row granularity
+are different quantities. Neither establishes a 256-B channel stripe or
+GPU bank hash/XOR. No such mapper equivalence has been verified.
+
+The [PuD trace](../../../src/ramulator/frontend/impl/memory_trace/pud_trace.cpp)
+and resolved Request path use explicit hierarchy/Row/MatRange/optional Group
+placement; they do not need a scalar physical byte address per operand.
+The G1 decision keeps that placement authoritative and labels ordinary PA
+mapping provisional. A scalar byte-to-cell map is a separate compatibility
+interpretation, not physical GDDR7 wiring evidence.
+
+For example, the following is an **illustrative invertible compatibility map**:
 one Channel, `CacheLineInterleave` plus `RoBaRaCoCh`, no remapping or reserved
 offset, one x8 slice, ascending mat order, contiguous 512-row subdivisions,
 and consecutive eight-cell groups. For a byte address A in the first preset
@@ -208,9 +236,10 @@ tSR is a calibrated residual, not a separately measured PRADA quantity.
 Retaining all physical phases and retaining the aggregate calibration when
 PRE changes are different policies.
 
-### Non-Accepted GDDR7 examples
+### Independent quantization and alternative calibrations
 
-The examples use the current illustrative preset: one CK4 tick = 571 ps =
+The calculations use the current project GDDR7 evaluation baseline timing
+preset, `GDDR7_28000_PAM3`: one CK4 tick = 571 ps =
 0.571 ns, `nRP=30`, hence target recovery `tRP=17.130 ns`. Each independently
 enforced phase is calculated with `Q(t)=ceil(t/0.571)`; nRP is the preset value.
 
@@ -244,7 +273,8 @@ It is not a measurement of the proposed GDDR7 PRADA+MIMDRAM hybrid.
 All GDDR7 calculations here use unscaled phase times; the
 [Accepted GDDR7 overhead exclusion](../decisions/pud-multistandard-substrate.md#accepted-gddr7-act-overhead-exclusion-2026-09-16)
 owns the no-envelope/no-sensitivity policy. Under Policy A the candidate
-tuple remains `(16,8,58,50,62)` CK4; this does not select Policy A.
+tuple is `(16,8,58,50,62)` CK4. The canonical decision now selects A;
+B/C remain analytical comparisons, not pending alternatives to that acceptance.
 
 ### Reception, physical phase and completion anchors
 
@@ -258,14 +288,14 @@ terminal_recovery_deadline = I_PRE + c_PRE - 1 + nRP
 ```
 
 The issue-gap conversion is verified repository behavior; the recovery formula
-is a hypothetical target completion anchor. Neither proves a PuD command encoding.
+is the completion anchor selected in G2. Neither proves a PuD command encoding.
 Current conventional ACT and RD/WR take two CK4; PRE takes one. Accordingly,
 ACT→PRE nRAS=60 becomes a 61-tick first-issue gap; PRE→ACT nRP=30 becomes
 29, since ACT reception completes a tick after issue. Bus occupancy is a
 separate first-issue readiness check. GDDR7 has no HBM34
 rising/falling half-tick pairing rule.
 
-For the alternative that anchors PuD phases at final reception, assumes
+With G2's final-reception anchors and G3's selected assignment of
 two-tick ACT-like commands and a one-tick close/N, A_S*→N under Policy A
 has a first-issue gap of `58+2−1=59` ticks. This is reception-adjusted issue
 spacing, not a different A_S* phase duration; that duration remains 58 CK4.
@@ -276,7 +306,7 @@ PuD ownership lifetime; protection in this alternative lasts through `I_PRE+30`.
 
 Invocation-local Device edges currently consume serialized values, whereas
 the DDR4 occurrence-specific movement binding reads raw timing values.
-Under this reception-anchor alternative, translating the latter once gives
+Under G2's reception-anchor policy, translating the latter once gives
 consistent offsets; copying raw delays or adjusting twice would make the two
 paths disagree.
 No DDR4 anchor or global clock implementation is changed here.
@@ -314,11 +344,205 @@ multiplier. Frontend/controller clock ratios do not add issue paths.
 | PREpb, PREab, REFab, REFpb, RFMab, RFMpb | Channel row bus | 1 CK4 |
 
 The source currently defines no GDDR7 PuD command encoding, bus assignment
-or engine pool. GenericDDR's E=8 default is not a GDDR7 resource fact.
-A per-channel pool would share engines across its 16 Banks; per-bank pools
-would partition them, and a package pool would require an association across
-controllers that the current node hierarchy does not express. Those scopes
-have different concurrency consequences.
+or engine pool. GenericDDR's E=8 default is not a GDDR7 hardware resource fact.
+The selected command-resource/RCK terms are in the decision. The finite-engine
+evidence below distinguishes current implementation from that common policy.
+
+### Compute-engine count, lifetime and pool scope
+
+**Current implementation facts, not the newly Accepted execution model.**
+Production code is unchanged. The audit below explains why its eight-Request
+limit cannot be attributed to MIMDRAM; the common decision supersedes that
+performance constraint without introducing a replacement bbop engine model.
+
+The [allocator](../../../src/ramulator/controller/pud_execution.cpp)
+(`allocate_pud_compute`) scans pending compute Requests oldest-first and finds
+a free engine ID in `[0,E)`. The
+[controller lifecycle](../../../src/ramulator/controller/controller_base.cpp)
+(`reserve_pud_compute`, `retire_request`, `release_completed_resources`) commits
+one protected record containing that engine and the entire Request footprint,
+then releases it only at delayed departure after terminal recovery.
+
+| Question | Verified implementation answer |
+| --- | --- |
+| What is E=8? | The configurable `pud_compute_engines` default in GenericDDR: eight allocation slots per pool, not mats, Banks, queue entries or command issues/tick. |
+| One engine per active compute primitive Request? | Yes, from successful allocation before its first ACT; merely queued/unallocated Requests own none. |
+| Retained through terminal recovery? | Yes, including pre-ACT waits, execution and terminal PRE+nRP recovery; not released at terminal issue. |
+| Multiple mats in one Request? | Still one engine for its full mat range, not one engine/mat. |
+| LC-MOV / GB-MOV? | No compute engine: movement records use engine=-1 and retain footprint/recovery protection. |
+| Maximum concurrent compute Requests in one E=8 pool? | At most eight allocated primitives, counting pre-ACT and recovery; timing/conflicts can reduce executing concurrency. |
+| Sixteen-Bank compute BLP consequence? | With each primitive targeting one Bank, at most eight Banks can simultaneously hold compute primitives in this pool. Multiple disjoint primitives in one Bank can reduce the distinct-Bank count further. This does not cap ordinary traffic or engine-free movement at eight Banks. |
+| Current DDR4 behavior? | Yes. `DDR4PuDBinding::engine_pool` selects Channel, sharing the pool across all its Ranks/Banks. There is no per-Bank multiplication of E. |
+
+The existing [allocation tests](../../../tests/controller_scheduling/GenericDDRController/test_pud_allocation.py)
+exercise E=1/2/8 across Banks and Ranks through recovery; the
+[lifecycle tests](../../../tests/controller_scheduling/GenericDDRController/test_pud_protected_lifecycle.py)
+cover pre-ACT ownership, multi-mat Requests and recovery release.
+
+### Operation-context audit
+
+#### Paper architecture, area and performance evidence
+
+- [SIMDRAM](https://ghose.web.illinois.edu/papers/21asplos_simdram.pdf),
+  §4.3/Fig. 7, executes queued bbops one at a time, with a loop over row-sized
+  array batches. §5.2/Table 1 specifies arrays, element count `size` and
+  precision `n`. Separately, §6 evaluates 1/4/16 Banks and states same-Channel
+  Banks operate in parallel without further modifications. This reports BLP;
+  it does not specify a multi-Bank bbop control mechanism sufficient to derive
+  this project's primitive admission, partition scheduling or release rules.
+- [MIMDRAM](https://ghose.web.illinois.edu/papers/24hpca_mimdram.pdf),
+  §4.2/Fig. 7, allocates a free microProgram engine to a bbop and describes
+  concurrent operations limited by those contexts. On completion it frees
+  scoreboard mats and notifies the CPU. Table 2 reports eight engines in the
+  controller-resident control unit; §8.5 separately estimates their area.
+  §6.1/Table 1 includes `bbop_mov`, translated to LC/GB. §8.4/Fig. 14 separately
+  evaluates BLP/SALP through 16 Banks and 64 subarrays/Bank. These facts do
+  not establish eight engines per Bank or one engine per physical primitive.
+
+**Abstraction mismatch:** a paper bbop/microProgram context is not the project's
+physical RowCopy/MAJ/NOT Request. The current implementation's compute-only
+slot accounting, with LC/GB uncharged, is a project artifact, not a
+source-established MIMDRAM engine model.
+
+**Unresolved prior-work connection:** finite control machinery and evaluated
+BLP/SALP are insufficiently connected to derive a faithful finite-engine runtime
+model here. Neither arbitrary multi-Bank fan-out under one engine, replication
+of E per Bank, Figure 14 using E×Banks, nor a primitive-level E=8 bottleneck
+follows from the cited descriptions. LC/GB locality/topology restrictions
+further prevent inferring generic multi-Bank control from movement. The earlier
+claim that one bbop necessarily explains all multi-Bank parallelism was an
+unsupported inference, not a paper fact. No claim is made that unpublished
+evaluations definitely replicated or ignored engines.
+
+#### Public MIMDRAM simulator inspection
+
+Inspected on 2026-09-16 at revision
+`23495f10950d891a95a0b8a05d0a6a88e92de154` of
+[CMU-SAFARI/MIMDRAM](https://github.com/CMU-SAFARI/MIMDRAM/tree/23495f10950d891a95a0b8a05d0a6a88e92de154).
+Read-only source inspection covered the workload expansion, x86 decoder/
+row-operation microops, Request payload, DRAM controller/header/configuration
+and repository searches for bbop, microProgram and engine-allocation state.
+This was not a simulator build or reproduction of paper figures.
+
+| Public path | Observed mechanism |
+| --- | --- |
+| [Workload macros](https://github.com/CMU-SAFARI/MIMDRAM/blob/23495f10950d891a95a0b8a05d0a6a88e92de154/microworkloads/mimdram.h) and [addition example](https://github.com/CMU-SAFARI/MIMDRAM/blob/23495f10950d891a95a0b8a05d0a6a88e92de154/microworkloads/00_addition-plus.c) | C loops expand AP/AAP vector work into row-operation calls; vector width uses Bank/Rank constants. This is software expansion, not evidence of a hardware engine controlling arbitrary Bank partitions. |
+| [x86 row operations](https://github.com/CMU-SAFARI/MIMDRAM/blob/23495f10950d891a95a0b8a05d0a6a88e92de154/gem5/src/arch/x86/isa/microops/rowbit.isa) and [Request](https://github.com/CMU-SAFARI/MIMDRAM/blob/23495f10950d891a95a0b8a05d0a6a88e92de154/gem5/src/mem/request.hh) | RowOp payload carries opcode and source/destination addresses; exposed operations include AND/OR/NOT/XOR/AP/AAP. No paper-level bbop interpreter or microProgram-engine allocator was found in this path. |
+| [DRAM controller](https://github.com/CMU-SAFARI/MIMDRAM/blob/23495f10950d891a95a0b8a05d0a6a88e92de154/gem5/src/mem/dram_ctrl.cc), `addToWriteQueue`, `doDRAMAccess`, `processNextReqEvent` | Row operations enter the write queue; `pendingRowOps` requests write draining. Fixed AP/AAP sequences update Bank timing and completion/bus state. The counter is decremented on servicing a row operation; it is not an E-sized resident-engine pool. Ordinary queue/timing constraints still exist. |
+
+**Bounded implementation finding:** the public framework inspected here does
+not implement observable finite microProgram-engine occupancy/backpressure.
+No matching bbop-engine allocation, E-sized occupancy, engine release or
+finite-engine concurrency enforcement was found. Existing row-operation
+execution is not a complete implementation of the paper's control-unit model.
+The public code establishes only its own modeled mechanisms; it cannot prove
+how every unpublished simulator/configuration behind MIMDRAM's figures behaved.
+Paper architecture and area accounting remain separate evidence.
+
+#### Public Proteus analytical model inspection
+
+Inspected on 2026-09-16 at revision
+`30abc72d9156c4ede8137c8c60ae3fb3f87dc9e2` of
+[CMU-SAFARI/Proteus](https://github.com/CMU-SAFARI/Proteus/tree/30abc72d9156c4ede8137c8c60ae3fb3f87dc9e2).
+Its [README](https://github.com/CMU-SAFARI/Proteus/blob/30abc72d9156c4ede8137c8c60ae3fb3f87dc9e2/README.md)
+describes instrumented applications using analytical costs driven by prior
+SIMDRAM/MIMDRAM gem5 work. That provenance does not reveal the missing
+control-capacity semantics of the underlying cost-generation runs.
+
+In [`util/bbop_manager.c`](https://github.com/CMU-SAFARI/Proteus/blob/30abc72d9156c4ede8137c8c60ae3fb3f87dc9e2/util/bbop_manager.c),
+`get_simdram_adder_latency` selects tabulated costs by precision and multiplies
+by a size-dependent repetition factor, using one or 64 subarrays' SIMD width.
+Multiplier/ReLU and Proteus cost paths likewise use operation/precision,
+array parallelism and, where selected, tFAW-related restrictions.
+`bbop_op` accumulates these analytical costs by bbop ID; it does not run
+a finite SIMDRAM/MIMDRAM engine-admission/release scheduler.
+The [header](https://github.com/CMU-SAFARI/Proteus/blob/30abc72d9156c4ede8137c8c60ae3fb3f87dc9e2/util/bbop_manager.h)
+sets `SIMD_WIDTH=65536`, `SUBARRAYS=64` and `MAX_BBOPS=100`.
+The last sizes statistics indexed by bbop ID; it is not 100 concurrent engines.
+Host OpenMP thread count is likewise not a modeled PuD control-engine count.
+
+**Bounded implementation finding:** these public analytical performance paths
+contain no explicit finite SIMDRAM/MIMDRAM control-engine occupancy,
+backpressure or release constraint. This is a fact about the public Proteus
+model, not proof that every prior unpublished evaluation omitted that limit
+or that precomputed costs contain no other overhead.
+
+#### Current project boundaries and where they are lost
+
+| Construct | Source-verified role / bbop relationship |
+| --- | --- |
+| GEMV macro | The [programming specification](gpu-pud-gemv-programming-model.cu) and [Accepted macro contract](../decisions/pud-gemv-macro-contract.md) compose MUL, movement and ADD stages, plus GPU residual/domain combination. A whole GEMV or output chain is not one existing ADD/MUL microProgram. |
+| ADD/MUL invocation | One typed `pud_vector_*` call has array pointers, element count and mat range. In [generator.py](../../../tools/pud_gemv_generator/generator.py), one `arithmetic(...)` call instantiates one selected ADD/MUL program over an output's placed range. This resembles an operation-level boundary, not a source-defined runtime engine allocation. |
+| Logical move | One `pud_mov` call specifies elements/precision. The generator's `move(...)` expands its corresponding movement step over bits and HFF groups into one or many LC/GB Requests, including existing within-output ranged LC. Those transfers are children of the logical move, not separate ISA bbops. |
+| Physical primitive Request | RowCopy/MAJ3/MAJ5/NOT/NOT_COPY or LC/GB is a lower-level invocation with command occurrences. [Validation](../../../src/ramulator/controller/pud_request_validation.cpp) requires its operands to share Bank/subarray; it is not an array-wide bbop. |
+| CHAIN | [PuDTrace](../../../src/ramulator/frontend/impl/memory_trace/pud_trace.cpp) permits one outstanding Request per chain, advances only on full completion, and attempts one ready-chain submission per frontend tick. It expresses dependency order, not operation identity, engine identity or microProgram membership. |
+
+[Arithmetic builders](../../../tools/pud_operation_generator/core.py) and
+[lowering](../../../tools/pud_operation_generator/lowering.py) already return a
+whole program: `PhysicalLoweredProgram.primitives`, designated rows and
+bindings. The lowerer is Bank-agnostic local-row code; the caller supplies
+the placement. Arithmetic generation, primitive order, row allocation,
+temporary-row counts and numerical behavior do not require engine metadata.
+Those existing logical boundaries explain the abstraction mismatch; they do
+not by themselves define a source-faithful finite control model.
+
+The loss occurs in `generator.generate`: `arithmetic` loops over
+`lowered.primitives` and appends plain physical strings; `move` similarly
+loops over bits/groups. Its lowering cache shares program artifacts across
+invocations, so a cached object or debug `stage` string is not an invocation ID.
+Metadata retains aggregate arithmetic invocation counts and first-MUL/domain
+checkpoints, but no complete operation membership/end table, and no logical
+move identities. `write_gemv` adds only one CHAIN selection per output.
+[Request](../../../src/ramulator/base/request.h) has physical placement,
+occurrence cursor/history and a weak physical `PuDExecutionContext`, with
+no logical parent operation metadata. The frontend's callback captures the
+chain index; it never conveys a bbop to controller allocation.
+
+A read-only, in-memory call/return probe of
+`generate("MIMDRAM-InterMatFirst-int8", 16, 12)` found 16 distinct Bank
+placements, 16 MUL calls, 32 ADD calls and 48 logical `move` calls, flattened
+to 11,648 Requests. Each output emits MUL(612 Requests), move(8), ADD(46),
+move(8), move(8), ADD(46). Thus logical calls, physical Requests and output
+chains have different cardinalities. This probe measures generator structure,
+not execution timing or a corrected engine model.
+
+#### Investigated parent-context alternative — rejected
+
+The audit considered one engine per existing ADD/MUL/logical-move call, or
+one per explicitly combined bulk operation with several Bank-local partitions.
+Under assumed E=8 and retention through operation recovery, sixteen separate
+one-Bank output MULs would occupy at most eight slots; an assumed single bulk
+parent could expose sixteen partitions under one slot. These are consequences
+of hypothetical project models, not established SIMDRAM/MIMDRAM behavior.
+
+The current generator keeps every domain of an output in its one Bank and
+confines ranged operations to one output. Bulk grouping would change
+composition/admission/completion semantics, even if it preserved the physical
+arithmetic and FP8 reduction order. The alternative would need separate
+operation identity/membership, partition progression, parent/child completion,
+workspace ownership and a justified allocation/release model. CHAIN alone
+cannot supply those semantics. The papers do not establish the missing
+fan-out mechanism, exact lifetime or grouping choice.
+
+The [common decision](../decisions/pud-multistandard-substrate.md#accepted-common-execution-model--no-finite-control-engine-capacity-2026-09-16)
+rejects this direction because the available evidence does not define it
+faithfully and the project chooses the DRAM-side abstraction below it.
+This is investigation history, not an active proposal or an unresolved
+engine-driven G5/G7 dependency. Arithmetic/lowering, GEMV grouping, physical
+trace syntax and CHAIN need no engine-identity change under that boundary.
+
+**Current correction surface:** finite admission is in
+[common allocation](../../../src/ramulator/controller/pud_execution.cpp),
+[protected controller records/lifecycle](../../../src/ramulator/controller/controller_base.h)
+and [their implementation](../../../src/ramulator/controller/controller_base.cpp).
+[GenericDDR](../../../src/ramulator/controller/impl/generic_ddr_controller.cpp)
+exposes `pud_compute_engines`; the
+[binding interface](../../../src/ramulator/dram/pud_binding.h) supplies pool identity.
+Physical [Device contexts](../../../src/ramulator/dram/device.h) and conflict/
+recovery ownership have a purpose independent of engine IDs. Existing tests
+and [experiment configuration](../../../experiments/pud_gemv_baseline.py)
+also refer to E. These are source dependencies, not evidence that removing E
+requires new parent metadata. The plan owns implementation and validation.
 
 ### RCK source meaning and repository behavior
 
@@ -346,8 +570,8 @@ verified in the repository, not inferred from a full JEDEC implementation:
   ready row command may still issue. RD/RDA recognition is explicit in the
   controller; column classification alone does not make a command a read.
 
-The controller does not implement GDDR7 RD_MOV/WR_MOV. Their RCK treatment
-is an unresolved target choice in the decision document.
+The controller does not implement GDDR7 RD_MOV/WR_MOV. Their Accepted
+RCK treatment is recorded in the decision and is not reinvestigated here.
 
 ### Current constraints and conventional recovery
 
@@ -428,8 +652,8 @@ Movement timing correspondence is a semantic/physical analogy: capture,
 restoration, precharge recovery and write recovery denote different work.
 Similar cycle counts neither establish that analogy nor imply similar
 physical time across the two clocks. Different counts can likewise describe
-the same kind of interval. The mappings below are conditional analytical
-alternatives, not selected timing rules.
+the same kind of interval. The mappings below provide the analysis supporting
+the rules now selected in G4; their physical fidelity limits remain.
 
 ### LC/GB interval analysis
 
@@ -523,41 +747,146 @@ Current values are 315/105 CK4; these do not establish calibrated RFM timing.
 | Missing PREab relationships | ACT/RD/WR→PREab protection and PREab→ACT/REFpb recovery edges are absent. | Modeled legality can allow early all-bank closure/reactivation. Applicable PREab-specific timing relationships and reception anchors are missing from supplied technical evidence. |
 | Placeholder RFM timings | RFM durations default to refresh durations; manual commands are supported by plumbing tests. | Those tests establish command reachability, not physical RFM timing. A workload with no RFM never exercises these edges; a workload that includes it depends on approximate/incomplete maintenance timing. |
 
+### DDR4 versus GDDR7 PREab legality and recovery
+
+Direct comparison of [DDR4 timing declarations](../../../python/ramulator/dram/ddr4.py)
+and [GDDR7 timing declarations](../../../python/ramulator/dram/gddr7.py) gives
+the following explicit edges (nominal final-reception intervals):
+
+| Edge | DDR4 | GDDR7 |
+| --- | --- | --- |
+| ACT -> PREab | Rank nRAS | Missing |
+| RD -> PREab | Rank nRTP | Missing |
+| RDA -> PREab | No direct edge | No direct edge |
+| WR -> PREab | Rank nCWL+nBL+nWR | Missing |
+| WRA -> PREab | No direct edge | No direct edge |
+| PREab -> ACT | Rank nRP | Missing |
+| PREab -> refresh | Rank -> REFab nRP; no REFpb command | Channel -> REFab nRP present; -> REFpb missing |
+
+Thus DDR4 does **not** have the same broad PREab legality/recovery gap as
+GDDR7. The absent direct AP-to-PREab edges are a shared, narrower observation:
+[RDA](../../../src/ramulator/dram/commands/RDA.h)/[WRA](../../../src/ramulator/dram/commands/WRA.h)
+close conventional state immediately, while separate AP->ACT and AP->REFab
+edges retain recovery in both standards (GDDR7 also has AP->REFpb/RFMpb).
+PREab does not erase those deadlines. The comparison does not prove
+physical correctness of issuing redundant PREab during AP recovery in either
+standard, and does not motivate an unrequested DDR4 change.
+
+DDR4 PuD adds explicit Rank PREab->compute-open and PREab->ACT_MOV nRP,
+alongside incoming PREpb/AP/REF recovery in
+[compute](../../../python/ramulator/dram/ddr4_pud.py) and
+[movement](../../../python/ramulator/dram/ddr4_pud_movement.py) declarations.
+In the reverse direction, common
+[Device protection](../../../src/ramulator/dram/device.cpp) and
+[controller eligibility/release](../../../src/ramulator/controller/controller_base.cpp)
+block conventional PREab against any protected invocation in its target
+scope, including before first ACT and through terminal recovery. Local PuD
+PRE is not PREab and does not publish Bank/Rank recovery into disjoint work.
+The [DDR4 conflict tests](../../../tests/controller_scheduling/GenericDDRController/test_pud_conflicts.py)
+cover PREab blocking and conventional PREab recovery before allocation.
+
 ### PREab gap observations
 
 Existing tests cover PREpb, AP recovery, refresh prerequisites and some
 RFM plumbing; they do not assert the missing PREab timing boundaries.
-Source inspection plus the earlier focused Device probes produced:
+Read-only probes using the existing Device harness/build reproduced the gaps
+and supplied the DDR4 comparison on 2026-09-16:
 
 ```text
-ACT(bank0) @ 0: PREab is ready @ 2; PREpb is not ready @ 2.
-Fresh closed Device, PREab @ 0: ACT and REFpb are ready @ 1.
+DDR4 ACT(bank0) @ 0: earliest PREab @ 39.
+GDDR7 ACT(bank0) @ 0: earliest PREab @ 2; PREpb is not ready @ 2.
+DDR4 fresh closed Device, PREab @ 0: ACT and REFab first ready @ 16.
+GDDR7 fresh closed Device, PREab @ 0: ACT and REFpb ready @ 1; REFab @ 30.
+Both: ACT @ 0, RDA or WRA @ 100 permits PREab @ 102,
+      while ACT and REFab remain blocked @ 103 by AP recovery.
 ```
 
-The first observation waits only for ACT's two-tick row-bus occupancy;
-ordinary ACT→PREpb nRAS would require first issue at 61. The second has no
-PREab recovery edge. Existing `PREab→REFab/RFMab=nRP` and PRE-to-PRE nPPD
+The GDDR7 ACT→PREab observation waits only for ACT's two-tick row-bus
+occupancy; ordinary ACT→PREpb nRAS would require first issue at 61. Its
+PREab→ACT/REFpb observations have no recovery edge. Existing
+`PREab→REFab/RFMab=nRP` and PRE-to-PRE nPPD
 relationships do not fill these gaps. This observation does not establish
 completeness of other baseline relationships. In particular, nRTPSB's
 same-bank semantics alone do not establish the missing all-bank read-to-PRE
 rule.
 
-The A/B/C/D baseline classifications, repair/exclusion alternatives and their
-experiment-scope implications are recorded as Proposed/Open items in the
-[canonical decision](../decisions/pud-multistandard-substrate.md#proposed--gddr7-target-choices-not-accepted).
-This reference selects neither PREab repair nor an RFM experiment policy.
+### Conservative PREab repair alternative and limits
+
+The smallest repair within the existing timing-edge machinery is to add
+Channel-scoped incoming/outgoing PREab edges, so every affected Bank's
+conventional history contributes. Existing per-bank ACT/RD/WR close floors
+can supply a project proxy; nRTPSB is not thereby established as a physical
+all-bank parameter. A conservative AP variant waits for full modeled AP
+recovery before PREab; this can over-delay a redundant close but avoids using
+immediate Closed state as proof that recovery finished. Per-bank REF/RFM
+recovery also needs to block an all-bank close. Existing all-bank maintenance
+recovery, PREab->REFab/RFMab and nPPD edges can remain.
+
+The exact proposed edge set is in the
+[G6 candidate](../decisions/pud-multistandard-substrate.md#proposed-g6-final-choice--open-pending-approval).
+It is conservative relative to the repository's existing Bank recovery model,
+not proven conservative against unknown GDDR7 silicon timings. Applying the
+G2 reception conversion once is necessary; Bank state closure alone cannot
+repair the gaps. No scheduler-priority change is implicated.
+
+### RFM inventory, reachability, safety and timing scope
+
+| Distinct property | Repository finding |
+| --- | --- |
+| DDR4 command exists? | No RFMab/RFMpb in DDR4 or its PuD variants. DDR4's maintenance command here is REFab. |
+| Standards exposing both RFM commands | GDDR7, HBM3, HBM4, DDR5_RFM and its DDR5_RFM_VRR extension; plain DDR5 does not add them. |
+| GDDR7 command can be injected? | Yes. Generated registration, prerequisites and manual `priority_send` tests support both scopes. |
+| GDDR7 automatic policy generates it? | No built-in RFM policy in GDDR7Controller or its selected ordinary refresh managers; command plumbing does not imply generation. |
+| PuD conflict safety exists? | Common protected-target checking covers the command's target Banks through recovery; this is reusable protection, not an already implemented/tested GDDR7 PuD binding. |
+| Physical RFM timing calibrated? | No. GDDR7 defaults nRFMab/nRFMpb to nRFCab/nRFCpb, 315/105 CK4 in this preset, explicitly as placeholders. |
+
+Sources: [DDR5_RFM](../../../python/ramulator/dram/ddr5_rfm.py),
+[DDR5_RFM_VRR](../../../python/ramulator/dram/ddr5_rfm_vrr.py),
+[HBM3](../../../python/ramulator/dram/hbm3.py),
+[HBM4](../../../python/ramulator/dram/hbm4.py),
+[GDDR7 controller tests](../../../tests/controller_scheduling/test_gddr7.py).
+An optional [RFMManager](../../../src/ramulator/controller/plugin/impl/rfm_manager.cpp)
+exists elsewhere, but setup requires Rank, absent in GDDR7; it is not evidence
+of an automatic GDDR7 policy. A future manager or manually injected Request
+would be a separate generation path requiring an explicit workload choice.
+
+[RFMab](../../../src/ramulator/dram/commands/RFMab.h) targets all Banks in the
+addressed scope and may require PREab; [RFMpb](../../../src/ramulator/dram/commands/RFMpb.h)
+targets one Bank and may require PREpb. Common Device target traversal and
+controller pre-prerequisite eligibility can block either from overlapping a
+protected PuD region even though RFM physical timings are uncalibrated.
+Conversely, preserved numerical maintenance recovery must feed new PuD opening
+identities in a future binding; conflict protection alone does not establish
+that the recovery duration is physically accurate.
+
+**Policy A alternative:** include RFM traffic in validated GDDR7 PuD timing.
+This expands incoming/outgoing maintenance validation and needs applicable
+RFM timing evidence; refresh-derived placeholders do not supply that evidence.
+**Policy B alternative:** keep plumbing and conflict protection, generate no
+RFM in the selected evaluation workload/maintenance configuration, and make
+no validated RFM-latency claim. This retains manual safety probes and future
+policy integration. The evaluation contract must cover plugin/manager and
+manual-input generation, with zero RFM checked in its traces; it need not
+remove commands or reject them globally.
+
+The **project GDDR7 evaluation baseline** denotes the fixed repository
+architecture-evaluation configuration, not vendor-calibrated timing accuracy.
+The underlying source preset still says CI/smoke/regression-only and has not
+been changed. Its use and the proposed repair/policy B are project choices
+in the G6 candidate; they do not supply a timing error bound or waive ordinary
+REF/PuD recovery validation.
 
 ## 7. Evidence summary and unresolved questions
 
-| Gate | Evidence / derived result | Remaining uncertainty |
+| Gate | Evidence / derived result | Remaining uncertainty / fidelity limit |
 | --- | --- | --- |
-| G1 | Representative geometry; x8/prefetch-32 model; 2-KiB page, 32-B burst, H-equivalent=8, 64 groups | GDDR7 physical applicability, row/bit mapping and GB adjacency |
-| G2 | PRADA/DDR4 derivation; unscaled A=(16,8,58,50,62), B=(16,8,52,43,62); PRE=30 | A/B/C, physical portability, reception anchors and other timing semantics; ACT-overhead policy is recorded separately in the canonical decision |
-| G3 | Channel→Bank, two issue paths, bus occupancy, RCK behavior and conventional timing | PuD encoding, bus/resource assignments, engine scope/count, current rules and timing publication |
-| G4 | MIMDRAM sequences, related FIGARO evidence, conventional timing analogues and conditional timelines | Target internal-path calibration, selective close, relocation and resource assumptions |
-| G6 | Preset disclaimer, observed PREab legality/recovery gaps, placeholder RFM | Exact PREab/RFM rules, baseline adequacy and permitted experiment scope |
+| G1 | Representative geometry; x8/prefetch-32 model; 2-KiB page, 32-B burst, H-equivalent=8, 64 groups | Physical wiring is unverified and realistic GPU PA hashing deferred; modeled geometry, provisional PA integration and GB topology are selected in the decision |
+| G2 | PRADA/DDR4 derivation; unscaled A=(16,8,58,50,62), B=(16,8,52,43,62); PRE=30 | Physical portability/calibration remains a fidelity limit; phase policy and anchors are now selected in the decision |
+| G3 | Current DDR4 charges primitives; paper engines represent bbop/microProgram contexts; inspected public MIMDRAM/Proteus paths expose no finite engine occupancy | Prior-work control-to-BLP/SALP connection remains insufficient for a faithful finite model; common omission and bus/RCK policy are selected in the decision, without engine-driven G5/G7 dependencies |
+| G4 | MIMDRAM sequences, related FIGARO evidence, conventional timing analogues and conditional timelines | Selected analogues, selective close and relocation remain target physical-fidelity assumptions, not open policy choices |
+| G6 | DDR4 has core PREab edges absent in GDDR7; both omit direct AP->PREab; RFM plumbing/protection and calibration are distinct | Conservative PREab repair and policy B await approval; physical PREab/RFM calibration remains unavailable |
 
 Project choices and status are maintained only in the
 [canonical decision](../decisions/pud-multistandard-substrate.md); the
 [implementation plan](../plans/pud-multistandard-substrate-plan.md) tracks their
-first code consumers. No gate-wide acceptance follows from this investigation.
+first code consumers. The evidence itself does not confer project acceptance.
