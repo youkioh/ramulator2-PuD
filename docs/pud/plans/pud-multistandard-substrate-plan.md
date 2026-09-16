@@ -1,7 +1,9 @@
 # PuD multistandard substrate implementation plan
 
 Status: Phase 1 complete on 2026-09-16; DDR4 equivalence verified.
-G0 is Accepted. G1–G7 remain unresolved; target PuD implementation is not authorized.
+G0 is Accepted. G1–G7 remain unresolved as whole gates; target PuD implementation
+is not authorized. The scoped GDDR7 ACT-overhead exclusion is recorded in the
+canonical decision and does not close G2.
 Baseline: `093af06009f0d3e403fc9e949682ce6722a8ec3a` on
 `feature/pud-multistandard-substrate`.
 
@@ -11,6 +13,10 @@ Accepted authorities, and the [Accepted architecture](../decisions/pud-multistan
 before implementation. This plan authorizes no new modeling choice. G0–G7
 refer to the audit's gate table; do not reconstruct current authority from
 historical plans. Record acceptances at their canonical modeling boundaries.
+For GDDR7 Phase 2, recover the
+[evidence and alternatives](../references/gddr7-pud-modeling-reference.md) and
+[canonical policy/status](../decisions/pud-multistandard-substrate.md)
+before the implementation work below.
 
 ## Phase 1 — one common substrate with identical DDR4 behavior
 
@@ -242,6 +248,14 @@ Local documentation links/anchors, new-file whitespace checks and
 
 ## Phase 2 — complete GDDR7 primitive substrate binding
 
+The [reference](../references/gddr7-pud-modeling-reference.md) contains
+G1/G2/G3/G4/G6 evidence, calculations and alternatives. The
+[canonical decision](../decisions/pud-multistandard-substrate.md) owns policy:
+its scoped GDDR7 ACT-overhead exclusion is Accepted, while those gates remain
+Open as wholes and target implementation remains unauthorized. Resolve the
+Proposed/Open items there before their first consumers. This plan selects
+no independent timing, resource, PREab-repair or RFM policy.
+
 Invariant: an explicitly approved GDDR7 configuration supports all five
 compute operations plus LC/GB with one common ownership/completion model,
 and preserves the existing conventional GDDR7 behavior except separately
@@ -250,9 +264,9 @@ accepted baseline corrections.
 Entry: Phase 1 complete; resolve G1/G2/G3/G4/G6 together before the target
 profile/timing/issue consumers. Obtain physical geometry or explicit approval
 of a hypothetical profile; approve calibration, CK4 anchoring, movement graph,
-bus/command occupancy, engine scope, GDDR7 channel interpretation and PREab
-gap disposition. A registerable but unsafe intermediate binding is not a
-phase exit. No DDR4 numerical fallback.
+bus/command occupancy, engine scope, GDDR7 channel interpretation and baseline
+PREab/preset/RFM disposition in the canonical decision. A registerable but
+unsafe intermediate binding is not a phase exit. No DDR4 numerical fallback.
 
 Work units: (1) target profile/map and declarative binding with provenance;
 (2) common PuD integration into existing GDDR7 dual-bus/RCK arbitration and
@@ -266,7 +280,9 @@ transaction width, group correspondence, rejected topology, independently
 derived primitive timelines and one-tick-early rejection, command reception
 offsets, actual bus occupancy and RCK modes, all six footprint pair classes,
 no-SALP and delayed dependency completion. Cover PREpb/PREab, AP, REFab/REFpb
-and RFM commands at their real scopes; preserve recovery of disjoint contexts.
+and the RFM scope selected by the canonical decision: validate supported RFM
+traffic or the explicitly accepted exclusion boundary. Preserve recovery of
+disjoint contexts.
 Use direct paired Requests initially, so G5 trace-format work is not forced
 before primitive validation. Regression: DDR4 Phase-1 fixtures plus GDDR7
 Device/controller/RCK/refresh/smoke; broaden when shared code changes.
@@ -281,6 +297,10 @@ Entry: Phase 1 complete and HBM3 G1/G2/G3/G4/G6 resolved together. Sequential
 execution after Phase 2 is recommended to exercise the shared boundary on the
 smaller hierarchy first; HBM3 research can precede GDDR7 completion without
 committing executable semantics. Neither target's acceptance accepts the other.
+The supplied two-pages/Channel, 1-KB/page claim is parked in the
+[GDDR7 investigation's evidence ledger](../references/gddr7-pud-modeling-reference.md#supplied-physical-organization-claims).
+Revisit its source and page/PC/subarray relationship here; 16 mats/page or
+subarray remains a hypothesis, not an accepted HBM3 profile.
 
 Work units: (1) approved HBM profile and phase/command/tick binding;
 (2) HBM34 issue integration, ACT-like pairing classification and PC/Sid shared
@@ -337,7 +357,8 @@ operation/lowering requirements, all six GEMV profiles, full diff review and
 
 Phase 1 is complete with the frozen local evidence above. GDDR7 and HBM3 remain
 conventional-only. The next implementation task requires explicit authorization
-and resolution of the target gates before their first consumers; G0 does not
-accept G1–G7. Preserve the DDR4 baseline rather than updating expectations.
+and resolution of the target gates before their first consumers. G0 and the
+scoped GDDR7 ACT-overhead exclusion do not close G1–G7 as whole gates.
+Preserve the DDR4 baseline rather than updating expectations.
 No commit, target calibration/profile, new trace/GEMV placement, new GB topology,
 SALP, payload simulation, energy modeling or CACTI integration is authorized.
