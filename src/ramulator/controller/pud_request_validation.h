@@ -10,9 +10,7 @@ namespace Ramulator {
 struct DRAMSpec;
 
 struct PuDPlacementLevels {
-  int rank = -1;
-  int bankgroup = -1;
-  int bank = -1;
+  std::vector<int> bank_context;
   int row = -1;
 };
 

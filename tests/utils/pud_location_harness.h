@@ -57,13 +57,15 @@ class LocationResolverUnderTest {
   std::shared_ptr<const PuD::LocationResolver> resolver() const { return m_resolver; }
 
   static std::vector<int> cell_vector(PuD::CellID c) {
-    return {c.channel, c.rank, c.bank_group, c.bank, c.subarray, c.local_row, c.chip, c.mat, c.column};
+    auto result = c.bank;
+    result.insert(result.end(), {c.subarray, c.local_row, c.chip, c.mat, c.column});
+    return result;
   }
   static PuD::ExternalRow row(const std::vector<int>& v) {
     if (v.size() != 5) {
       throw std::invalid_argument("expected five external row coordinates");
     }
-    return {v[0], v[1], v[2], v[3], v[4]};
+    return {{v[0], v[1], v[2], v[3]}, v[4]};
   }
   nb::dict resolve(Addr_t address, int bit) const {
     auto r = m_resolver->resolve(PuD::PhysicalBit{address, bit});
@@ -81,7 +83,7 @@ class LocationResolverUnderTest {
     if (v.size() != 9) {
       throw std::invalid_argument("expected nine CellID coordinates");
     }
-    auto r = m_resolver->inverse({v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8]});
+    auto r = m_resolver->inverse({{v[0], v[1], v[2], v[3]}, v[4], v[5], v[6], v[7], v[8]});
     return {r.byte, r.bit};
   }
   PuD::ResolvedRegion region(const std::string& kind, const std::vector<int>& coordinates, int first, int last,
@@ -90,10 +92,10 @@ class LocationResolverUnderTest {
       if (coordinates.size() != 6) {
         throw std::invalid_argument("expected six internal row coordinates");
       }
-      return m_resolver->resolve(PuD::LayoutRegion{coordinates[0],
+      return m_resolver->resolve(PuD::LayoutRegion{{coordinates[0],
                                                    coordinates[1],
                                                    coordinates[2],
-                                                   coordinates[3],
+                                                   coordinates[3]},
                                                    coordinates[4],
                                                    coordinates[5],
                                                    {first, last},
@@ -128,15 +130,16 @@ class LocationResolverUnderTest {
       cells.push_back(cell_vector(m_resolver->cell_at(r, i)));
     }
     result["cells"] = cells;
-    result["external_row"] = std::vector<int>{r.external_row.channel, r.external_row.rank, r.external_row.bank_group,
-                                              r.external_row.bank, r.external_row.row};
+    auto external_row = r.external_row.bank;
+    external_row.push_back(r.external_row.row);
+    result["external_row"] = external_row;
     result["burst"] = r.burst ? nb::cast(r.burst->value) : nb::none();
     result["profile"] = r.association->profile.name;
     result["address_space"] = r.association->routing.address_space;
     return result;
   }
   std::vector<int> region_cell(int64_t index, bool foreign, bool tampered) const {
-    auto r = m_resolver->compute_footprint({0, 0, 0, 0, 0}, {0, 0});
+    auto r = m_resolver->compute_footprint({{0, 0, 0, 0}, 0}, {0, 0});
     if (foreign) {
       r.association = std::make_shared<const PuD::LocationAssociation>(*r.association);
     }

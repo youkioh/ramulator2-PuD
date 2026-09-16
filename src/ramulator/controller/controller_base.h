@@ -14,6 +14,8 @@
 #include "ramulator/controller/plugin/i_controller_plugin.h"
 #include "ramulator/controller/scheduler/i_scheduler.h"
 #include "ramulator/dram/device.h"
+#include "ramulator/controller/pud_request_validation.h"
+#include "ramulator/controller/pud_sequence.h"
 
 class LocatedSystemUnderTest;
 class ControllerUnderTestCpp;
@@ -50,8 +52,8 @@ class PuDConflictUnderTest;
  *        Request moves to m_pending; protection outlives command scheduling.
  *
  * Request owns sequence/history; context (device.h) owns protocol phase.
- * Delayed completion owns depart = terminal Request timestamp + nRP and releases
- * protection before accounting/callback.
+ * Delayed completion uses the binding's recovery anchor/interval and releases
+ * protection before accounting/callback (DDR4: terminal timestamp + nRP).
  * Protected records retain resource identity/lifetime via explicit reservations.
  * PuD issue --> Device consumes the current resolved occurrence (device.h).
  * GenericDDR derives free engines/ranges from this store (E=8 by default).
@@ -174,6 +176,15 @@ class ControllerBase : public IController, public Implementation {
   bool check_pud_movement_issue(const Request& req);
   void issue_pud_movement(Request& req);
 
+  // Opt-in PuD integration; conventional controllers keep their existing tick.
+  PuDPlacementLevels m_pud_placement_levels{};
+  PuDMovementTimingConstraints m_movement_timing{};
+  bool check_pud_request_timing(const Request& req);
+  std::optional<bool> try_send_pud_request(Request& req);
+  bool is_pud_candidate_eligible(const Request& req) const;
+  bool is_active_movement_sequence(const Request& req) const;
+  void allocate_pud_compute(int engine_count);
+
   // Stats
   Clk_t m_measured_clk = 0;
 
@@ -248,6 +259,11 @@ class ControllerBase : public IController, public Implementation {
     ReqBuffer::iterator it;
     ReqBuffer* buffer = nullptr;
   };
+
+  Candidate pick_allocated_compute();
+  // After the controller grants a command slot. Preserves pre-issue views for
+  // notifications, then retires/promotes the sole authoritative Request.
+  void issue_pud_aware_candidate(Candidate& candidate);
 
   Candidate pick_best_ready_from(
       ReqBuffer& buffer,

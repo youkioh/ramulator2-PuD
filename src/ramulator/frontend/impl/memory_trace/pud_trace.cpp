@@ -121,7 +121,7 @@ class PuDTrace : public IFrontEnd, public Implementation {
           throw std::runtime_error("expected integer context, mat endpoints and operands");
         const int first = values[4], last = values[5];
         auto row = [&](int id) {
-          return PuD::ExternalRow{values[0], values[1], values[2], values[3], id};
+          return PuD::ExternalRow{{values[0], values[1], values[2], values[3]}, id};
         };
         std::vector<PuD::PairedOperand> operands;
         if (is_movement_request_type(type->second)) {

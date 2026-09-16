@@ -5,6 +5,7 @@
 #include <cstddef>
 
 #include "ramulator/base/request.h"
+#include "ramulator/dram/pud_binding.h"
 
 namespace Ramulator {
 
@@ -39,6 +40,7 @@ enum class PuDOccurrenceRole {
 
 struct PuDOccurrence {
   int command = -1;
+  PuDCommand action = PuDCommand::Close;
   size_t operand_index = 0;
   PuDOccurrenceRole role = PuDOccurrenceRole::Operand;
   size_t index = 0;
@@ -66,16 +68,6 @@ enum class PuDOccurrenceAdvance {
   Complete,
 };
 
-struct PuDOccurrenceTimingConstraint {
-  int request_type = -1;
-  size_t predecessor = 0;
-  size_t following = 0;
-  Clk_t delay = 0;
-};
-
-using PuDMovementTimingConstraints =
-    std::array<PuDOccurrenceTimingConstraint, 6>;
-
 size_t get_pud_sequence_length(const Request& req);
 PuDOccurrence describe_pud_occurrence(const Request& req, size_t occurrence_index, const DRAMSpec& spec);
 void initialize_pud_sequence(Request& req, const DRAMSpec& spec);
@@ -84,8 +76,8 @@ PuDMovementTimingConstraints make_movement_timing_constraints(const DRAMSpec& sp
 bool check_pud_occurrence_timing(
     const Request& req, Clk_t clk,
     const PuDMovementTimingConstraints& constraints);
-// PuD dispatch interprets inherited compute/movement Bank edges against this
-// Request's occurrence history. Device must not also issue them into Bank history.
+// PuD dispatch interprets binding-selected local edges against this Request's
+// occurrence history. Device must not also publish them into shared history.
 bool check_pud_local_timing(const Request& req, Clk_t clk, const DRAMSpec& spec);
 const char* pud_occurrence_role_name(PuDOccurrenceRole role);
 

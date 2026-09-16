@@ -11,6 +11,8 @@
 namespace Ramulator {
 namespace {
 
+// Legacy unlocated DDR4 movement diagnostics only. Public canonical admission
+// rejects this fallback; these constants are not target geometry defaults.
 constexpr int kLogicalMatCount = 128;
 constexpr int kLogicalMatsPerChip = 16;
 
@@ -84,12 +86,10 @@ void validate_resolved_placement(const Request& req, const DRAMSpec& spec, int c
   const auto& first = operands.front().location.origin;
   for (size_t i = 0; i < operands.size(); ++i) {
     const auto& origin = operands[i].location.origin;
-    if (origin.channel != channel) {
+    if (origin.bank.at(0) != channel) {
       throw std::runtime_error("PuD operand does not target the controller channel");
     }
-    if (origin.channel != first.channel || origin.rank != first.rank ||
-        origin.bank_group != first.bank_group || origin.bank != first.bank ||
-        origin.subarray != first.subarray) {
+    if (origin.bank != first.bank || origin.subarray != first.subarray) {
       throw std::runtime_error("PuD operands must share Bank and subarray context");
     }
     if (is_movement_request_type(req.type_id) != origin.group.has_value()) {
@@ -120,12 +120,10 @@ void validate_resolved_placement(const Request& req, const DRAMSpec& spec, int c
 }  // namespace
 
 PuDPlacementLevels get_pud_placement_levels(const DRAMSpec& spec) {
-  return {
-      .rank = spec.get_level_id("Rank"),
-      .bankgroup = spec.get_level_id("BankGroup"),
-      .bank = spec.get_level_id("Bank"),
-      .row = spec.get_level_id("Row"),
-  };
+  PuDPlacementLevels result;
+  for (int level = 1; level <= spec.get_level_id("Bank"); ++level) result.bank_context.push_back(level);
+  result.row = spec.get_level_id("Row");
+  return result;
 }
 
 void validate_pud_placement(
@@ -177,7 +175,7 @@ void validate_pud_placement(
   for (size_t i = 1; i < req.operands.size(); i++) {
     const auto& operand = req.operands[i];
     validate_operand(operand, i);
-    for (int level : {levels.rank, levels.bankgroup, levels.bank}) {
+    for (int level : levels.bank_context) {
       if (operand[level] != first[level]) {
         throw std::runtime_error(fmt::format(
             "{} operands must share {}: operand 0 has {}, operand {} has {}",

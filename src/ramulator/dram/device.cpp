@@ -8,6 +8,7 @@ namespace Ramulator {
 void DRAMDevice::init(std::unique_ptr<DRAMSpec> spec) {
   m_spec_owner = std::move(spec);
   m_spec = m_spec_owner.get();
+  m_pud_binding = find_pud_binding(*m_spec);
   m_bank_level = m_spec->get_level_id("Bank");
   m_root = std::make_unique<DRAMNode>(m_spec, nullptr, 0, 0);
   m_root->for_each_at_level(m_bank_level, [&](DRAMNode* bank) { m_bank_nodes.push_back(bank); });
@@ -68,6 +69,7 @@ void DRAMDevice::validate_pud_command(const Request& req, const PuDOccurrence& o
   }
   const auto expected = describe_pud_occurrence(req, req.occurrence_index, *m_spec);
   if (occurrence.index != expected.index || occurrence.command != expected.command ||
+      occurrence.action != expected.action ||
       occurrence.operand_index != expected.operand_index || occurrence.role != expected.role ||
       occurrence.terminal != expected.terminal || req.final_command != expected.command ||
       req.addr_vec != expected.location()->external) {
@@ -91,22 +93,22 @@ void DRAMDevice::validate_pud_command(const Request& req, const PuDOccurrence& o
 
   using Phase = PuDExecutionContext::Phase;
   const auto phase = context->m_phase;
-  const auto& command = m_spec->command_names[expected.command];
+  const auto command = expected.action;
   bool legal = false;
   if (is_movement_request_type(req.type_id)) {
     const auto state = describe_pud_movement_state(req);
     const auto expected_phase = !state.sequence_active ? Phase::Closed :
         (state.source_valid ? Phase::MovementDataValid : Phase::MovementActive);
     legal = phase == expected_phase;
-  } else if (command == "ACT_PUD_OC" || command == "ACT_PUD_S_OC") {
+  } else if (command == PuDCommand::ActivateWithOffsetCancellation || command == PuDCommand::ActivateWithSensingAndOffsetCancellation) {
     legal = expected.index == 0 && phase == Phase::Closed;
-  } else if (command == "ACT_PUD") {
+  } else if (command == PuDCommand::Activate) {
     legal = phase == Phase::ChargeSharing || phase == Phase::Sensed;
-  } else if (command == "ACT_PUD_S") {
+  } else if (command == PuDCommand::ActivateWithSensing) {
     legal = phase == Phase::ChargeSharing;
-  } else if (command == "N") {
+  } else if (command == PuDCommand::Invert) {
     legal = phase == Phase::Sensed;
-  } else if (command == "PREpb") {
+  } else if (command == PuDCommand::Close) {
     legal = expected.terminal && phase == Phase::Sensed;
   }
   if (!legal) {
@@ -115,7 +117,7 @@ void DRAMDevice::validate_pud_command(const Request& req, const PuDOccurrence& o
   // Ordinary preparation is separate from architectural PuD dispatch. This
   // seam never converts an invocation occurrence to a Bank-wide prerequisite PRE.
   const auto* bank = m_bank_nodes[get_flat_bank_id(expected.location()->external)];
-  if (bank->m_state != m_spec->get_state_id("Closed") || !bank->m_row_state.empty()) {
+  if (!pud_binding(*m_spec).conventional_drained(*m_spec, *bank)) {
     throw std::logic_error("PuD invocation requires drained conventional Bank state");
   }
 }
@@ -127,7 +129,7 @@ bool DRAMDevice::check_pud_timing(const Request& req, const PuDOccurrence& occur
   if (!is_movement_request_type(req.type_id) || req.occurrence_index != 0 ||
       !req.pud_context.expired()) validate_pud_reservation(req, context);
   validate_pud_command(req, occurrence, context);
-  return clk >= m_pud_ca_ready && clk >= m_command_ca_ready &&
+  return pud_resources_ready(occurrence.command, clk, false) &&
          (!is_movement_request_type(req.type_id) ||
           check_pud_occurrence_timing(req, clk, make_movement_timing_constraints(*m_spec))) &&
          check_pud_local_timing(req, clk, *m_spec) &&
@@ -156,22 +158,22 @@ void DRAMDevice::issue_pud_command(Request& req, const PuDOccurrence& occurrence
   // The current occurrence supplies the resolved row and MatRange together via
   // its validated immutable location/context association. The issued Request
   // prefix retains activated operand identity; no selected-range shadow exists.
-  m_root->update_timing(occurrence.command, occurrence.location()->external, clk, false);
-  m_pud_ca_ready = clk + m_spec->command_cycles.at(occurrence.command);
-  const auto& command = m_spec->command_names[occurrence.command];
+  pud_binding(*m_spec).publish_shared_timing(*m_root, occurrence.command, occurrence.location()->external, clk);
+  record_pud_resources(occurrence.command, clk, false);
+  const auto command = occurrence.action;
   using Phase = PuDExecutionContext::Phase;
   if (occurrence.terminal) {
     // Recovery time is recorded by the terminal Request occurrence below;
     // Controller retirement derives depart and retains protection until then.
     context->m_phase = Phase::Recovering;
   } else if (is_movement_request_type(req.type_id)) {
-    if (command == "RD_MOV") context->m_phase = Phase::MovementDataValid;
-    else if (command == "WR_MOV" || occurrence.index == 0) context->m_phase = Phase::MovementActive;
+    if (command == PuDCommand::MoveRead) context->m_phase = Phase::MovementDataValid;
+    else if (command == PuDCommand::MoveWrite || occurrence.index == 0) context->m_phase = Phase::MovementActive;
     // LC source PRE and destination ACT retain source-valid HFF metadata.
-  } else if (command != "N") {
-    if (command == "ACT_PUD_OC") {
+  } else if (command != PuDCommand::Invert) {
+    if (command == PuDCommand::ActivateWithOffsetCancellation) {
       context->m_phase = Phase::ChargeSharing;
-    } else if (command == "ACT_PUD_S" || command == "ACT_PUD_S_OC") {
+    } else if (command == PuDCommand::ActivateWithSensing || command == PuDCommand::ActivateWithSensingAndOffsetCancellation) {
       context->m_phase = Phase::Sensed;
     }
   }
@@ -190,18 +192,39 @@ void DRAMDevice::validate_pud_reservation(const Request& req, const PuDExecution
   throw std::logic_error("PuD issue requires protected PuD invocation context");
 }
 
+bool DRAMDevice::pud_resources_ready(int command, Clk_t clk, bool conventional) const {
+  if (!m_pud_binding) return true;
+  for (const auto& resource : m_pud_binding->command_resources(*m_spec, command)) {
+    const auto pud = m_pud_resource_ready.find(resource.id);
+    if (pud != m_pud_resource_ready.end() && clk < pud->second) return false;
+    if (!conventional) {
+      const auto ordinary = m_command_resource_ready.find(resource.id);
+      if (ordinary != m_command_resource_ready.end() && clk < ordinary->second) return false;
+    }
+  }
+  return true;
+}
+
+void DRAMDevice::record_pud_resources(int command, Clk_t clk, bool conventional) {
+  if (!m_pud_binding) return;
+  auto& ready = conventional ? m_command_resource_ready : m_pud_resource_ready;
+  for (const auto& resource : m_pud_binding->command_resources(*m_spec, command)) {
+    ready[resource.id] = clk + resource.occupancy;
+  }
+}
+
 void DRAMDevice::issue_command(int command, const AddrVec_t& addr_vec, Clk_t clk) {
   validate_command(command, addr_vec, clk);
-  if (clk < m_pud_ca_ready) throw std::logic_error("C/A occupied by PuD command");
+  if (!pud_resources_ready(command, clk, true)) throw std::logic_error("C/A occupied by PuD command");
   m_root->update_timing(command, addr_vec, clk);
   apply_action(command, addr_vec, clk);
   // PuD invocation dispatch must respect the current raw command cycle.
   // Conventional timing and dual/multi-cycle bus generation retain their behavior.
-  m_command_ca_ready = clk + m_spec->command_cycles.at(command);
+  record_pud_resources(command, clk, true);
 }
 
 bool DRAMDevice::check_timing(int command, const AddrVec_t& addr_vec, Clk_t clk) {
-  return clk >= m_pud_ca_ready && m_root->check_timing(command, addr_vec, clk);
+  return pud_resources_ready(command, clk, true) && m_root->check_timing(command, addr_vec, clk);
 }
 
 int DRAMDevice::get_preq_command(int command, const AddrVec_t& addr_vec, Clk_t clk) {

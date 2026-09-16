@@ -15,7 +15,7 @@ struct DRAMSpec;
 namespace PuD {
 
 /*
- * Canonical unified DDR4 PuD substrate:
+ * Common PuD substrate (currently bound only to DDR4):
  *
  * PlacementProfile / LocationResolver
  *     -> explicit resolved MatRange
@@ -72,8 +72,16 @@ struct PhysicalBit {
   bool operator==(const PhysicalBit&) const = default;
 };
 
+// Actual hierarchy prefix, beginning at Channel. Its extent defines the scope.
+using HierarchyIdentity = AddrVec_t;
+
+// Complete actual hierarchy path through Bank. No synthetic Rank/BankGroup coordinates.
+// Its names and bounds belong to the retained resolver association.
+using BankIdentity = HierarchyIdentity;
+
 struct ExternalRow {
-  int channel, rank, bank_group, bank, row;
+  BankIdentity bank;
+  int row;
   bool operator==(const ExternalRow&) const = default;
 };
 struct ExternalLocation {
@@ -83,7 +91,8 @@ struct ExternalLocation {
   bool operator==(const ExternalLocation&) const = default;
 };
 struct CellID {
-  int channel, rank, bank_group, bank, subarray, local_row, chip, mat, column;
+  BankIdentity bank;
+  int subarray, local_row, chip, mat, column;
   bool operator==(const CellID&) const = default;
 };
 
@@ -91,7 +100,8 @@ struct CellID {
 // and either whole mat-rows or one ordered group per mat. No scalar anchor is
 // invented for a region, and resolving a bit never implicitly widens its extent.
 struct LayoutRegion {
-  int channel, rank, bank_group, bank, subarray, local_row;
+  BankIdentity bank;
+  int subarray, local_row;
   MatRange mats;
   std::optional<Group> group;
 };
@@ -111,6 +121,7 @@ struct MappingContext {
 struct PlacementProfile {
   std::string name;
   int dq, prefetch, channel_width, organization_columns;
+  // DDR4 external-map parameters, consumed only by the DDR4 placement binding.
   int bank_groups, banks_per_group, rows_per_bank;
   int chips, mats_per_chip, cells_per_mat_row, hffs_per_mat, rows_per_subarray;
   std::vector<int> rank_counts;
@@ -129,7 +140,9 @@ struct PlacementProfile {
 struct LocationAssociation {
   PlacementProfile profile;
   MappingContext routing;
-  int ranks;
+  int ranks;  // DDR4 scalar-map compatibility metadata; not an execution resource.
+  std::vector<std::string> bank_levels;
+  std::vector<int> bank_sizes;
 };
 struct ResolvedBit {
   std::shared_ptr<const LocationAssociation> association;
@@ -155,6 +168,8 @@ struct PairedOperand {
 
 // Validates placement against an actual DRAMSpec and explicit mapping context.
 // GenericDDR installs this shared authority when the supported profile is selected.
+// The sole scalar-map construction/validation binding is currently DDR4
+// (pud_location_ddr4.cpp); target dispatch awaits an approved target profile.
 class LocationResolver {
  public:
   LocationResolver(PlacementProfile profile, const DRAMSpec& spec, MappingContext context);

@@ -30,8 +30,7 @@ std::vector<PuD::MatSegment> PuD::RequestLocations::mat_footprint() const {
 bool PuD::RequestLocations::same_bank(const RequestLocations& other) const {
   const auto& a = operands.at(0).location.origin;
   const auto& b = other.operands.at(0).location.origin;
-  return a.channel == b.channel && a.rank == b.rank &&
-         a.bank_group == b.bank_group && a.bank == b.bank;
+  return a.bank == b.bank;
 }
 
 bool PuD::RequestLocations::conflicts(const RequestLocations& other) const {

@@ -741,7 +741,7 @@ class ControllerUnderTestCpp {
       const PuD::MatRange mats = type == Request::Type::LCMOV ? PuD::MatRange{first, second} :
           PuD::MatRange{i == 0 ? first : second, i == 0 ? first : second};
       paired.push_back(resolver->pair(resolver->group_footprint(
-          {a.at(0), a.at(1), a.at(2), a.at(3), a.at(4)}, mats, PuD::Group{a.at(5)})));
+          {{a.at(0), a.at(1), a.at(2), a.at(3)}, a.at(4)}, mats, PuD::Group{a.at(5)})));
     }
     return Request(resolver, std::move(paired), type);
   }
@@ -987,7 +987,7 @@ class ControllerUnderTestCpp {
   Addr_t synthesize_addr(const AddrVec_t& addr_vec) const {
     if (const auto resolver = m_controller->location_resolver()) {
       const auto burst = resolver->burst_footprint({
-          {addr_vec.at(0), addr_vec.at(1), addr_vec.at(2), addr_vec.at(3), addr_vec.at(4)},
+          {{addr_vec.at(0), addr_vec.at(1), addr_vec.at(2), addr_vec.at(3)}, addr_vec.at(4)},
           PuD::BurstColumn{addr_vec.at(5)}});
       return resolver->inverse(resolver->cell_at(burst, 0)).byte;
     }

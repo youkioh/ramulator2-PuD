@@ -1,7 +1,8 @@
 import copy
 
 from ramulator.dram.ddr4_pud import DDR4_PuD
-from ramulator.dram.spec import CONTROLLER_SEQUENCED, TimingConstraint
+from ramulator.dram.spec import TimingConstraint
+from ramulator.dram.pud import MOVEMENT_COMMANDS, MOVEMENT_STATES, movement_requests
 from ramulator.param import Param
 
 
@@ -14,19 +15,14 @@ class DDR4_PuD_Movement(DDR4_PuD):
     levels = copy.deepcopy(DDR4_PuD.levels)
     commands = copy.deepcopy(DDR4_PuD.commands)
     states = copy.deepcopy(DDR4_PuD.states)
-    commands.extend(["ACT_MOV", "RD_MOV", "WR_MOV"])
-    states.extend(["MovementActive", "MovementDataValid"])
+    commands.extend(MOVEMENT_COMMANDS)
+    states.extend(MOVEMENT_STATES)
     timing_params = copy.deepcopy(DDR4_PuD.timing_params)
     timing_params.append("nRELOC")
     # Values are immutable strings or the shared controller-sequenced marker;
     # only the mutable mapping itself must be independent.
     supported_requests = dict(DDR4_PuD.supported_requests)
-    supported_requests.update(
-        {
-            "LC-MOV": CONTROLLER_SEQUENCED,
-            "GB-MOV": CONTROLLER_SEQUENCED,
-        }
-    )
+    supported_requests.update(movement_requests())
     timing_constraints = copy.deepcopy(DDR4_PuD.timing_constraints)
     timing_constraints.extend(
         [

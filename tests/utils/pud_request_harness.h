@@ -3,6 +3,12 @@
 
 #include "ramulator/controller/rowpolicy/i_row_policy.h"
 
+// Preserve the DDR4 fixture's public two-deadline view of combined-bus ID 0.
+inline Clk_t ddr4_test_deadline(const std::map<int, Clk_t>& deadlines) {
+  const auto it = deadlines.find(0);
+  return it == deadlines.end() ? -1 : it->second;
+}
+
 // W2 component fixtures exercise retention without enabling execution.
 inline std::vector<std::vector<int>> region_cells(const PuD::LocationResolver& resolver,
                                                   const PuD::ResolvedRegion& region) {
@@ -27,7 +33,9 @@ inline nb::dict located_snapshot(const Request& req, bool cells) {
       const auto& region = pair.location;
       const auto& o = region.origin;
       nb::dict item;
-      item["origin"] = std::vector<int>{o.channel, o.rank, o.bank_group, o.bank, o.subarray, o.local_row};
+      auto coordinates = o.bank;
+      coordinates.insert(coordinates.end(), {o.subarray, o.local_row});
+      item["origin"] = coordinates;
       item["range"] = std::vector<int>{o.mats.first, o.mats.last};
       item["group"] = o.group ? nb::cast(o.group->value) : nb::none();
       item["burst"] = region.burst ? nb::cast(region.burst->value) : nb::none();
@@ -375,7 +383,8 @@ class ComputeRangesUnderTest {
         nb::dict item;
         item["level"] = level;
         if (level == 0) item["command_occupancy"] =
-            std::vector<Clk_t>{device.m_pud_ca_ready, device.m_command_ca_ready};
+            std::vector<Clk_t>{ddr4_test_deadline(device.m_pud_resource_ready),
+                              ddr4_test_deadline(device.m_command_resource_ready)};
         item["id"] = node->m_node_id;
         item["state"] = node->m_state;
         item["rows"] = std::map<int, int>(node->m_row_state.begin(), node->m_row_state.end());
@@ -470,7 +479,7 @@ class ComputeLifecycleUnderTest : public ControllerBase {
     if (coincident_terminal && occurrence.terminal && clk == last_issue) {
       // Synthetic equal-deadline fixture only: bypass the occupied issue cycle,
       // while keeping the same Device occurrence, phase and timing checks.
-      m_device.m_pud_ca_ready = clk;
+      m_device.m_pud_resource_ready[0] = clk;
     }
     it->command = occurrence.command;
     m_device.issue_pud_command(*it, occurrence, &context, m_clk);
@@ -651,7 +660,7 @@ class PuDConflictUnderTest {
     initialize_pud_sequence(req, *ctrl->m_device.m_spec);
     return ctrl->pud_compute_resources_available(req, engine) && ctrl->pud_compute_start_eligible(req);
   }
-  void block_command_bus(Clk_t until) { ctrl->m_device.m_command_ca_ready = until; }
+  void block_command_bus(Clk_t until) { ctrl->m_device.m_command_resource_ready[0] = until; }
   // Interpose for one real tick after selection, without a production hook.
   void recheck_tick(const std::string& command, nb::object callback) {
     struct Upgrade final : IRowPolicy {
@@ -812,8 +821,9 @@ class PuDConflictUnderTest {
       item["command"] = ctrl->m_device.m_spec->command_names[occurrence.command];
       item["operand"] = occurrence.operand_index;
       item["external"] = occurrence.location()->external;
-      item["origin"] = std::vector<int>{origin.channel, origin.rank, origin.bank_group,
-                                       origin.bank, origin.subarray, origin.local_row};
+      auto coordinates = origin.bank;
+      coordinates.insert(coordinates.end(), {origin.subarray, origin.local_row});
+      item["origin"] = coordinates;
       item["range"] = std::vector<int>{origin.mats.first, origin.mats.last};
       item["associated"] = context && occurrence.locations == context->locations();
       item["issued"] = req.occurrence_issue_history.at(i);
@@ -834,7 +844,8 @@ class PuDConflictUnderTest {
     return true;
   }
   std::vector<Clk_t> command_occupancy() const {
-    return {ctrl->m_device.m_pud_ca_ready, ctrl->m_device.m_command_ca_ready};
+    return {ddr4_test_deadline(ctrl->m_device.m_pud_resource_ready),
+            ddr4_test_deadline(ctrl->m_device.m_command_resource_ready)};
   }
 
  private:

@@ -4,8 +4,10 @@ target_sources(
   ramulator-dram PRIVATE
   node.h  node.cpp
   device.h  device.cpp
+  pud_binding.h  pud_binding_ddr4.cpp
   dram_spec.h  dram_spec.cpp
   pud_location.h  pud_location.cpp
+  pud_location_internal.h  pud_location_ddr4.cpp
   func_types.h
 
   commands/ACT.h  commands/ACT1.h  commands/ACT2.h

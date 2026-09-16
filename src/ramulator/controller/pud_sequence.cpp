@@ -17,10 +17,11 @@ void configure_pud_occurrence(Request& req, const DRAMSpec& spec) {
   req.final_command = occurrence.command;
 }
 
-PuDOccurrence make_occurrence(const DRAMSpec& spec, const char* command_name, size_t operand_index,
+PuDOccurrence make_occurrence(const DRAMSpec& spec, PuDCommand action, size_t operand_index,
                               PuDOccurrenceRole role, size_t index, size_t sequence_length) {
   return {
-      .command = spec.get_command_id(command_name),
+      .command = pud_binding(spec).command(spec, action),
+      .action = action,
       .operand_index = operand_index,
       .role = role,
       .index = index,
@@ -90,7 +91,9 @@ static PuDOccurrence describe_occurrence(const Request& req, size_t occurrence_i
   }
 
   if (req.type_id == Request::Type::LCMOV) {
-    static constexpr const char* kCommands[] = {"ACT_MOV", "RD_MOV", "PREpb", "ACT_MOV", "WR_MOV", "PREpb"};
+    static constexpr PuDCommand kCommands[] = {
+        PuDCommand::MoveActivate, PuDCommand::MoveRead, PuDCommand::Close,
+        PuDCommand::MoveActivate, PuDCommand::MoveWrite, PuDCommand::Close};
     static constexpr size_t kOperands[] = {0, 0, 0, 1, 1, 1};
     const auto role = occurrence_index < 3 ? PuDOccurrenceRole::Source : PuDOccurrenceRole::Destination;
     return make_occurrence(spec, kCommands[occurrence_index], kOperands[occurrence_index], role, occurrence_index,
@@ -98,7 +101,9 @@ static PuDOccurrence describe_occurrence(const Request& req, size_t occurrence_i
   }
 
   if (req.type_id == Request::Type::GBMOV) {
-    static constexpr const char* kCommands[] = {"ACT_MOV", "ACT_MOV", "RD_MOV", "WR_MOV", "PREpb"};
+    static constexpr PuDCommand kCommands[] = {
+        PuDCommand::MoveActivate, PuDCommand::MoveActivate, PuDCommand::MoveRead,
+        PuDCommand::MoveWrite, PuDCommand::Close};
     static constexpr size_t kOperands[] = {0, 1, 0, 1, 1};
     static constexpr PuDOccurrenceRole kRoles[] = {
         PuDOccurrenceRole::Source,      PuDOccurrenceRole::Destination, PuDOccurrenceRole::Source,
@@ -109,39 +114,41 @@ static PuDOccurrence describe_occurrence(const Request& req, size_t occurrence_i
   }
 
   if (req.type_id == Request::Type::NOT) {
-    const char* command = occurrence_index == 0 ? "ACT_PUD_S_OC" : occurrence_index == 1 ? "N" : "PREpb";
+    const auto command = occurrence_index == 0 ? PuDCommand::ActivateWithSensingAndOffsetCancellation :
+                         occurrence_index == 1 ? PuDCommand::Invert : PuDCommand::Close;
     return make_occurrence(spec, command, 0, PuDOccurrenceRole::Operand, occurrence_index, sequence_length);
   }
 
   if (req.type_id == Request::Type::NOT_COPY) {
-    static constexpr const char* kCommands[] = {"ACT_PUD_S_OC", "N", "ACT_PUD", "PREpb"};
+    static constexpr PuDCommand kCommands[] = {
+        PuDCommand::ActivateWithSensingAndOffsetCancellation, PuDCommand::Invert, PuDCommand::Activate, PuDCommand::Close};
     static constexpr size_t kOperands[] = {0, 0, 1, 1};
     return make_occurrence(spec, kCommands[occurrence_index], kOperands[occurrence_index],
                            PuDOccurrenceRole::Operand, occurrence_index, sequence_length);
   }
 
   if (occurrence_index + 1 == sequence_length) {
-    return make_occurrence(spec, "PREpb", req.operands.size() - 1, PuDOccurrenceRole::Operand, occurrence_index,
+    return make_occurrence(spec, PuDCommand::Close, req.operands.size() - 1, PuDOccurrenceRole::Operand, occurrence_index,
                            sequence_length);
   }
 
-  const char* command = nullptr;
+  std::optional<PuDCommand> command;
   if (req.type_id == Request::Type::RowCopy) {
-    command = occurrence_index == 0 ? "ACT_PUD_S_OC" : "ACT_PUD";
+    command = occurrence_index == 0 ? PuDCommand::ActivateWithSensingAndOffsetCancellation : PuDCommand::Activate;
   } else if (req.type_id == Request::Type::MAJ3 || req.type_id == Request::Type::MAJ5) {
     if (occurrence_index == 0) {
-      command = "ACT_PUD_OC";
+      command = PuDCommand::ActivateWithOffsetCancellation;
     } else if (occurrence_index + 1 == req.operands.size()) {
-      command = "ACT_PUD_S";
+      command = PuDCommand::ActivateWithSensing;
     } else {
-      command = "ACT_PUD";
+      command = PuDCommand::Activate;
     }
   }
 
-  if (command == nullptr) {
+  if (!command) {
     throw std::logic_error(fmt::format("Cannot describe PuD sequence for request type {}", req.type_id));
   }
-  return make_occurrence(spec, command, occurrence_index, PuDOccurrenceRole::Operand, occurrence_index,
+  return make_occurrence(spec, *command, occurrence_index, PuDOccurrenceRole::Operand, occurrence_index,
                          sequence_length);
 }
 
@@ -191,15 +198,7 @@ PuDOccurrenceAdvance observe_pud_command_issue(Request& req, int issued_command,
 
 PuDMovementTimingConstraints make_movement_timing_constraints(
     const DRAMSpec& spec) {
-  return {{
-      {Request::Type::LCMOV, 0, 1, spec.get_timing_value("nRCD")},
-      {Request::Type::LCMOV, 1, 2, spec.get_timing_value("nRTP")},
-      {Request::Type::LCMOV, 4, 5,
-       spec.get_timing_value("nRELOC") + spec.get_timing_value("nWR")},
-      {Request::Type::GBMOV, 0, 2, spec.get_timing_value("nRAS")},
-      {Request::Type::GBMOV, 2, 3, spec.get_timing_value("nRELOC")},
-      {Request::Type::GBMOV, 3, 4, spec.get_timing_value("nWR")},
-  }};
+  return pud_binding(spec).movement_timing(spec);
 }
 
 bool check_pud_occurrence_timing(
@@ -244,7 +243,7 @@ bool check_pud_local_timing(const Request& req, Clk_t clk, const DRAMSpec& spec)
     throw std::logic_error("Range timing requires a located PuD request");
   }
   const auto next = describe_pud_occurrence(req, req.occurrence_index, spec);
-  const int bank = spec.get_level_id("Bank");
+  const auto& local_timing = pud_binding(spec).local_timing(spec);
   // Repeated commands use only this invocation's issue history. Keeping the
   // declarative edges as the numeric authority also retains timing overrides.
   for (size_t i = 0; i < req.occurrence_index; ++i) {
@@ -253,7 +252,7 @@ bool check_pud_local_timing(const Request& req, Clk_t clk, const DRAMSpec& spec)
     if (issued == Request::kOccurrenceNotIssued) {
       throw std::logic_error("Missing range timing predecessor");
     }
-    for (const auto& edge : spec.timing_cons[bank][previous.command]) {
+    for (const auto& edge : local_timing[previous.command]) {
       if (edge.cmd == next.command && !edge.sibling && clk < issued + edge.val) {
         return false;
       }

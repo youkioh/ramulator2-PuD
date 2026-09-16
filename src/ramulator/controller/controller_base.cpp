@@ -73,7 +73,7 @@ int ControllerBase::get_preq_command(int command, const AddrVec_t& addr_vec) {
 int ControllerBase::get_preq_command(const Request& req) {
   if (is_movement_request_type(req.type_id) && req.pud_locations) {
     const auto* bank = m_device.m_bank_nodes[m_device.get_flat_bank_id(req.addr_vec)];
-    if (req.occurrence_index > 0 || bank->m_state == m_device.m_spec->get_state_id("Closed")) {
+    if (req.occurrence_index > 0 || pud_binding(*m_device.m_spec).conventional_closed(*m_device.m_spec, *bank)) {
       return req.final_command;
     }
   }
@@ -380,7 +380,9 @@ bool ControllerBase::pud_compute_resources_available(const Request& req, int eng
   validate_pud_placement(req, *m_device.m_spec, m_channel_id,
                          get_pud_placement_levels(*m_device.m_spec), m_location_resolver.get());
   for (const auto& record : m_protected_pud) {
-    if (record.engine == engine) return false;
+    if (record.engine == engine &&
+        pud_binding(*m_device.m_spec).engine_pool(*req.pud_locations) ==
+        pud_binding(*m_device.m_spec).engine_pool(*record.context->locations())) return false;
     if (req.pud_locations->conflicts(*record.context->locations())) return false;
   }
   // This is occupied-resource availability, not full start eligibility or
@@ -404,7 +406,7 @@ bool ControllerBase::pud_compute_start_eligible(const Request& req) const {
     }
     if (m_device.get_flat_bank_id(active.addr_vec) == bank_id) return false;
   }
-  if (bank->m_state != m_device.m_spec->get_state_id("Closed") || !bank->m_row_state.empty()) return false;
+  if (!pud_binding(*m_device.m_spec).conventional_drained(*m_device.m_spec, *bank)) return false;
   // Incoming conventional PRE/AP/REF recovery is distinct from local primitive
   // readiness. No range-aware compute command updates these hierarchical deadlines.
   const auto first = describe_pud_occurrence(req, 0, *m_device.m_spec);
@@ -544,8 +546,8 @@ void ControllerBase::retire_request(ReqBuffer::iterator& req_it, ReqBuffer& buff
   } else if (is_pud_request_type(req_it->type_id)) {
     // Request history is the sole terminal-issue authority; retirement time
     // need not be substituted for it. Delayed completion owns recovery release.
-    const Clk_t terminal_clk = protected_invocation ? req_it->occurrence_issue_history.back() : m_clk;
-    req_it->depart = terminal_clk + m_device.m_spec->get_timing_value("nRP");
+    req_it->depart = pud_binding(*m_device.m_spec).recovery_deadline(
+        *m_device.m_spec, *req_it, m_clk, protected_invocation != nullptr);
     m_pending.push_back(*req_it);
     if (protected_invocation) protected_invocation->completion_pending = true;
   } else if (req_it->type_id == -1) {

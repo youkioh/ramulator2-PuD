@@ -1,5 +1,9 @@
 from ramulator.dram.ddr4 import DDR4
-from ramulator.dram.spec import CONTROLLER_SEQUENCED, TimingConstraint
+from ramulator.dram.spec import TimingConstraint
+from ramulator.dram.pud import (
+    COMPUTE_COMMANDS, COMPUTE_STATES, COMPUTE_TIMING_PARAMS,
+    compute_requests, compute_timing_constraints,
+)
 
 
 class DDR4_PuD(DDR4):
@@ -9,66 +13,14 @@ class DDR4_PuD(DDR4):
 
     # Keep every mutable definition independent before PuD extends it.
     levels = dict(DDR4.levels)
-    commands = list(DDR4.commands) + [
-        "ACT_PUD",
-        "ACT_PUD_OC",
-        "ACT_PUD_S",
-        "ACT_PUD_S_OC",
-        "N",
-    ]
-    states = list(DDR4.states) + ["PuDChargeSharing", "PuDSensed"]
-    timing_params = list(DDR4.timing_params) + [
-        "nPUD_ACT_OC",
-        "nPUD_ACT",
-        "nPUD_ACT_S_OC",
-        "nPUD_ACT_S",
-        "nPUD_N",
-    ]
+    commands = list(DDR4.commands) + list(COMPUTE_COMMANDS)
+    states = list(DDR4.states) + list(COMPUTE_STATES)
+    timing_params = list(DDR4.timing_params) + list(COMPUTE_TIMING_PARAMS)
     supported_requests = dict(DDR4.supported_requests)
-    supported_requests.update(
-        {
-            "RowCopy": CONTROLLER_SEQUENCED,
-            "MAJ3": CONTROLLER_SEQUENCED,
-            "MAJ5": CONTROLLER_SEQUENCED,
-            "NOT": CONTROLLER_SEQUENCED,
-            "NOT_COPY": CONTROLLER_SEQUENCED,
-        }
-    )
-    timing_constraints = list(DDR4.timing_constraints) + [
-        # These numeric edges are declared at Bank level for this reusable
-        # definition. Canonical compute consumes them through range-local
-        # histories. Each value is independently ceiling-converted for the
-        # DDR4_2400R baseline.
-        TimingConstraint(
-            level="Bank",
-            preceding=["ACT_PUD_OC"],
-            following=["ACT_PUD"],
-            latency="nPUD_ACT_OC",
-        ),
-        TimingConstraint(
-            level="Bank",
-            preceding=["ACT_PUD"],
-            following=["ACT_PUD", "ACT_PUD_S", "PREpb"],
-            latency="nPUD_ACT",
-        ),
-        TimingConstraint(
-            level="Bank",
-            preceding=["ACT_PUD_S_OC"],
-            following=["ACT_PUD", "N"],
-            latency="nPUD_ACT_S_OC",
-        ),
-        TimingConstraint(
-            level="Bank",
-            preceding=["ACT_PUD_S"],
-            following=["PREpb"],
-            latency="nPUD_ACT_S",
-        ),
-        TimingConstraint(
-            level="Bank",
-            preceding=["N"],
-            following=["ACT_PUD", "PREpb"],
-            latency="nPUD_N",
-        ),
+    supported_requests.update(compute_requests())
+    timing_constraints = list(DDR4.timing_constraints) + compute_timing_constraints(
+        local_level="Bank", close_command="PREpb",
+    ) + [
         # Conventional close and refresh recovery before either PuD opening
         # command follows the corresponding existing DDR4 ACT constraint.
         TimingConstraint(
