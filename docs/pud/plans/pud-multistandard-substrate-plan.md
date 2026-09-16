@@ -2,10 +2,12 @@
 
 Status: Phase 1 and the common execution-model correction complete on 2026-09-16.
 Phase 1's frozen DDR4 equivalence evidence remains unchanged.
-G0, the common no-finite-control-engine model and GDDR7 G1/G2/G3/G4 are
-Accepted. G6 stays Open with its current candidate; G5/G7 remain Open for
-target trace/hierarchy and GEMV placement portability. HBM3 target policy is
-unchanged. No target implementation is authorized.
+G0, the common no-finite-control-engine model and GDDR7 G1/G2/G3/G4/G6 are
+Accepted. G5/G7 remain Open for target trace/hierarchy and GEMV placement
+portability; neither blocks direct-Request primitive binding/validation.
+The next work, after separate user approval, is Phase 2 GDDR7 primitive
+substrate binding. HBM3 target policy is unchanged. No target implementation
+is authorized by this documentation update.
 Phase-1 baseline: `093af06009f0d3e403fc9e949682ce6722a8ec3a` on
 `feature/pud-multistandard-substrate`.
 
@@ -409,27 +411,41 @@ tests** (`build/pud-no-engine-final-focused.xml` and
 The [reference](../references/gddr7-pud-modeling-reference.md) contains
 G1/G2/G3/G4/G6 evidence, calculations and alternatives. The
 [canonical decision](../decisions/pud-multistandard-substrate.md) owns policy:
-G1/G2/G3/G4 are Accepted; the common execution-model correction and G6 approval
-must precede their target consumers. Implementation remains unauthorized;
-do not reopen the Accepted placement/timing/movement choices. This plan selects
-no independent timing, resource, PREab-repair or RFM policy.
+G1/G2/G3/G4/G6 are Accepted, and the common execution-model correction is
+complete. The [Accepted G6 policy](../decisions/pud-multistandard-substrate.md#accepted-g6--gddr7-evaluation-baseline-preab-repair-and-rfm-policy-b-2026-09-17)
+fixes the evaluation baseline, PREab repair and RFM Policy B. Implementation
+requires separate user approval; do not reopen Accepted choices. This plan
+selects no independent timing, resource, PREab-repair or RFM policy.
 
-Invariant: an explicitly approved GDDR7 configuration supports all five
-compute operations plus LC/GB with one common ownership/completion model,
-and preserves the existing conventional GDDR7 behavior except separately
-accepted baseline corrections.
+Invariant: the fixed project GDDR7 evaluation baseline supports all five
+compute operations plus LC/GB through directly constructed Requests with one
+common ownership/completion model, including the Accepted PREab repair and
+REF/RFM conflict safety. Preserve conventional GDDR7 behavior except that
+Accepted timing repair. This establishes primitive behavior within the stated
+fidelity limits, not vendor-calibrated timing or JESD239 completeness.
 
 Entry: Phase 1 and the common execution-model correction complete;
-G1/G2/G3/G4 resolved. Obtain G6 PREab/baseline/RFM approval before its target
-timing/issue consumers, and explicit GDDR7 implementation authorization.
+G1/G2/G3/G4/G6 resolved. The remaining entry requirement is explicit GDDR7
+implementation authorization. G5/G7 and GEMV integration are not prerequisites;
+use directly constructed Requests throughout this phase.
 Carry forward the Accepted G3 command-resource/RCK rules.
 A registerable but unsafe intermediate binding is not a phase exit.
 No DDR4 numerical fallback.
 
-Work units: (1) target profile/map and declarative binding with provenance;
-(2) common PuD integration into existing GDDR7 dual-bus/RCK arbitration and
-complete ordinary/maintenance recovery edges; (3) primitive and mixed-traffic
-validation. Changed boundaries are standard declarations/generated registration,
+Work sequence within this cohesive phase:
+
+1. GDDR7 PuD binding/profile registration and compatibility map with provenance.
+2. Compute command/timing/resource binding into existing dual-bus/RCK arbitration.
+3. Recovery/shared-timing behavior, including local versus shared publication.
+4. LC-MOV/GB-MOV binding with the Accepted occurrence timing and footprints.
+5. The exact Accepted G6 PREab timing-definition repair.
+6. REF/RFM conflict safety across active, reserved and recovering regions.
+7. Direct-Request primitive and mixed-traffic tests, with focused checks during
+   each work unit and complete primitive coverage at phase exit.
+
+These work units are not independently executable phase exits. Trace-format
+and GEMV integration remain later under G5/G7; no engine dependency is added.
+Changed boundaries are standard declarations/generated registration,
 approved profile, common binding consumers and small GDDR7 integration hooks.
 Do not duplicate the controller tick or invocation state machine.
 
@@ -443,13 +459,15 @@ more-than-eight disjoint Request and physical-serialization tests on the
 target, including both command buses. Cover PREpb/PREab,
 incoming ACT/RD/WR/AP and outgoing ACT/REF recovery, including one-tick-early
 rejection across Banks.
-If G6's candidate is accepted, validate its exact repair edges and both RFM
+Validate G6's exact repair edges, including full RDA/WRA recovery before a
+redundant PREab and one G2 reception conversion, and both RFM
 target scopes with injected conflict/recovery safety probes, while asserting
 zero RFM in the selected evaluation workload/maintenance traces. Plumbing
 tests must not be reported as physical RFM-latency validation. Preserve
 recovery of disjoint contexts.
-Use direct paired primitive Requests initially; target hierarchy syntax under
-G5 can still follow primitive validation.
+Use directly constructed primitive Requests, including paired concurrency
+cases; target hierarchy syntax under G5 and GEMV placement under G7 follow
+primitive validation in Phase 4.
 Regression: approved DDR4 common-milestone baseline (Phase-1 fixtures for
 unchanged contracts) plus GDDR7 Device/controller/RCK/refresh/smoke; broaden
 when shared code changes.
@@ -530,10 +548,11 @@ operation/lowering requirements, all six GEMV profiles, full diff review and
 Phase 1 and the common execution-model correction are complete with separate
 local evidence above. Current compute and movement execution has physical
 protection without finite engine accounting. GDDR7 and HBM3 remain
-conventional-only. The next target implementation requires explicit authorization
-and resolution of remaining target gates before their first consumers.
-GDDR7 G1/G2/G3/G4 are Accepted; G6 remains Open with its current candidate.
-G5/G7 remain Open for target portability; HBM3 target policy is unchanged.
+conventional-only. After separate user approval, the next work is Phase 2:
+GDDR7 primitive substrate binding and validation using directly constructed
+Requests. GDDR7 G1/G2/G3/G4/G6 are Accepted. G5/G7 remain Open for target
+trace/hierarchy representation and GEMV target placement portability; neither
+blocks Phase 2. HBM3 target policy is unchanged.
 Use the canonical decision for exact target status.
 No commit or target implementation is authorized. Trace/GEMV placement still
 awaits G5/G7; SALP, payload simulation, energy modeling and CACTI integration

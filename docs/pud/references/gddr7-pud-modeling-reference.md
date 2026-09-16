@@ -9,8 +9,9 @@ documentation edits.
 This reference contains evidence,
 calculations, modeling alternatives and their limitations; it selects no policy.
 The [canonical decision](../decisions/pud-multistandard-substrate.md) owns
-Accepted, Proposed and Open items; see it for G1/G2/G3/G4, the common
-finite-engine scope amendment, and the unchanged Open G6 candidate.
+Accepted, Proposed and Open items; see it for G1/G2/G3/G4/G6 and the common
+finite-engine scope amendment. G6 policy acceptance does not repair production
+timing definitions; the existing-model gaps below remain implementation work.
 This reference does not reopen Accepted choices.
 No production code or tests were changed.
 
@@ -810,7 +811,7 @@ completeness of other baseline relationships. In particular, nRTPSB's
 same-bank semantics alone do not establish the missing all-bank read-to-PRE
 rule.
 
-### Conservative PREab repair alternative and limits
+### Conservative PREab repair evidence and limits
 
 The smallest repair within the existing timing-edge machinery is to add
 Channel-scoped incoming/outgoing PREab edges, so every affected Bank's
@@ -822,8 +823,8 @@ immediate Closed state as proof that recovery finished. Per-bank REF/RFM
 recovery also needs to block an all-bank close. Existing all-bank maintenance
 recovery, PREab->REFab/RFMab and nPPD edges can remain.
 
-The exact proposed edge set is in the
-[G6 candidate](../decisions/pud-multistandard-substrate.md#proposed-g6-final-choice--open-pending-approval).
+The exact Accepted edge set is in the
+[G6 decision](../decisions/pud-multistandard-substrate.md#accepted-g6--gddr7-evaluation-baseline-preab-repair-and-rfm-policy-b-2026-09-17).
 It is conservative relative to the repository's existing Bank recovery model,
 not proven conservative against unknown GDDR7 silicon timings. Applying the
 G2 reception conversion once is necessary; Bank state closure alone cannot
@@ -862,7 +863,8 @@ that the recovery duration is physically accurate.
 **Policy A alternative:** include RFM traffic in validated GDDR7 PuD timing.
 This expands incoming/outgoing maintenance validation and needs applicable
 RFM timing evidence; refresh-derived placeholders do not supply that evidence.
-**Policy B alternative:** keep plumbing and conflict protection, generate no
+**Policy B evidence boundary (selected in the canonical decision):** keep
+plumbing and conflict protection, generate no
 RFM in the selected evaluation workload/maintenance configuration, and make
 no validated RFM-latency claim. This retains manual safety probes and future
 policy integration. The evaluation contract must cover plugin/manager and
@@ -870,11 +872,16 @@ manual-input generation, with zero RFM checked in its traces; it need not
 remove commands or reject them globally.
 
 The **project GDDR7 evaluation baseline** denotes the fixed repository
-architecture-evaluation configuration, not vendor-calibrated timing accuracy.
+architecture-evaluation configuration, not vendor-calibrated timing accuracy
+or JESD239 timing completeness.
 The underlying source preset still says CI/smoke/regression-only and has not
-been changed. Its use and the proposed repair/policy B are project choices
-in the G6 candidate; they do not supply a timing error bound or waive ordinary
-REF/PuD recovery validation.
+been changed. Its use and the repair/Policy B are Accepted project choices
+in the [G6 decision](../decisions/pud-multistandard-substrate.md#accepted-g6--gddr7-evaluation-baseline-preab-repair-and-rfm-policy-b-2026-09-17);
+they do not supply a timing-error bound or waive ordinary REF/PuD recovery
+validation. The PREab repair is conservative only relative to existing modeled
+recovery, not a vendor/JEDEC-calibrated GDDR7 PREab timing specification.
+Reachable nRFMab/nRFMpb placeholders remain uncalibrated even when separate
+injected-command safety tests pass.
 
 ## 7. Evidence summary and unresolved questions
 
@@ -884,7 +891,7 @@ REF/PuD recovery validation.
 | G2 | PRADA/DDR4 derivation; unscaled A=(16,8,58,50,62), B=(16,8,52,43,62); PRE=30 | Physical portability/calibration remains a fidelity limit; phase policy and anchors are now selected in the decision |
 | G3 | Current DDR4 charges primitives; paper engines represent bbop/microProgram contexts; inspected public MIMDRAM/Proteus paths expose no finite engine occupancy | Prior-work control-to-BLP/SALP connection remains insufficient for a faithful finite model; common omission and bus/RCK policy are selected in the decision, without engine-driven G5/G7 dependencies |
 | G4 | MIMDRAM sequences, related FIGARO evidence, conventional timing analogues and conditional timelines | Selected analogues, selective close and relocation remain target physical-fidelity assumptions, not open policy choices |
-| G6 | DDR4 has core PREab edges absent in GDDR7; both omit direct AP->PREab; RFM plumbing/protection and calibration are distinct | Conservative PREab repair and policy B await approval; physical PREab/RFM calibration remains unavailable |
+| G6 | DDR4 has core PREab edges absent in GDDR7; both omit direct AP->PREab; RFM plumbing/protection and calibration are distinct | Baseline, conservative PREab repair and Policy B are selected in the decision; implementation/validation remains pending, and physical PREab/RFM calibration remains unavailable |
 
 Project choices and status are maintained only in the
 [canonical decision](../decisions/pud-multistandard-substrate.md); the

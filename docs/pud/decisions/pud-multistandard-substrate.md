@@ -1,4 +1,4 @@
-Status: G0 Accepted; GDDR7 G1/G2/G3/G4 Accepted; G5/G6/G7 Open.
+Status: G0 Accepted; GDDR7 G1/G2/G3/G4/G6 Accepted; G5/G7 Open.
 
 Question
 
@@ -10,10 +10,11 @@ Decision
 
 **Accepted — G0 common architecture (2026-09-16).** Phase 1's DDR4-preserving
 extraction is complete. The common execution-model amendment below and GDDR7
-G1/G2/G3/G4 are Accepted; G6 remains Open with its existing candidate.
+G1/G2/G3/G4/G6 are Accepted.
 G5/G7 remain Open for target trace/hierarchy and GEMV placement portability.
 HBM3 target choices are unchanged. These acceptances authorize no production
-implementation; the common finite-engine correction must precede target binding.
+implementation; the common finite-engine correction is complete, and GDDR7
+primitive binding requires separate user approval.
 Older DDR4 authorities remain current except for the explicitly superseded
 finite-engine-accounting clauses listed below.
 
@@ -250,6 +251,63 @@ assumptions. Preserve incoming conventional recovery/refresh scope; publish
 shared bus and Channel nPPD for invocation PRE, with local recovery rather
 than Bank/sibling nRP/nRPD publication.
 
+### Accepted G6 — GDDR7 evaluation baseline, PREab repair and RFM Policy B (2026-09-17)
+
+Use `GDDR7_16Gb_x8 / GDDR7_28000_PAM3` without additional timing overrides
+as the fixed **project GDDR7 evaluation baseline**, with the PREab repair
+below. This is an architecture-evaluation configuration, not a vendor-calibrated
+GDDR7 timing model, a claim of JESD239 timing completeness, or a claim of known
+timing-error bounds.
+
+**PREab:** keep all-bank precharge and ordinary REF support. Add the missing
+Channel-scoped conventional timing edges below, so every affected Bank's
+history contributes. These are nominal final-reception intervals; apply the
+Accepted G2 conversion exactly once:
+`I_follow - I_pre >= interval + occupancy_pre - occupancy_follow`.
+
+| Preceding -> following | Accepted interval | Conservative project meaning |
+| --- | --- | --- |
+| ACT -> PREab | nRAS | Every affected Bank's minimum active time |
+| RD -> PREab | nRTPSB | Apply the existing per-bank read-close floor across all affected Banks; not a JEDEC all-bank identity |
+| WR -> PREab | nWL + nBL + nWR | Preserve conventional write delivery/recovery |
+| RDA -> PREab | nRTPSB + nRP | Wait for full modeled AP recovery before redundant all-bank close |
+| WRA -> PREab | nWL + nBL + nWR + nRP | Same conservative AP drain rule |
+| REFpb -> PREab | nRFCpb | Drain per-bank refresh before a close covering that Bank |
+| RFMpb -> PREab | nRFMpb | Structural recovery guard using the existing placeholder; no physical calibration claim |
+| PREab -> ACT | nRP | Recovery covers all Banks |
+| PREab -> REFpb | nRP | Recovery covers every per-bank refresh target |
+| PREab -> RFMpb | nRP | Recovery covers every per-bank RFM target |
+
+Retain existing PREab -> REFab/RFMab, REFab/RFMab -> PREab and nPPD
+relationships. Extend conventional PREab nRP and maintenance recovery into
+PuD opening commands when the binding is implemented; keep invocation-local
+PRE recovery local. Common protected ownership blocks PREab/REF/RFM that
+intersect any active or recovering invocation, including pre-ACT reservations.
+
+RDA/WRA intentionally wait for full modeled auto-precharge recovery before
+allowing a redundant PREab. This repair is conservative with respect to the
+repository's existing recovery model; it is not a vendor/JEDEC-calibrated
+GDDR7 PREab timing specification or proven conservative against unknown
+silicon timings. It is a timing-definition repair, not a scheduler-priority
+change. No DDR4 change is selected.
+
+**RFM Policy B:** retain RFMab/RFMpb command plumbing, manual command
+injection, per-bank/all-bank target scopes and PuD conflict/protected-region
+safety. The selected project GDDR7 evaluation workload/maintenance policy
+generates **zero RFM commands**: no RFM-producing manager/plugin and no
+manually supplied RFM commands in evaluation workloads. Evaluation traces
+must verify zero RFM. Separate injected RFM safety tests remain allowed.
+
+Do not claim validated physical RFM latency. Existing nRFMab/nRFMpb remain
+reachable placeholder model values, not calibrated evaluation timing.
+Do not remove RFM commands from the standard or reject them globally.
+Ordinary REFab/REFpb and their interaction with PuD remain fully inside the
+evaluated model.
+
+No other G6 blocker was identified in the documented baseline investigation;
+G6 is Accepted. Implementation and primitive validation remain future work
+requiring separate user approval, not additional G6 modeling gates.
+
 Rationale
 
 The existing ownership/completion machinery already resides mostly in shared
@@ -292,6 +350,14 @@ modeling assumption. Separately, the user explicitly chose not to include a
 sensitivity analysis itself is scientifically invalid. Neither choice asserts
 physically zero hybrid overhead.
 
+G6 fixes a reproducible architecture-evaluation configuration while retaining
+its calibration limitations. The PREab repair carries existing recovery floors
+across the all-bank scope; the full AP drain can conservatively over-delay a
+redundant close. Policy B retains maintenance reachability and safety while
+excluding uncalibrated RFM latency from evaluation. Policy A would require
+physical RFM calibration evidence unavailable here. Ordinary REF remains
+evaluated under the baseline's stated fidelity limits.
+
 Evidence
 
 - [GDDR7 Phase-2 modeling reference](../references/gddr7-pud-modeling-reference.md)
@@ -306,6 +372,10 @@ Evidence
   limitation.
 - [Source audit](../references/pud-multistandard-substrate-audit.md), especially
   §§2–5, identifies each current consumer and the actual standard structures.
+- The user's explicit G6 instructions on 2026-09-17 accept the fixed baseline,
+  conservative PREab repair and RFM Policy B above. The
+  [G6 evidence](../references/gddr7-pud-modeling-reference.md#6-g6--conventional-baseline-evidence-and-uncertainty)
+  distinguishes existing-model gaps and placeholder timings from calibration.
 - [Unified DDR4 substrate](ddr4-pud-unified-substrate.md),
   [placement](mimdram-addressing-geometry-and-payload.md),
   [execution](mimdram-movement-execution-ownership-and-device.md), and
@@ -319,62 +389,20 @@ Evidence
 
 Open issues
 
-### Proposed G6 final choice — Open pending approval
-
-Use `GDDR7_16Gb_x8 / GDDR7_28000_PAM3` without timing overrides as the fixed
-**project GDDR7 evaluation baseline**, with the following proposed PREab
-correction. This is an architecture-evaluation configuration, not a
-vendor-calibrated timing model or a claim of known timing error bounds.
-
-**PREab:** keep all-bank precharge and ordinary REF support. Add the missing
-Channel-scoped conventional timing edges below, using nominal final-reception
-intervals and one reception-to-issue conversion. Existing edges remain.
-
-| Preceding -> following | Proposed interval | Conservative project meaning |
-| --- | --- | --- |
-| ACT -> PREab | nRAS | Every affected Bank's minimum active time |
-| RD -> PREab | nRTPSB | Apply the existing per-bank read-close floor across all affected Banks; not a JEDEC all-bank identity |
-| WR -> PREab | nWL+nBL+nWR | Preserve conventional write delivery/recovery |
-| RDA -> PREab | nRTPSB+nRP | Wait for full modeled AP recovery before redundant all-bank close |
-| WRA -> PREab | nWL+nBL+nWR+nRP | Same conservative AP drain rule |
-| REFpb -> PREab | nRFCpb | Drain per-bank refresh before a close covering that Bank |
-| RFMpb -> PREab | nRFMpb | Structural recovery guard using the existing placeholder; no physical calibration claim |
-| PREab -> ACT, REFpb, RFMpb | nRP | Recovery covers all Banks; existing PREab -> REFab/RFMab=nRP is retained |
-
-Preserve existing REFab/RFMab -> PREab recovery and nPPD spacing. Extend
-conventional PREab nRP and maintenance recovery into PuD opening commands
-when the binding is implemented; keep invocation-local PRE recovery local.
-Common protected ownership blocks PREab/REF/RFM that intersect any active or
-recovering invocation. This is a small timing-definition repair, not a
-priority change or a JEDEC/vendor-correctness assertion. The full AP drain
-rule may add conservative delay; no DDR4 change is proposed.
-
-**RFM policy B:** retain command plumbing, manual injection capability and
-all-bank/per-bank PuD conflict protection. Generate no RFM in the selected
-evaluation workload/maintenance policy: no RFM-producing manager/plugin or
-manual RFM in those evaluation inputs. Verify zero RFM in evaluation traces;
-separate injected-command safety tests remain permitted. Make no validated
-physical-timing claim for RFM latency. No command rejection/removal is needed.
-
-Policy A would include both RFM scopes in validated timing and require
-adequate incoming/outgoing rules plus physical calibration evidence unavailable
-here. Policy B preserves safety/reachability without making those claims;
-RFM latency remains outside the evaluated timing scope. Ordinary REFab/REFpb
-and their interaction with PuD remain inside it.
-
 ### Open — GDDR7 gates
 
-GDDR7 **G1/G2/G3/G4 are Accepted; G6 is Open** with its existing conservative
-PREab repair plus baseline/RFM policy B candidate. G0 remains Accepted.
-Complete the common finite-engine code correction before GDDR7 binding;
-resolve G6 before its timing/issue consumers and obtain separate implementation
-authorization. No ACT-envelope or sensitivity question remains open.
+GDDR7 **G1/G2/G3/G4/G6 are Accepted; G5/G7 are Open**. G0 remains Accepted.
+The common finite-engine code correction is complete. GDDR7 primitive binding
+and validation using directly constructed Requests is the next implementation
+phase, after separate user approval. No ACT-envelope or sensitivity question
+remains open.
 Exact realistic GPU PA hashing is deferred outside
 the provisional G1 mapping; target physical fidelity remains limited as stated.
 
 G5/G7 remain Open for target trace/hierarchy compatibility and GEMV physical
-placement portability, respectively; neither depends on engine identity or
-cross-output grouping. HBM3's gates and supplied page
+placement portability, respectively. Neither blocks direct-Request primitive
+binding/validation or depends on engine identity or cross-output grouping.
+HBM3's gates and supplied page
 evidence remain for later investigation; GDDR7 acceptance does not select
 an HBM3 profile. The
 [audit gate table](../references/pud-multistandard-substrate-audit.md#6-decision-gates-and-required-information)
