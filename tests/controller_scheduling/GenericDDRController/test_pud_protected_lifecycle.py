@@ -35,16 +35,16 @@ def test_terminal_retirement_preserves_protection_until_recovery(name, mats):
     overlap = compute(r, name, mats, row=100)  # Row cells differ; mat resources do not.
     assert d.add(a.copy(), 1)
     assert d.snapshot()["held"] == []  # Pending, unallocated requests own nothing.
-    assert d.reserve(1, 0)
+    assert d.reserve(1)
     stale = d.save(1)
     assert not d.saved_expired(stale)
     initial = d.snapshot()
     assert initial["active"] == 0 and not any(initial["active_per_bank"])
     assert initial["held"][0]["phase"] == 0  # Pre-first-ACT Closed, but reserved.
-    assert not d.available(overlap, 1)
-    assert not d.available(compute(r, bank=1), 0)
+    assert not d.available(overlap)
+    assert d.available(compute(r, bank=1))
     with pytest.raises(RuntimeError, match="already has"):
-        d.reserve(1, 1)
+        d.reserve(1)
     with pytest.raises(RuntimeError, match="terminal PRE"):
         d.retire_copy(1)
     assert d.snapshot() == initial
@@ -59,9 +59,9 @@ def test_terminal_retirement_preserves_protection_until_recovery(name, mats):
         s = d.snapshot()
         assert s["pending"] == s["active"] == 0 and not any(s["active_per_bank"])
         assert s["delayed"] == 1
-        assert s["held"] == [dict(engine=0, phase=3, depart=ready,
+        assert s["held"] == [dict(source=1, phase=3, depart=ready,
                                   completion_pending=True)]
-        assert not d.available(overlap, 1) and not d.available(compute(r, bank=1), 0)
+        assert not d.available(overlap) and d.available(compute(r, bank=1))
         assert d.completions() == []
         assert s["counters"][f"num_pud_{name.lower()}_reqs_completed"] == 0
         with pytest.raises(RuntimeError, match="not schedulable"):
@@ -71,10 +71,10 @@ def test_terminal_retirement_preserves_protection_until_recovery(name, mats):
         assert d.snapshot() == s
 
     d.advance(ready)
-    assert d.available(overlap, 0)
+    assert d.available(overlap)
     assert d.saved_expired(stale)
     with pytest.raises(RuntimeError, match="stale compute reservation"):
-        d.reserve_saved(stale, 0)
+        d.reserve_saved(stale)
     with pytest.raises(RuntimeError, match="stale protected"):
         d.stale_dispatch(stale)
     event, = d.completions()
@@ -101,14 +101,14 @@ def test_disjoint_context_progresses_during_another_recovery(names):
     d, r = fixture()
     for i, name in enumerate(names):
         assert d.add(compute(r, name, (i, i), row=10+10*i), i)
-        assert d.reserve(i, i)
+        assert d.reserve(i)
     events = sorted((clk+2*i, i) for i, name in enumerate(names) for clk in TIMELINES[name])
     overlapped = False
     for clk, i in events:
         d.advance(clk)
-        before = {h["engine"]: h for h in d.snapshot()["held"]}
+        before = {h["source"]: h for h in d.snapshot()["held"]}
         d.dispatch(i, clk)
-        after = {h["engine"]: h for h in d.snapshot()["held"]}
+        after = {h["source"]: h for h in d.snapshot()["held"]}
         if before.get(1-i, {}).get("phase") == 3:
             overlapped = True
             assert before[1-i] == after[1-i]
@@ -128,10 +128,10 @@ def test_enqueue_retry_preserves_single_progression_through_promotion():
     assert d.snapshot()["counters"]["num_pud_rowcopy_reqs"] == 0
     d.capacity(1, 0)
     assert d.add(a.copy(), 1)
-    assert d.reserve(1, 0)
+    assert d.reserve(1)
     stale = d.save(1)
-    d.advance(20)  # Pre-ACT waiting does not relinquish engine or range.
-    assert not d.available(b, 1)
+    d.advance(20)  # Pre-ACT waiting does not relinquish the physical footprint.
+    assert not d.available(b)
     d.dispatch(1, 20)  # First ACT succeeds but promotion cannot enqueue.
     s = d.snapshot()
     assert s["pending"] == 1 and s["active"] == 0 and len(s["held"]) == 1
@@ -144,15 +144,15 @@ def test_enqueue_retry_preserves_single_progression_through_promotion():
     d.dispatch(1, 60)  # Retry promotion with the authoritative Request progress.
     assert d.snapshot()["active"] == 1 and d.snapshot()["pending"] == 0
     assert d.add(b, 2)
-    assert not d.reserve(2, 1)
+    assert not d.reserve(2)
     assert d.state(2)["cursor"] == 0 and d.state(2)["history"] == [-1, -1, -1]
     d.dispatch(1, 65)
-    assert not d.reserve(2, 0) and not d.reserve(2, 1)
+    assert not d.reserve(2)
     d.advance(80)
-    assert not d.reserve(2, 1)
+    assert not d.reserve(2)
     d.advance(81)
     assert d.saved_expired(stale)
-    assert d.reserve(2, 0)
+    assert d.reserve(2)
     for clk in TIMELINES["RowCopy"]:
         d.dispatch(2, clk+81)
     d.advance(142)
@@ -170,13 +170,13 @@ def test_release_and_accounting_precede_reentrant_successor_and_forwarding():
         assert event["stats"]["held"] == [] and event["stats"]["delayed"] == 0
         assert event["stats"]["device_context_references"] == 0
         assert event["stats"]["counters"]["num_pud_rowcopy_reqs_completed"] == 1
-        assert d.available(successor, 0)
+        assert d.available(successor)
         assert d.add(successor.copy(), 2)
-        assert d.reserve(2, 0)
+        assert d.reserve(2)
         d.forwarded_read(3)  # Appends to the same deque during its completion scan.
 
     assert d.add(a, 1, callback)
-    assert d.reserve(1, 0)
+    assert d.reserve(1)
     for clk in TIMELINES["RowCopy"]:
         d.dispatch(1, clk)
     d.advance(61)
@@ -197,7 +197,7 @@ def test_release_and_accounting_precede_reentrant_successor_and_forwarding():
 def test_mixed_read_compute_departure_order_and_same_tick_ready(read_clk):
     d, r = fixture()
     assert d.add(compute(r, "MAJ3"), 1)
-    assert d.reserve(1, 0)
+    assert d.reserve(1)
     for clk in [0, 11, 16]:
         d.dispatch(1, clk)
     if read_clk < 50:
@@ -222,14 +222,14 @@ def test_resource_intersections_use_complete_range_and_bank_identity(mats, bank,
     d, r = fixture()
     candidate = compute(r, mats=mats, bank=bank, row=100)
     assert d.add(compute(r, mats=(15, 16)), 1)
-    assert d.reserve(1, 0)
-    assert d.available(candidate, 1) is available
+    assert d.reserve(1)
+    assert d.available(candidate) is available
     for clk in TIMELINES["RowCopy"]:
         d.dispatch(1, clk)
     d.advance(60)
-    assert d.available(candidate, 1) is available
+    assert d.available(candidate) is available
     d.advance(61)
-    assert d.available(candidate, 0)
+    assert d.available(candidate)
     drained(d)
 
 
@@ -238,14 +238,14 @@ def test_two_recoveries_ready_together_release_exactly_once_with_reentrant_growt
     successor = compute(r, mats=(0, 0), row=100)
 
     def callback(event):
-        assert event["stats"]["held"][0]["engine"] == 1
+        assert event["stats"]["held"][0]["source"] == 2
         assert d.add(successor, 3)
-        assert d.reserve(3, 0)
+        assert d.reserve(3)
         d.forwarded_read(4)
 
     assert d.add(compute(r, mats=(0, 0)), 1, callback)
     assert d.add(compute(r, mats=(1, 1)), 2)
-    assert d.reserve(1, 0) and d.reserve(2, 1)
+    assert d.reserve(1) and d.reserve(2)
     d.dispatch(1, 0)
     d.dispatch(2, 1)
     d.dispatch(1, 40)
@@ -258,7 +258,7 @@ def test_two_recoveries_ready_together_release_exactly_once_with_reentrant_growt
     d.advance(62)
     assert [e["source"] for e in d.completions()] == [1, 2]
     assert [e["depart"] for e in d.completions()] == [62, 62]
-    assert [h["engine"] for h in d.snapshot()["held"]] == [0]
+    assert [h["source"] for h in d.snapshot()["held"]] == [3]
     assert d.snapshot()["counters"]["num_pud_rowcopy_reqs_completed"] == 2
     for clk in TIMELINES["RowCopy"]:
         d.dispatch(3, clk+62)
@@ -273,7 +273,7 @@ def test_multi_destination_recovery_uses_terminal_request_history(destinations):
     d, r = fixture()
     req = request(r, "RowCopy", [descriptor(10+i, (0, 0))
                                 for i in range(destinations+1)])
-    assert d.add(req, 1) and d.reserve(1, 0)
+    assert d.add(req, 1) and d.reserve(1)
     times = [0] + [40+5*j for j in range(destinations+1)]
     for clk in times:
         d.dispatch(1, clk)
@@ -290,7 +290,7 @@ def test_multi_destination_recovery_uses_terminal_request_history(destinations):
 
 def test_depart_uses_issue_timestamp_not_later_retirement_clock():
     d, r = fixture()
-    assert d.add(compute(r), 1) and d.reserve(1, 0)
+    assert d.add(compute(r), 1) and d.reserve(1)
     d.dispatch(1, 0)
     d.dispatch(1, 40)
     # Fixture-only delay separates the two clocks; production retires at PRE.

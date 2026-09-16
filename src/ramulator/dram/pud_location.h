@@ -22,7 +22,7 @@ namespace PuD {
  *     -> PairedOperand / Request
  *     -> GenericDRAM public ingress
  *     -> GenericDDR PuD buffer
- *     -> first-fit E-engine + complete-range allocation
+ *     -> first-fit complete-footprint protection
  *     -> resolved occurrence issue
  *     -> terminal PRE / recovery
  *     -> release / accounting / callback

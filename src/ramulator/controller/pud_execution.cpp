@@ -31,7 +31,7 @@ bool ControllerBase::check_pud_request_timing(const Request& req) {
          ControllerBase::check_request_timing(req);
 }
 
-void ControllerBase::allocate_pud_compute(int engine_count) {
+void ControllerBase::protect_pending_pud_compute() {
   // Existing list order breaks equal-arrival ties. Sorting this transient view
   // neither reorders pending work nor introduces another admission-age field.
   std::vector<ReqBuffer::iterator> pending;
@@ -45,17 +45,10 @@ void ControllerBase::allocate_pud_compute(int engine_count) {
   std::stable_sort(pending.begin(), pending.end(),
       [](auto a, auto b) { return a->arrive < b->arrive; });
   for (auto it : pending) {
-    int engine = 0;
-    for (; engine < engine_count; ++engine) {
-      if (std::none_of(m_protected_pud.begin(), m_protected_pud.end(),
-          [&](const auto& held) { return held.engine == engine &&
-              pud_binding(*m_device.m_spec).engine_pool(*it->pud_locations) ==
-              pud_binding(*m_device.m_spec).engine_pool(*held.context->locations()); })) break;
-    }
-    if (engine == engine_count) continue;
-    // Commit engine + complete range together after conflict eligibility. No
-    // first-ACT local timing or shared command readiness participates here.
-    reserve_pud_compute(*it, engine);
+    // Protect the complete footprint after footprint/start eligibility checks,
+    // including first-command timing. Shared command-resource readiness is
+    // checked at issue time.
+    reserve_pud_compute(*it);
   }
 }
 
@@ -215,7 +208,7 @@ void ControllerBase::issue_pud_aware_candidate(Candidate& cand) {
     // Advance request
     if (allocated_compute) {
       if (cand.it->occurrence_index == get_pud_sequence_length(*cand.it)) {
-        // Keep engine + range protected until delayed recovery departure.
+        // Keep the physical footprint protected until delayed recovery departure.
         retire_request(cand.it, *cand.buffer);
       }
     } else if (pud_issued) {

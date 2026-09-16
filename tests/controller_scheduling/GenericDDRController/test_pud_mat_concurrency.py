@@ -24,7 +24,7 @@ def req(d, kind, mats=(0, 1), row=10):
 @pytest.mark.parametrize("first,second", list(itertools.product(KINDS, repeat=2)))
 @pytest.mark.parametrize("intersect", [False, True])
 def test_all_pair_classes_actual_execution_and_recovery(scheduler, first, second, intersect):
-    d = system(scheduler, engines=2)
+    d = system(scheduler)
     assert d.submit(req(d, first), 0)
     # Intersect at mat 1: for GB this is A's destination and B's source.
     assert d.submit(req(d, second, (1, 2) if intersect else (2, 3), row=30), 1)
@@ -58,7 +58,7 @@ def test_all_pair_classes_actual_execution_and_recovery(scheduler, first, second
 
 @pytest.mark.parametrize("first,second", list(itertools.product(KINDS, repeat=2)))
 def test_same_bank_different_subarray_still_serializes(first, second):
-    d = system(engines=2)
+    d = system()
     assert d.submit(req(d, first), 0)
     d.advance(1)  # Ensure movement has acquired its footprint before the next arrival.
     assert d.submit(req(d, second, (2, 3), row=1034), 1)
@@ -68,7 +68,7 @@ def test_same_bank_different_subarray_still_serializes(first, second):
 
 @pytest.mark.parametrize("kind", KINDS)
 def test_lc_source_close_and_terminal_recovery_leave_other_context_intact(kind):
-    d = system(engines=2)
+    d = system()
     assert d.submit(req(d, "LC-MOV", (15, 16)), 0)  # Cross-chip LC union.
     d.advance(38)
     assert d.submit(req(d, kind, (17, 18), row=40), 1)
@@ -82,8 +82,8 @@ def test_lc_source_close_and_terminal_recovery_leave_other_context_intact(kind):
 
 
 @pytest.mark.parametrize("kind", ["LC-MOV", "GB-MOV"])
-def test_movement_does_not_consume_compute_engine_and_failed_overlap_retries(kind):
-    d = system(engines=1)
+def test_movement_and_compute_overlap_while_conflicting_movement_retries(kind):
+    d = system()
     assert d.submit(req(d, kind), 0)
     d.advance(1)
     assert d.submit(req(d, "RowCopy", (2, 3)), 1)
@@ -91,7 +91,7 @@ def test_movement_does_not_consume_compute_engine_and_failed_overlap_retries(kin
     d.advance(3)
     assert times(d, 1) == [3 if kind == "GB-MOV" else 2]
     pending = next(r for r in d.scheduling()["pending"] if r["source_id"] == 2)
-    assert pending["history"] == [-1]*len(TIMES[kind]) and pending["engine"] == -1
+    assert pending["history"] == [-1]*len(TIMES[kind])
     assert pending["phase"] == -1
     assert d.scheduling()["held"] == 2  # Only the first movement and compute.
     assert times(d, 2) == []

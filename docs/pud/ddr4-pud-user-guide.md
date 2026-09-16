@@ -38,11 +38,13 @@ The currently supported placement profile is
 all compute and movement command definitions. It does not denote a separate
 movement execution model.
 
-The controller parameter `pud_compute_engines` is the positive compute-engine
-capacity E for one controller/channel instance, shared across its Banks and
-Ranks. Its default is 8. E=1 is a serialized control; larger values permit
-eligible requests on disjoint ranges to overlap. `pud_buffer_size` separately
-bounds resident PuD requests and defaults to 32.
+Finite control-engine capacity is not modeled for compute or movement.
+`pud_compute_engines` has been removed: Python configuration rejects it as an
+unknown parameter, and raw exported configs fail with a removal diagnostic.
+Delete the key from older configurations and re-export them.
+`pud_buffer_size` still bounds resident PuD requests and defaults to 32.
+Physical footprints, no-SALP, Bank state, command resources, timing, dependencies,
+and terminal recovery continue to constrain concurrency.
 
 The canonical example configuration is
 [`examples/ddr4_pud_microbenchmark_config.py`](../../examples/ddr4_pud_microbenchmark_config.py).
@@ -59,7 +61,6 @@ controller = ramulator.controller.GenericDDR(
     dram=dram,
     pud_buffer_size=32,
     pud_placement_profile="MIMDRAM_DDR4_8Gb_x8_v1",
-    pud_compute_engines=8,
     scheduler=ramulator.scheduler.FRFCFS(),
     refresh_manager=ramulator.refresh_manager.NoRefresh(),
     row_policy=ramulator.row_policy.Open(),
@@ -166,7 +167,7 @@ request.size_bytes = Request::kMovementSizeBytesNotApplicable;
 LC-MOV range width determines moved bits as
 `selected_mat_count * hffs_per_mat`. GB-MOV moves
 `hffs_per_mat` bits. The `-1` size is a named not-applicable contract, not
-a byte count. Movement consumes no compute engine. Compute and LC protect
+a byte count. Compute and LC protect
 their selected physical mats; GB protects the union of its source/destination
 mats. Disjoint PuD footprints in the same Bank/subarray may progress
 concurrently; intersecting footprints serialize through terminal recovery.
@@ -194,10 +195,11 @@ A successful admission owns the request once. Failed admission does not consume
 or reorder its operands. Do not reconstruct or move the Request between
 retries.
 
-Compute allocation reserves one engine and the complete resolved range
+Compute admission reserves the complete resolved physical footprint
 atomically using oldest-to-newest first fit. Disjoint ranges in the same
-subarray may progress concurrently when E permits; intersecting ranges and
-different subarrays of the same Bank conflict. The reservation starts before
+subarray may progress concurrently subject to command resources and timing;
+intersecting ranges and different subarrays of the same Bank conflict.
+The reservation starts before
 the first PuD activation and remains protected through terminal `PREpb` plus
 `nRP` recovery. Protection is released before exact-once accounting and the
 callback.
@@ -228,19 +230,6 @@ LD_LIBRARY_PATH=. ./build/mimdram_movement_microbenchmark \
 The first benchmark exercises all compute requests with explicit subranges and
 `FULL_MAT`, disjoint-range overlap, dependency callbacks, LC-MOV, and GB-MOV.
 The second runs focused movement cases. Both use controlled unique source IDs.
-
-To compare compute-engine capacities, set only E when exporting:
-
-```bash
-for engines in 1 2 8; do
-  RAMULATOR_PUD_ENGINES=$engines PYTHONPATH=python python3 -m ramulator export \
-    examples/ddr4_pud_microbenchmark_config.py \
-    -o build/ddr4_pud_microbenchmark_e${engines}.yaml
-  LD_LIBRARY_PATH=. ./build/ddr4_pud_microbenchmark \
-    build/ddr4_pud_microbenchmark_e${engines}.yaml \
-    build/ddr4_pud_trace.csv.ch0
-done
-```
 
 ## GEMV trace generation and execution
 
@@ -431,7 +420,7 @@ At `DDR4_2400R`, uncontended first-command-through-recovery anchors are:
 | LC-MOV | `130 CK` |
 | GB-MOV | `75 CK` |
 
-The totals already include terminal `nRP`. Queueing, engine/range allocation,
+The totals already include terminal `nRP`. Queueing, physical footprint admission,
 maintenance, and shared command arbitration can increase end-to-end latency.
 
 The current T-A abstraction delivers each resolved row/range to its

@@ -38,8 +38,6 @@ class PuDBinding {
   virtual const std::vector<std::vector<TimingConsEntry>>& local_timing(const DRAMSpec&) const = 0;
   virtual PuDMovementTimingConstraints movement_timing(const DRAMSpec&) const = 0;
   virtual Clk_t recovery_deadline(const DRAMSpec&, const Request&, Clk_t retirement, bool protected_request) const = 0;
-  // Binding-selected hierarchy prefix identifying the compute-engine pool.
-  virtual PuD::HierarchyIdentity engine_pool(const PuD::RequestLocations&) const = 0;
   virtual std::vector<PuDCommandResource> command_resources(const DRAMSpec&, int command) const = 0;
   virtual void publish_shared_timing(DRAMNode&, int command, const AddrVec_t&, Clk_t) const = 0;
   virtual bool conventional_closed(const DRAMSpec&, const DRAMNode&) const = 0;

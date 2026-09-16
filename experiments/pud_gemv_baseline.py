@@ -73,7 +73,6 @@ def run(profile, m, n, out, *, chain_csv=False):
         dram=dram,
         pud_buffer_size=32,
         pud_placement_profile="MIMDRAM_DDR4_8Gb_x8_v1",
-        pud_compute_engines=8,
         scheduler=ramulator.scheduler.FRFCFS(),
         refresh_manager=ramulator.refresh_manager.NoRefresh(),
         row_policy=ramulator.row_policy.Open(),

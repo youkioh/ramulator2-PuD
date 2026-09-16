@@ -56,8 +56,7 @@ inline int run(const ConfigNode& config, const std::string& trace_path, Scenario
   const auto controller = config["memory_system"]["controllers"].seq().front();
   require(controller["refresh_manager"]["impl"].as<std::string>() == "NoRefresh",
           "isolated/overlap anchor scenarios require NoRefresh");
-  const int engines = controller["pud_compute_engines"].as<int>(8);
-  std::cout << "profile=" << resolver->association().profile.name << " E=" << engines
+  std::cout << "profile=" << resolver->association().profile.name
             << "\ntransport=T-A resolved-target consumption at ACT issue\n"
                "Transport latency, mat-queue stalls and target-delivery C/A contention "
                "are omitted, not physically zero.\n";
@@ -264,11 +263,8 @@ inline int run(const ConfigNode& config, const std::string& trace_path, Scenario
   }
   for (auto [a, b] : overlap_pairs) {
     const auto first_b = commands.at(b).front().clk;
-    require(engines == 1 ? first_b >= results[a].depart : first_b < results[a].depart,
-            "engine serialization/overlap mismatch");
-    if (engines > 1) {
-      require(commands.at(b)[1].clk < results[a].depart, "no later-occurrence overlap");
-    }
+    require(first_b < results[a].depart, "disjoint footprints did not overlap");
+    require(commands.at(b)[1].clk < results[a].depart, "no later-occurrence overlap");
   }
   if (dependent >= 0) {
     for (int producer : producers) {

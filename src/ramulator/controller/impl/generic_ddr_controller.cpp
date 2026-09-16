@@ -20,9 +20,8 @@ class GenericDDRController : public ControllerBase {
     init_base();
     RAMULATOR_PARSE_PARAM(m_pud_buffer_size, int, "pud_buffer_size").default_val(32);
     m_pud_buffer.max_size = m_pud_buffer_size;
-    RAMULATOR_PARSE_PARAM(m_pud_compute_engines, int, "pud_compute_engines").default_val(8);
-    if (m_pud_compute_engines <= 0) {
-      throw std::runtime_error("pud_compute_engines must be positive");
+    if (m_config.is_map() && m_config.map().contains("pud_compute_engines")) {
+      throw std::runtime_error("pud_compute_engines has been removed: finite PuD control-engine capacity is not modeled; remove this parameter");
     }
     if (m_device.m_spec->geometry.has_subarrays()) {
       const auto& spec = *m_device.m_spec;
@@ -47,9 +46,6 @@ class GenericDDRController : public ControllerBase {
   }
 
  protected:
-  // One control-unit pool per controller/channel, shared across Banks/Ranks.
-  // Occupancy and range ownership are derived from m_protected_pud.
-  int m_pud_compute_engines = 8;
   std::optional<bool> try_send_special_request(Request& req) override {
     return try_send_pud_request(req);
   }
@@ -76,7 +72,7 @@ void GenericDDRController::tick() {
 
   // Completion release precedes refresh/hooks; queued maintenance therefore
   // stops new allocations in this tick while existing allocations can drain.
-  allocate_pud_compute(m_pud_compute_engines);
+  protect_pending_pud_compute();
 
   // Try to find a candidate request to schedule
   // Gate 11 priority: active > priority > oldest-ready pending PuD/read-write

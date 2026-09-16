@@ -42,10 +42,6 @@ class DDR4PuDBinding final : public PuDBinding {
     const Clk_t anchor = protected_request ? req.occurrence_issue_history.back() : retirement;
     return anchor + spec.get_timing_value("nRP");
   }
-  PuD::HierarchyIdentity engine_pool(const PuD::RequestLocations& locations) const override {
-    // One pool per controller/channel, across all DDR4 Ranks/Banks.
-    return {locations.operands.front().location.origin.bank.at(0)};
-  }
   std::vector<PuDCommandResource> command_resources(const DRAMSpec& spec, int cmd) const override {
     // DDR4 has one combined command bus. Ordinary arbitration is unchanged.
     return {{0, spec.command_cycles.at(cmd)}};

@@ -13,11 +13,9 @@ PROFILE = "MIMDRAM_DDR4_8Gb_x8_v1"
 SCHEDULERS = ["FRFCFS", "FRFCFS-RowHit"]
 
 
-def system(scheduler="FRFCFS", engines=None, pending=32, refresh=False, **timing):
+def system(scheduler="FRFCFS", pending=32, refresh=False, **timing):
     cfg = controller(dram_config(**timing))
     cfg.update(pud_placement_profile=PROFILE, pud_buffer_size=pending)
-    if engines is not None:
-        cfg["pud_compute_engines"] = engines
     cfg["scheduler"]["impl"] = scheduler
     cfg["refresh_manager"]["impl"] = "AllBank" if refresh else "NoRefresh"
     return _LocatedSystemUnderTest(cfg, resolver(), install=False)
@@ -106,19 +104,18 @@ def test_public_multidestination_rowcopy(destinations):
 
 
 @pytest.mark.parametrize("scheduler", SCHEDULERS)
-@pytest.mark.parametrize("engines", [1, 2, 8])
 @pytest.mark.parametrize("second", ["RowCopy", "NOT_COPY"])
-def test_public_overlap_and_engine_serialization(scheduler, engines, second):
-    d = system(scheduler, None if engines == 8 else engines)
+def test_public_disjoint_overlap(scheduler, second):
+    d = system(scheduler)
     assert d.submit(request(d), 0)
     assert d.submit(request(d, second, (17, 20)), 1)
     d.advance(1)
     state = d.scheduling()
-    assert state["held"] == min(engines, 2) and state["active_size"] == 0
+    assert state["held"] == 2 and state["active_size"] == 0
     assert state["pending"][1]["history"] == [-1]*len(TIMELINES[second])
-    assert state["pending"][1]["engine"] == (-1 if engines == 1 else 1)
+    assert state["pending"][1]["phase"] == 0
     d.advance(200)
-    start = 62 if engines == 1 else 2
+    start = 2
     assert times(d, 0) == [1, 41, 46]
     assert times(d, 1) == [start+t for t in TIMELINES[second]]
     assert [e["depart"] for e in d.completions()] == [62, start+TOTALS[second]]
@@ -126,25 +123,25 @@ def test_public_overlap_and_engine_serialization(scheduler, engines, second):
 
 
 @pytest.mark.parametrize("scheduler", SCHEDULERS)
-def test_public_first_fit_and_ninth_engine_wait(scheduler):
+def test_public_first_fit_and_more_than_eight_disjoint_invocations(scheduler):
     d = system(scheduler)
-    for i in range(9):
+    for i in range(12):
         assert d.submit(request(d, "NOT", (i, i)), i)
     d.advance(1)
     state = d.scheduling()
-    assert state["held"] == 8 and state["active_size"] == 0
-    assert [r["engine"] for r in state["pending"]] == list(range(8))+[-1]
+    assert state["held"] == 12 and state["active_size"] == 0
+    assert [r["phase"] for r in state["pending"]] == [2]+[0]*11
+    d.advance(12)
+    assert [times(d, i) for i in range(12)] == [[i+1] for i in range(12)]
     d.advance(99)
-    assert times(d, 8) == [] and d.scheduling()["held"] == 8
-    d.advance(100)
-    assert times(d, 8) == [100]
+    assert d.scheduling()["held"] == 12 and d.completions() == []
     d.advance(250)
-    assert len(d.completions()) == 9 and d.scheduling()["held"] == 0
-    d = system(scheduler, 2)
+    assert len(d.completions()) == 12 and d.scheduling()["held"] == 0
+    d = system(scheduler)
     for i, mats in enumerate([(15, 16), (16, 17), (18, 19)]):
         assert d.submit(request(d, mats=mats, row=10*i), i)
     d.advance(2)
-    assert [r["engine"] for r in d.scheduling()["pending"]] == [0, -1, 1]
+    assert [r["phase"] for r in d.scheduling()["pending"]] == [2, -1, 2]
     assert times(d, 1) == [] and times(d, 2) == [2]
     d.advance(62)
     assert times(d, 1) == [62]
@@ -200,7 +197,7 @@ def test_public_shared_issue_wait_is_separate_from_local_anchor(scheduler):
 
 
 def test_public_backpressure_counts_once_and_callback_dependency_join():
-    d = system(engines=2, pending=2)
+    d = system(pending=2)
     dependent = request(d, "NOT", (15, 20), row=11)
     producers = []
     def complete(event):
@@ -274,3 +271,9 @@ def test_public_profile_rejects_legacy_operands_and_preserves_forwarding():
     assert result["callbacks"] == 3 and not result["retained"]
     assert result["stats"]["controller"]["num_read_reqs_forwarded"] == 1
     assert result["stats"]["controller"]["num_write_reqs_coalesced"] == 1
+
+
+def test_removed_engine_parameter_is_rejected_by_generated_python_schema():
+    assert "pud_compute_engines" not in ramulator.controller.GenericDDR().to_config()
+    with pytest.raises(ValueError, match="unknown parameters.*pud_compute_engines"):
+        ramulator.controller.GenericDDR(pud_compute_engines=8)

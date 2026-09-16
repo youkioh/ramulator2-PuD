@@ -212,10 +212,6 @@ class LocatedSystemUnderTest {
       item["arrive"] = req.arrive;
       const auto context = req.pud_context.lock();
       item["phase"] = context ? static_cast<int>(context->phase()) : -1;
-      item["engine"] = -1;
-      for (const auto& held : m_controller->m_protected_pud) {
-        if (held.context == context) item["engine"] = held.engine;
-      }
       return item;
     };
     for (const auto& req : m_controller->m_pud_buffer.buffer) pending.append(snapshot(req));
@@ -302,7 +298,7 @@ class LocatedSystemUnderTest {
 };
 
 // W3 component-only execution: fixtures provide separate ranges directly. No
-// production scheduler, engine allocation or completion is installed.
+// production scheduler, physical protection or completion is installed.
 class ComputeRangesUnderTest {
  public:
   explicit ComputeRangesUnderTest(nb::dict dram) {
@@ -419,7 +415,7 @@ class ComputeRangesUnderTest {
 };
 
 // W4 drives the same ControllerBase buffers/retirement/completion inherited by
-// GenericDDR. Scheduling and engine selection are explicit fixture actions;
+// GenericDDR. Scheduling and footprint reservation are explicit fixture actions;
 // no production allocator/arbitration is supplied by this test.
 class ComputeLifecycleUnderTest : public ControllerBase {
  public:
@@ -459,12 +455,12 @@ class ComputeLifecycleUnderTest : public ControllerBase {
     ++s_num_pud_reqs[*legacy_pud_statistic_slot(req.type_id)];
     return true;
   }
-  bool reserve(int source, int engine) {
+  bool reserve(int source) {
     auto [buffer, it] = find(source);
-    return reserve_pud_compute(*it, engine);
+    return reserve_pud_compute(*it);
   }
-  bool available(const Request& req, int engine) const {
-    return pud_compute_resources_available(req, engine);
+  bool available(const Request& req) const {
+    return pud_compute_resources_available(req);
   }
   void dispatch(int source, Clk_t clk, bool coincident_terminal, Clk_t retirement_delay) {
     advance(clk);
@@ -503,7 +499,7 @@ class ComputeLifecycleUnderTest : public ControllerBase {
     return saved.size() - 1;
   }
   bool saved_expired(size_t id) const { return saved.at(id).pud_context.expired(); }
-  bool reserve_saved(size_t id, int engine) { return reserve_pud_compute(saved.at(id), engine); }
+  bool reserve_saved(size_t id) { return reserve_pud_compute(saved.at(id)); }
   void stale_dispatch(size_t id) {
     auto req = saved.at(id);
     auto& context = protected_pud_context(req);
@@ -573,7 +569,14 @@ class ComputeLifecycleUnderTest : public ControllerBase {
     nb::list held;
     for (const auto& record : m_protected_pud) {
       nb::dict item;
-      item["engine"] = record.engine;
+      auto identify = [&](const auto& requests) {
+        for (const auto& req : requests) {
+          if (req.pud_context.lock() == record.context) item["source"] = req.source_id;
+        }
+      };
+      identify(m_pud_buffer.buffer);
+      identify(m_active_buffer.buffer);
+      identify(m_pending);
       item["phase"] = static_cast<int>(record.context->phase());
       const auto pending = std::find_if(m_pending.begin(), m_pending.end(),
           [&](const Request& req) { return req.pud_context.lock() == record.context; });
@@ -611,7 +614,7 @@ class PuDConflictUnderTest {
   // W6's explicit-reservation fixture uses sources 0..11; W7 uses 0..8.
   explicit PuDConflictUnderTest(nb::dict config) : dut(config, 12, false), ctrl(dut.m_controller_base) {}
   // W7 only: bypass public ingress, but exercise the real GenericDDR buffer,
-  // allocator, arbitration and completion. No fixture engine assignment.
+  // allocator, arbitration and completion. No fixture footprint assignment.
   bool enqueue(Request req, int source, nb::object callback) {
     check_source(source);
     if (!req.pud_locations || !is_inherited_pud_request_type(req.type_id)) {
@@ -656,9 +659,9 @@ class PuDConflictUnderTest {
   bool scheduled_probe(int source) {
     return ctrl->check_request_timing(find_compute(source));
   }
-  bool allocation_probe(Request req, int engine) const {
+  bool allocation_probe(Request req) const {
     initialize_pud_sequence(req, *ctrl->m_device.m_spec);
-    return ctrl->pud_compute_resources_available(req, engine) && ctrl->pud_compute_start_eligible(req);
+    return ctrl->pud_compute_resources_available(req) && ctrl->pud_compute_start_eligible(req);
   }
   void block_command_bus(Clk_t until) { ctrl->m_device.m_command_resource_ready[0] = until; }
   // Interpose for one real tick after selection, without a production hook.
@@ -685,12 +688,12 @@ class PuDConflictUnderTest {
     }
     ctrl->m_rowpolicy = upgrade.original;
   }
-  bool add(Request req, int source, int engine) {
+  bool add(Request req, int source) {
     check_source(source);
     initialize_pud_sequence(req, *ctrl->m_device.m_spec);
     req.source_id = source;
     req.arrive = ctrl->m_clk;
-    if (!ctrl->reserve_pud_compute(req, engine)) return false;
+    if (!ctrl->reserve_pud_compute(req)) return false;
     req.callback = [this](Request& r) {
       nb::dict event = located_snapshot(r, false);
       event["source"] = r.source_id;
@@ -782,8 +785,23 @@ class PuDConflictUnderTest {
   }
   nb::list issued() const { return history; }
   nb::list completions() const { return completed; }
-  size_t held() const { return std::count_if(ctrl->m_protected_pud.begin(), ctrl->m_protected_pud.end(),
-      [](const auto& held) { return held.engine >= 0; }); }
+  // Count protected compute invocations, including fixture-driven requests.
+  size_t held() const {
+    return std::count_if(ctrl->m_protected_pud.begin(), ctrl->m_protected_pud.end(),
+        [&](const auto& held) {
+          for (const auto& [source, req] : compute) {
+            if (req.pud_context.lock() == held.context) return true;
+          }
+          auto contains = [&](const auto& requests) {
+            return std::any_of(requests.begin(), requests.end(), [&](const Request& req) {
+              return is_inherited_pud_request_type(req.type_id) &&
+                     req.pud_context.lock() == held.context;
+            });
+          };
+          return contains(ctrl->m_pud_buffer.buffer) || contains(ctrl->m_active_buffer.buffer) ||
+                 contains(ctrl->m_pending);
+        });
+  }
   nb::dict stats() { ctrl->update_stats(); return nb::cast<nb::dict>(confignode_to_py(ctrl->IController::collect_stats())); }
   void capacity(size_t active) { ctrl->m_active_buffer.max_size = active; }
 
@@ -806,11 +824,6 @@ class PuDConflictUnderTest {
     auto out = located_snapshot(req, false);
     const auto context = req.pud_context.lock();
     out["phase"] = context ? static_cast<int>(context->phase()) : -1;
-    int engine = -1;
-    for (const auto& held : ctrl->m_protected_pud) {
-      if (held.context == context) engine = held.engine;
-    }
-    out["engine"] = engine;
     nb::list occurrences;
     // Observation derived from the sole Request history, not retained target state.
     for (size_t i = 0; i < get_pud_sequence_length(req); ++i) {

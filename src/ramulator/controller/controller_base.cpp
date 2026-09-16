@@ -373,16 +373,13 @@ void ControllerBase::tick_prologue() {
 
 // ── Request lifecycle ────────────────────────────────────────────────────
 
-bool ControllerBase::pud_compute_resources_available(const Request& req, int engine) const {
-  if (engine < 0 || !req.pud_locations || !is_inherited_pud_request_type(req.type_id)) {
-    throw std::logic_error("Compute reservation requires a located compute request and engine");
+bool ControllerBase::pud_compute_resources_available(const Request& req) const {
+  if (!req.pud_locations || !is_inherited_pud_request_type(req.type_id)) {
+    throw std::logic_error("Compute reservation requires a located compute request");
   }
   validate_pud_placement(req, *m_device.m_spec, m_channel_id,
                          get_pud_placement_levels(*m_device.m_spec), m_location_resolver.get());
   for (const auto& record : m_protected_pud) {
-    if (record.engine == engine &&
-        pud_binding(*m_device.m_spec).engine_pool(*req.pud_locations) ==
-        pud_binding(*m_device.m_spec).engine_pool(*record.context->locations())) return false;
     if (req.pud_locations->conflicts(*record.context->locations())) return false;
   }
   // This is occupied-resource availability, not full start eligibility or
@@ -413,17 +410,17 @@ bool ControllerBase::pud_compute_start_eligible(const Request& req) const {
   return m_device.m_root->check_timing(first.command, req.operands.front(), m_clk);
 }
 
-bool ControllerBase::reserve_pud_compute(Request& req, int engine) {
+bool ControllerBase::reserve_pud_compute(Request& req) {
   const std::weak_ptr<PuDExecutionContext> empty;
   if (req.pud_context.owner_before(empty) || empty.owner_before(req.pud_context)) {
     throw std::logic_error("Request already has a current or stale compute reservation");
   }
-  if (!pud_compute_resources_available(req, engine) || !pud_compute_start_eligible(req)) return false;
+  if (!pud_compute_resources_available(req) || !pud_compute_start_eligible(req)) return false;
   std::shared_ptr<PuDExecutionContext> context = m_device.make_pud_context(req);
   m_device.protect_pud(context);
-  // Commit both resources together; a failed reservation changes no Request.
+  // Commit the complete footprint; a failed reservation changes no Request.
   // A failed insertion leaves only an expired non-owning Device reference.
-  m_protected_pud.push_back({engine, std::move(context), false});
+  m_protected_pud.push_back({std::move(context), false});
   req.pud_context = m_protected_pud.back().context;
   return true;
 }
@@ -475,7 +472,7 @@ void ControllerBase::issue_pud_movement(Request& req) {
   if (req.pud_context.expired()) {
     std::shared_ptr<PuDExecutionContext> context = m_device.make_pud_context(req);
     m_device.protect_pud(context);
-    m_protected_pud.push_back({-1, std::move(context), false});
+    m_protected_pud.push_back({std::move(context), false});
     req.pud_context = m_protected_pud.back().context;
   }
   const auto occurrence = describe_pud_occurrence(req, req.occurrence_index, *m_device.m_spec);
@@ -729,7 +726,7 @@ void ControllerBase::serve_completed_requests() {
     Request completed = std::move(*it);
     m_pending.erase(it);
 
-    // Recovery protection outlives command retirement. Erase its engine/range
+    // Recovery protection outlives command retirement. Erase its footprint
     // record before accounting/callback, so reentrant successors can reuse it.
     release_completed_resources(completed);
 

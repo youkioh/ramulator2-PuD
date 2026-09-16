@@ -1,11 +1,12 @@
 # PuD multistandard substrate implementation plan
 
-Status: Phase 1 complete on 2026-09-16; DDR4 equivalence verified.
+Status: Phase 1 and the common execution-model correction complete on 2026-09-16.
+Phase 1's frozen DDR4 equivalence evidence remains unchanged.
 G0, the common no-finite-control-engine model and GDDR7 G1/G2/G3/G4 are
 Accepted. G6 stays Open with its current candidate; G5/G7 remain Open for
 target trace/hierarchy and GEMV placement portability. HBM3 target policy is
-unchanged. No new production implementation is authorized.
-Baseline: `093af06009f0d3e403fc9e949682ce6722a8ec3a` on
+unchanged. No target implementation is authorized.
+Phase-1 baseline: `093af06009f0d3e403fc9e949682ce6722a8ec3a` on
 `feature/pud-multistandard-substrate`.
 
 Recover [AGENTS.md](../../../AGENTS.md), the
@@ -253,8 +254,9 @@ Local documentation links/anchors, new-file whitespace checks and
 
 Entry: Phase 1 is complete and the
 [common no-finite-engine decision](../decisions/pud-multistandard-substrate.md#accepted-common-execution-model--no-finite-control-engine-capacity-2026-09-16)
-and reciprocal DDR4 amendments are Accepted. Obtain separate implementation
-authorization. No engine-driven G5/G7 gate remains.
+and reciprocal DDR4 amendments are Accepted. The user separately authorized
+this correction; completion evidence is recorded below.
+No engine-driven G5/G7 gate remains.
 
 Invariant: remove artificial primitive-level finite-engine admission while
 preserving every physical execution constraint. Compute and LC/GB movement
@@ -298,6 +300,109 @@ fresh-context audit. Keep Phase-1 frozen E=8 results as historical evidence;
 establish a **new DDR4 execution baseline** after this intentional scheduling
 correction. Reuse unchanged arithmetic/placement/sequence fixtures; never
 rewrite Phase-1 expectations to claim behavior equivalence.
+
+### Correction completion — 2026-09-16
+
+Implemented from clean `6765dc673d32d73bd15e644ec2d8f304a4b4c35c` on
+`feature/pud-multistandard-substrate`, following separate user authorization.
+The Accepted modeling decision is unchanged.
+
+The dependency audit found that `ProtectedPuD::engine`, the count/default,
+pool identity binding and slot search served only finite-E admission.
+Compute and movement already shared `ProtectedPuD`; movement used the
+sentinel -1. Engine numbers had no physical-correctness purpose.
+The shared context retains invocation identity, immutable locations/footprint
+and lifecycle phase; `completion_pending` and the delayed Request's `depart`
+retain terminal recovery. None of those physical lifetime fields were removed.
+
+`protect_pending_pud_compute()` now performs oldest-first physical reservation
+without an engine allocator. The binding pool API and record engine field are
+gone. Physical conflict/start eligibility, command issue resources/timing,
+movement acquisition, maintenance priority, real queue capacities and
+terminal-PRE recovery release remain unchanged. No arithmetic, generation,
+trace/CHAIN, SALP, target binding or energy behavior was changed.
+
+`pud_compute_engines` was removed from its C++ declaration and the regenerated
+Python schema. Python rejects it as unknown; raw configs explicitly reject
+the key, including null values, with a removal diagnostic. This follows the
+requested immediate-removal preference: no compatibility requirement justified
+retaining an inert option. Example configs, microbenchmark overlap checks,
+the experiment runner's config and the user guide were updated.
+
+Validation:
+
+- **415 focused controller cases passed** in the final regression, covering
+  admission, public execution, protected lifecycle, conflicts, mat concurrency
+  and resolved targets. The expanded admission module separately passed
+  **87 tests**. These counts overlap.
+- **1,673 tests and 108 subtests passed** in the same full Phase-exit suite
+  listed above, using `--junitxml=build/pud-no-engine-regressions.xml`
+  (806.79 seconds). This includes DDR4 PuD/movement, shared conventional
+  controller/Device regressions, trace/frontend, GEMV generation and arithmetic
+  lowering/requirements.
+- Both canonical microbenchmarks passed. Full diff self-review and a separately
+  authorized fresh-context read-only code/test audit found no issues. Capture
+  audit findings concerning both frozen-tree checks and source/binary provenance
+  were fixed and independently rechecked.
+- `git diff --check` passed.
+
+The new baseline is under ignored `build/pud-no-engine/`, with
+`comparison.json`, per-case results/traces/layouts/chain CSVs, microbenchmark
+configs/logs, `source.patch`, runtime/binary provenance and `sha256.json`.
+Capture command executed:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python:. LD_LIBRARY_PATH=. \
+  ramulator2-venv/bin/python3 build/pud-no-engine/capture.py
+```
+
+The driver refuses to overwrite case directories. New baseline manifest SHA-256:
+`f8ec33ac76cf89a13f7c6753aa5b885f752762bc6bf24b9bbea45df8de2443e1`.
+Both frozen Phase-1 `before/` and `after/` manifests and their files were verified
+before and after capture; neither was modified.
+
+All **14** previous GEMV workloads were rerun: all six profiles at M=2,N=12
+and M=2,N=516, plus both int8 profiles at M=8,N=128. Every controller-cycle
+value equals its entry in the Phase-1 table above (**delta 0**).
+All physical/compute Request counts, command counts, arithmetic/placement
+metadata and 56 generation artifacts are unchanged. Every recorded command
+trace and chain-latency CSV is byte-identical too. These workloads have at most
+eight outstanding Requests, so they do not exercise the removed capacity limit.
+The focused disjoint-NOT test exposes the correction: the ninth Request starts
+at CK9 instead of the old E=8 CK100; same-mat and no-SALP conflicts still wait
+through the relevant recovery boundaries.
+
+Focused end-to-end characterization (outside the canonical baseline suite):
+M=16,N=12 with `MIMDRAM-InterMatFirst-int8` and `MIMDRAM-IntraMatFirst-int8`
+each completed in **59,520 controller cycles**, with **11,648 physical Requests**,
+**11,264 compute primitives** and **46,464 issued commands**. The real
+PuDTrace/GEMV path reached 16 inflight Requests. Its command trace shows compute
+ACTs in 16 distinct Banks at CK1–CK16, before the first terminal PRE at CK46:
+all **16 compute invocations held protection simultaneously at CK16**.
+
+Generation/arithmetic sources are byte-identical to the correction's clean
+starting commit. Each generated chain matches the frozen N=12 primitive stream
+after accounting only for its Bank coordinates; counts are exactly eight times
+the frozen M=2,N=12 counts. The emitted physical traces produce the expected
+INT8 scalar results under both existing interpreter poison patterns (0xA5/0x5A).
+No comparable preserved M=16 result or old-model runtime binary was found, so
+no cycle delta is reported. All Phase-1 and post-removal baseline manifests and
+files were verified unchanged.
+
+Characterization artifacts and driver are in ignored
+`build/pud-no-engine-characterization/`; reproduce in a fresh output directory
+with the same driver (it refuses to overwrite case directories):
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python:. LD_LIBRARY_PATH=. \
+  ramulator2-venv/bin/python3 build/pud-no-engine-characterization/characterize.py
+```
+
+Its `sha256.json` digest is
+`b52c6381801931b99865de713e98f98f17c1f0415bc0ebb3c5ce4cec7f0bfa29`.
+Final reruns passed **415 controller tests** and **53 INT8 frontend/generator
+tests** (`build/pud-no-engine-final-focused.xml` and
+`build/pud-no-engine-final-int8.xml`); the build and `git diff --check` passed.
 
 ## Phase 2 — complete GDDR7 primitive substrate binding
 
@@ -422,15 +527,14 @@ operation/lowering requirements, all six GEMV profiles, full diff review and
 
 ## Handoff
 
-Phase 1 is complete with the frozen local evidence above. GDDR7 and HBM3 remain
-conventional-only. The next implementation task requires explicit authorization
+Phase 1 and the common execution-model correction are complete with separate
+local evidence above. Current compute and movement execution has physical
+protection without finite engine accounting. GDDR7 and HBM3 remain
+conventional-only. The next target implementation requires explicit authorization
 and resolution of remaining target gates before their first consumers.
-GDDR7 G1/G2/G3/G4 and the common finite-engine amendment are Accepted.
-The next code task is the common removal of primitive-level E accounting
-before GDDR7 binding, after separate implementation authorization. G6 remains
-Open with its current candidate. G5/G7 remain Open for their original target
-portability purposes; HBM3 target policy is unchanged. Use the canonical
-decision for exact status and distinguish current code from desired behavior.
+GDDR7 G1/G2/G3/G4 are Accepted; G6 remains Open with its current candidate.
+G5/G7 remain Open for target portability; HBM3 target policy is unchanged.
+Use the canonical decision for exact target status.
 No commit or target implementation is authorized. Trace/GEMV placement still
 awaits G5/G7; SALP, payload simulation, energy modeling and CACTI integration
 remain outside scope.
