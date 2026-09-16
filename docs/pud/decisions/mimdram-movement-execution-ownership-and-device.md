@@ -12,9 +12,10 @@ Decision
 protected recovery, conflict, maintenance, and completion authority inside the
 canonical [unified DDR4 PuD substrate](ddr4-pud-unified-substrate.md).
 `v2` and `legacy` below are development/provenance labels, not selectable
-execution branches. The retained Bank-aggregate movement provisions remain
-current within the unified model. Statements that public execution was not
-implemented, and acceptance-time implementation/open-detail notes, are
+execution branches. The movement footprint refinement accepted on 2026-09-16
+below replaces the former Bank-aggregate movement scope in this unified model.
+Statements that public execution was not implemented, and acceptance-time
+implementation/open-detail notes, are
 historical; the explicitly listed physical-fidelity and out-of-scope limits
 remain current.
 
@@ -34,7 +35,8 @@ identified in Evidence and in the linked technical reference.
 
 **Range contexts and temporal state**
 
-Use one temporal execution context per allocated lockstep compute range.
+Use one temporal execution context per allocated lockstep compute range or
+acquired movement invocation.
 Derive mat availability from protected active/recovering range records;
 independent full state per mat and a replica of the physical scoreboard are
 unnecessary. Retain each range's resolved Gate B identity, operand/activated-row
@@ -92,11 +94,28 @@ contexts there, including recovery, drain. SALP is not implicit in distinct
 Gate B CellIDs. Different Banks may progress subject to the engine pool,
 shared issue, maintenance, and applicable timing constraints.
 
-Compute/movement and every independent movement/movement pair remain
-Bank-serialized. Movement keeps first-ACT_MOV acquisition and terminal-PRE
-sequence retirement, followed by Bank-wide recovery exclusion. It retains
-its existing per-Bank execution context rather than consuming the compute-only
-engine pool. Ordinary Device-issued ACT/RD/WR/RDA/WRA and unrelated Bank PRE
+**Accepted movement footprint refinement (2026-09-16).** Every PuD invocation
+exclusively protects its physical mat footprint: compute and LC use the selected
+MatRange; GB uses the union of its existing resolved source and destination
+singleton endpoints. Derive chip/local-mat segments through the retained
+resolver, ignoring operand rows and columns for resource intersection. Do not
+duplicate placement formulas or invent additional GB topology.
+
+PuD conflict scope = physical mat-footprint intersection + separately modeled
+shared command/timing constraints. All six compute/LC/GB pair classes permit
+concurrent progress on disjoint footprints within the same legal subarray;
+intersections serialize through recovery. Same-Bank different-subarray work
+still waits for every protected context to drain; this introduces no SALP.
+
+Movement acquires its complete footprint atomically with first ACT_MOV, owns
+nothing before that issue (including preparatory ordinary PRE), and retains
+protection through terminal PRE+nRP. Terminal PRE retires the sequence; recovery
+completion releases protection and completes accounting/callback exactly once.
+It consumes no compute engine. Failed admission is retryable without partial
+ownership. A per-invocation context replaces Bank movement state; the existing
+Request remains the sole cursor/history and endpoint authority.
+
+Ordinary Device-issued ACT/RD/WR/RDA/WRA and unrelated Bank PRE
 conflict with protected same-Bank PuD contexts. Existing ordinary activity must
 drain and conventional close/recovery must complete before compute allocation.
 A preparatory ordinary PRE does not advance a PuD occurrence cursor.
@@ -120,8 +139,10 @@ complete request/accounting and invoke callback exactly once
 
 Use the shared delayed-completion mechanism. Extract/erase a ready completion
 before callback; preserve departure reordering and reentrant submission safety.
-Early engine reuse at terminal PRE is not part of the initial profile. Recovery
-does not reset another context, but occupied engines remain a finite resource.
+Early compute-engine reuse at terminal PRE is not part of the initial profile.
+Movement consumes no compute engine; it retains only footprint protection
+through recovery. Recovery does not reset another context, but occupied compute
+engines remain a finite resource.
 
 Queued priority maintenance stops new allocations through the retained priority
 policy; already allocated contexts drain without interruption. PREab/refresh
@@ -146,7 +167,9 @@ recovery and destination ACT. WR_MOV consumes that validity; terminal PRE
 closes the destination. GB retains its two endpoint activation conditions and
 source-valid condition until WR_MOV; terminal PRE closes both endpoints.
 These close scopes are simulator refinements, not recovered physical PRE wiring.
-Movement Bank exclusion persists through terminal recovery.
+Movement footprint exclusion persists through terminal recovery. Source PRE,
+terminal PRE and recovery cannot reset or block a disjoint PuD context except
+through a separately modeled shared constraint.
 
 Ramulator stores no DRAM, SA, compute-working, or HFF payload values and has no
 staged functional commit. The same request and canonical Gate B resolver feed
@@ -157,10 +180,10 @@ Do not modify ordinary forwarding/coalescing or add ordinary RD/WR value
 simulation. Host/cache coherence and mixed ordinary/PuD functional coherence
 remain outside this substrate contract.
 
-**Retained legacy movement contract**
+**Retained movement sequence and lifecycle contract**
 
-The following provisions describe the existing Bank-aggregate baseline;
-where v2 needs a different context/scope, the Gate C rules above take precedence.
+The following preserves command identities, ordering, validity and completion
+semantics under the footprint-local resource scope above.
 
 Keep LC-MOV and GB-MOV as controller-sequenced request-level operations.
 Preserve these Ramulator-visible command occurrences and potential timing
@@ -210,111 +233,39 @@ history required by primitive-local timing. The cursor advances only when the
 intended architectural occurrence issues. A preparatory prerequisite neither
 advances the cursor nor substitutes, skips, or reorders an occurrence.
 
-Use continuous, non-preemptive Bank ownership for the full protected
-movement sequence. A pending request owns nothing. An ordinary preparatory
-`PREpb` issued before the first `ACT_MOV` owns nothing. Acquire ownership
-atomically when the first `ACT_MOV` issues, retain the request as the
-authoritative Bank owner, and release ownership when the request's terminal
-`PREpb` issues. Do not add a separate owner table or mat scoreboard.
-If unrelated work reopens the Bank before acquisition, the pending request
-may resolve its preparatory prerequisite again.
+Use continuous, non-preemptive footprint ownership through recovery. Derive
+availability from protected invocation records; no separate mat scoreboard or
+link-owner table is required. Before prerequisite resolution and again before
+issue, reject intersecting PuD work. Ordinary traffic and maintenance retain
+their complete Bank/Rank scopes. Preserve active-continuation precedence,
+FIFO priority-head blocking and promotion-backpressure handling.
 
-While ownership is active, reject before prerequisite resolution every
-independent candidate whose complete scope intersects the owned Bank. This
-includes ordinary traffic, independent LC-MOV/GB-MOV, inherited RowCopy,
-MAJ3, MAJ5, and NOT work, row-policy work, `PREab`, refresh-generated close
-or refresh, other priority maintenance, and plugin-generated behavior. The
-owner's intended occurrence and any legitimate prerequisite for it remain
-eligible. Different Banks may progress under existing arbitration and timing
-constraints. Do not add pause, abort, resume, save/restore, restart after
-refresh, or scope-aware priority bypass.
-Preserve existing active-before-priority ordering and FIFO priority-head
-behavior.
+Keep conventional Bank row state separate. Before first ACT_MOV it must be
+drained and Closed, including conventional recovery. An ordinary preparatory
+PRE does not acquire a footprint or advance the movement cursor. Another
+request may reopen the conventional Bank before acquisition, requiring another
+preparatory PRE.
 
-Use the Bank node as the only Device-visible movement state location and add
-exactly two movement states:
+The invocation's Device phase is MovementActive or MovementDataValid during
+the sequence, and Recovering after terminal PRE. These are simulator validity
+markers, not physical circuit states or payload storage. Request history
+derives source/destination activation and source-valid metadata; no duplicate
+cursor, per-mat phase, stored HFF value, or global-SA/link state is introduced.
 
-```text
-MovementActive
-MovementDataValid
-```
+| Occurrence | Effect only on its invocation |
+| --- | --- |
+| First ACT_MOV | Closed → MovementActive; acquire the entire footprint. |
+| Later ACT_MOV | Retain current phase; activate the intended endpoint. |
+| RD_MOV | MovementActive → MovementDataValid. |
+| LC source PRE | Retain MovementDataValid; close source activation only. |
+| LC destination ACT | Retain source validity across source recovery. |
+| WR_MOV | Consume source validity; enter MovementActive. |
+| Terminal PRE | Close LC destination or both GB endpoints; enter Recovering. |
+| Terminal PRE+nRP | Release footprint; complete Request once. |
 
-`MovementActive` is an aggregate simulator legality/occupancy marker for a
-protected movement with no unconsumed source-data/path-valid condition in
-Device state. It is not one physical MIMDRAM circuit state and may represent
-physically different occurrence boundaries.
-
-`MovementDataValid` represents the exposed, unconsumed source-data/path-valid
-condition established by `RD_MOV`. For LC it persists before and after the
-source `PREpb` and through destination `ACT_MOV` until `WR_MOV`. For GB it
-represents the source HFF/global-SA path condition between `RD_MOV` and
-`WR_MOV`.
-
-Neither state stores request or ownership identity, LC/GB identity,
-source/destination role, activation count, exact occurrence, operands, rows,
-logical mats, timing progress, or data values. Do not add committed,
-dual-active, destination-active, per-mat, HFF, global-SA, link, scoreboard, or
-sidecar state. Movement activation does not use conventional `Opened` or
-populate `m_row_state`.
-
-Before the first `ACT_MOV`, a conventionally `Closed` Bank is directly legal.
-A conventionally `Opened` Bank receives ordinary `PREpb` as a preparatory
-prerequisite. An inherited PuD intermediate state is illegal. During
-ownership, an intended occurrence must be compatible with the current
-aggregate movement state. An incompatibility is illegal; prerequisites do
-not synthesize an ordinary repair sequence.
-
-Use these state-dependent actions:
-
-| Command | Compatible state | Result |
-| --- | --- | --- |
-| first `ACT_MOV` | `Closed` | `MovementActive`; do not populate `m_row_state` |
-| later `ACT_MOV` | `MovementActive` | remain `MovementActive` |
-| later `ACT_MOV` | `MovementDataValid` | remain `MovementDataValid` |
-| `RD_MOV` | `MovementActive` | `MovementDataValid` |
-| `WR_MOV` | `MovementDataValid` | `MovementActive` |
-| `PREpb` | `MovementDataValid` | remain `MovementDataValid` |
-| `PREpb` | `MovementActive` | `Closed`; clear `m_row_state` defensively |
-
-The accepted LC trace is:
-
-```text
-Closed
--> ACT_MOV -> MovementActive
--> RD_MOV  -> MovementDataValid
--> PREpb   -> MovementDataValid
--> ACT_MOV -> MovementDataValid
--> WR_MOV  -> MovementActive
--> PREpb   -> Closed
-```
-
-The accepted GB trace is:
-
-```text
-Closed
--> ACT_MOV -> MovementActive
--> ACT_MOV -> MovementActive
--> RD_MOV  -> MovementDataValid
--> WR_MOV  -> MovementActive
--> PREpb   -> Closed
-```
-
-Every transition occurs at command issue, not at physical completion. The
-two GB activations remain separately issued and timing-visible even though
-their represented physical activation intervals overlap.
-
-`PREpb` is deliberately shared. Device state selects its aggregate action:
-
-```text
-MovementDataValid + PREpb -> MovementDataValid
-MovementActive    + PREpb -> Closed
-```
-
-The controller cursor decides whether that PRE occurrence is architecturally
-correct and ownership eligibility distinguishes owner-issued movement PRE
-from unrelated PRE. The Device API does not reproduce request provenance or
-the exact cursor. Reusing Bank-level `PREpb` does not claim physical whole-
-Bank movement precharge; exact physical scope remains unresolved.
+The validated occurrence selects PRE scope, not BankTarget metadata or another
+invocation's state. Movement never populates or changes conventional row state.
+Exact physical mat-selective PRE wiring remains outside the modeled claim.
 
 The Open and ClosedCAP row policies require no movement-specific production
 behavior. ClosedCAP's exact `RD`/`WR` upgrade checks cannot convert movement to
@@ -354,24 +305,23 @@ operands. Future support requires an explicit movement-aware mapping decision
 rather than relying on ownership or the current absence of functional data
 modeling.
 
-Ordinary `ACT`, `RD`, `WR`, `RDA`, `WRA`, inherited PuD work, `PREab`,
-refresh, and refresh-generated close are illegal if their complete scope
-intersects a Bank in either movement state. Ownership is the primary
-controller protection and Device rejection is a defensive invariant. They
-cannot interrupt, repair, or reset movement. Shared `PREpb` follows the
-controller/Device boundary above.
+Ordinary ACT/RD/WR/RDA/WRA, unrelated PRE, PREab, and refresh cannot
+interrupt any protected context within their complete scope. Device rejection
+is defensive protection before timing or state mutation. Independent PuD
+occurrences instead use their associated invocation and footprint checks.
 
 Use the initial F-A refresh policy inherited from GenericDDR. A queued
 priority refresh prevents a pending movement from acquiring ownership. A
 refresh generated after acquisition waits for the non-preemptive movement.
-After terminal `PREpb` releases ownership and closes Device state, inherited
-Device timing preserves safe `nRP` recovery before `REFab`. Add no refresh
+After terminal PREpb retires the sequence, protected recovery retains exclusion
+until nRP completes before REFab. Add no refresh
 deadline, maximum-deferral credit, deadline-aware admission, pause/resume, or
 priority bypass. The absence of a deadline model is an inherited GenericDDR
 fidelity limitation, not a physical refresh guarantee.
 
-Ownership/state cleanup at terminal `PREpb` issue is distinct from recovery
-completion. Request retirement, departure, and callback timing are defined by
+Sequence retirement and active-state close at terminal PREpb are distinct
+from footprint release at recovery completion. Request retirement, departure,
+and callback timing are defined by
 `mimdram-movement-timing-and-resource-model.md`.
 
 Report LC-MOV and GB-MOV lifecycle statistics separately and add no combined
@@ -393,9 +343,9 @@ and increment its memory-system counterpart only after the controller
 `send()` succeeds. A rejected or backpressured attempt contributes nothing.
 
 Lifecycle completion accounting occurs at the accepted Gate A departure
-boundary. If terminal `PREpb` issues at cycle `T`, ownership and schedulable
-state end at `T`, while `depart = T + nRP`. At `depart`, extract and erase the
-delayed completion before callback; then increment the completed-request
+boundary. If terminal PREpb issues at cycle T, schedulable state ends at T,
+while depart = T+nRP. At depart, release footprint protection and extract/erase
+the delayed completion before callback; then increment the completed-request
 count, add `depart - arrive` to total latency, and add exact moved bits, all
 before invoking the callback. An accepted request that has not reached
 `depart` contributes to accepted count only: it contributes zero completed
@@ -429,24 +379,25 @@ consequences, not new movement semantics.
 Rationale
 
 For v2, shared state per lockstep range avoids duplicated per-mat phase/history
-while preserving independent rows, progress, and recovery. Bank-wide movement
-reservation avoids unsupported I/O concurrency; the single occupied-subarray
-boundary avoids importing SALP. Holding the engine through recovery is the
-accepted conservative policy. Early engine release would require a later
-justified optimization. Canonical location identity does not require timing
+while preserving independent rows, progress, and recovery. Physical-mat
+movement exclusion follows the accepted project inference from
+MIMDRAM selection and circuitry; the single occupied-subarray boundary avoids
+importing SALP. Holding a compute engine through recovery applies only to
+compute and remains the accepted conservative policy; movement consumes no
+compute engine. Early compute-engine release would require a later justified
+optimization. Canonical location identity does not require timing
 simulation to store functional values.
 
-The rationale below remains applicable to the legacy movement boundary.
+The rationale below applies to the retained movement protocol.
 
 Visible occurrences preserve the source-described phase boundaries and both
 GB endpoints while shared semantic identities avoid encoding controller roles
 as Device commands. Controller-owned progress is necessary because Device
 handlers lack retained request/cursor context.
 
-Continuous Bank ownership protects LC's retained payload and GB's partially
-progressed endpoint/path conditions without inventing unsupported same-Bank
-mat concurrency or save/resume rules. Releasing at terminal PRE separates
-sequence integrity from physical recovery.
+Continuous footprint ownership protects LC retained validity and both GB
+endpoints. Retiring at terminal PRE while protecting recovery separates
+sequence completion from resource reuse without save/resume rules.
 
 Separate accepted and completed counts expose pending lifecycle work, while
 completion-time exact-bit accounting describes only requests that have reached
@@ -469,20 +420,27 @@ evaluated engines, a 2 kB bbop buffer, per-chip mat queues, and LC/GB temporal
 conditions. The user accepted the v2 simulator choices on 2026-09-09, including
 E=8, the timing/functional split, same-subarray MIMD, and recovery-time release.
 
-Current implementation facts: [GenericDRAM](../../../src/ramulator/memory_system/impl/generic_dram_system.cpp)
-maps each controller to one channel; [GenericDDR](../../../src/ramulator/controller/impl/generic_ddr_controller.cpp)
-currently uses Bank ownership, and [Device/node](../../../src/ramulator/dram/node.h)
-state/history cannot represent independent ranges. [The completion path](../../../src/ramulator/controller/controller_base.cpp)
-and [lifecycle tests](../../../tests/controller_scheduling/GenericDDRController/test_movement_lifecycle.py)
-already separate terminal issue and recovery callback. These are foundations,
-not implemented or tested v2 behavior. No runtime suite was run for this
-documentation acceptance.
+Current implementation: [RequestLocations](../../../src/ramulator/base/request.cpp)
+derives one normalized physical footprint union; [GenericDDR](../../../src/ramulator/controller/impl/generic_ddr_controller.cpp)
+and [Device](../../../src/ramulator/dram/device.cpp) use protected invocation
+contexts. [Controller completion](../../../src/ramulator/controller/controller_base.cpp)
+retains protection through recovery and extracts completions before callbacks.
+The [milestone plan](../plans/pud-movement-footprint-plan.md) records verification.
+
+MIMDRAM supports physical mat selection, independent work on disjoint ranges,
+mat-local LC row-buffer/HFF/column resources, and explicit GB endpoints using
+the neighboring global movement path. It does not explicitly specify all six
+pairwise concurrency cases. Allowing disjoint compute/movement state to
+progress independently, including the global-row-buffer/interconnect path for
+disjoint GB endpoint footprints, is the accepted project inference, not
+physically proven MIMDRAM behavior. Shared command/timing resources can still
+limit observed overlap.
 
 `docs/pud/references/mimdram-inter-column-data-movement.md` is the source-fact
 authority for the detailed LC source/destination sequence, HFF retention
 across source PRE, the GB dual-activation and HFF/global-SA path, physical PRE
 uncertainty, deterministic PUD command ordering, and already-active
-maintenance behavior. The Bank ownership, semantic IDs, two aggregate
+maintenance behavior. Footprint ownership, semantic IDs, invocation-local
 states, and F-A refresh behavior are project simulator decisions, not source
 claims.
 
@@ -513,8 +471,8 @@ historical provenance.
 
 Open issues
 
-- Exact physical movement PRE scope below the accepted Bank-aggregate
-  simulator abstraction.
+- Physical validation of mat-selective PRE and independent disjoint GB
+  global-row-buffer/interconnect progress; these remain simulator assumptions.
 - Exact pending admission and mixed-traffic arbitration details that do not
   change the accepted ownership policy.
 - Future self-contained request reconstruction or movement-enriched trace

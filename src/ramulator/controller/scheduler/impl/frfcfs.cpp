@@ -31,7 +31,7 @@ class FRFCFSScheduler : public IScheduler, public Implementation {
       }
 
       // Derive the current command (prerequisite resolution)
-      it->command = m_ctrl->get_preq_command(it->final_command, it->addr_vec);
+      it->command = m_ctrl->get_preq_command(*it);
 
       if (command_filter && !command_filter(*it)) {
         continue;

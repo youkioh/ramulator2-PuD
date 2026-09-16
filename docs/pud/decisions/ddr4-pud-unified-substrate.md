@@ -100,9 +100,11 @@ not two supported runtime models after consolidation. Runtime or configuration
 selection may choose a supported placement profile or compute-engine capacity,
 but must not select legacy versus range-aware compute semantics. Absence of an
 explicitly selected supported placement profile makes canonical PuD execution
-unavailable; it must never select Bank-wide compute. Existing Bank-aggregate
-movement behavior remains the accepted conservative movement policy inside the
-unified substrate; it is not a separate model or a legacy compute fallback.
+unavailable; it must never select Bank-wide compute. Movement uses the same
+protected invocation machinery with the
+[Accepted physical-mat footprint scope](mimdram-movement-execution-ownership-and-device.md).
+It acquires at first ACT, consumes no compute engine, and protects only its
+footprint through recovery. There is no Bank-wide movement fallback.
 
 Historical `v2` terminology identifies the development and verification effort
 that produced the canonical substrate. It is non-normative in the final user
@@ -123,7 +125,7 @@ Rationale
 
 The completed substrate already provides one canonical placement authority,
 resolved request-location lifetime, explicit range contexts, first-fit engine
-allocation, range-local timing and recovery, conservative movement interaction,
+allocation, range-local timing and recovery, physical-mat movement interaction,
 and exact-once completion. Keeping an alternate no-range Bank-wide compute path
 would preserve two meanings for the same public compute primitives, bypass the
 canonical location authority, and make configuration rather than request
@@ -155,7 +157,7 @@ Evidence
   [execution/lifecycle](mimdram-movement-execution-ownership-and-device.md),
   [timing/resources](mimdram-movement-timing-and-resource-model.md), and
   [target transport](mimdram-mat-target-transport-abstraction.md) define the
-  accepted hybrid, range concurrency, conservative movement, local/shared
+  accepted hybrid, range concurrency, footprint-local movement, local/shared
   timing, recovery, and resolved-target abstraction retained here.
 - [PRADA primitives](../references/pud-primitives.md),
   [DDR4 PuD timing](../references/ddr4-pud-timing-reference.md), and

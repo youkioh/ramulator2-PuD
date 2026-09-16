@@ -19,6 +19,15 @@ Acceptance-time statements that implementation was unavailable or that Gate C
 still had to supply substrate costs are historical; T-A and the current Gate C
 authorities govern those details.
 
+**Movement resource refinement (2026-09-16).** The current
+[execution authority](mimdram-movement-execution-ownership-and-device.md)
+supersedes this document's initial Bank-serialized movement policy. Its
+Bank-conservative movement wording, initial pairwise policy table, and
+serialization rationale below remain historical provenance. Current PuD
+conflicts use physical mat-footprint intersection plus separately modeled
+shared command/timing constraints; the same-Bank cross-subarray restriction
+remains unchanged.
+
 Accept v2 Gate A on 2026-09-08, including the compute-phase/overhead,
 substrate/macro, and overlap-validation clarifications below. This document
 is the canonical experiment and substrate-boundary authority. Accepted

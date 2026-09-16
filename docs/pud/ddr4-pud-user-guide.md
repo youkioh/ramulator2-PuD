@@ -166,9 +166,13 @@ request.size_bytes = Request::kMovementSizeBytesNotApplicable;
 LC-MOV range width determines moved bits as
 `selected_mat_count * hffs_per_mat`. GB-MOV moves
 `hffs_per_mat` bits. The `-1` size is a named not-applicable contract, not
-a byte count. Movement does not consume a compute engine, but its accepted
-Bank-aggregate conflict policy serializes it against same-Bank compute,
-ordinary traffic, and other movement through recovery.
+a byte count. Movement consumes no compute engine. Compute and LC protect
+their selected physical mats; GB protects the union of its source/destination
+mats. Disjoint PuD footprints in the same Bank/subarray may progress
+concurrently; intersecting footprints serialize through terminal recovery.
+Shared command/timing constraints still apply. Movement acquires at first ACT
+and releases at terminal PRE+nRP. Ordinary traffic and maintenance retain
+their existing Bank/Rank scopes; different subarrays do not execute in parallel.
 
 ## Submission, recovery, and callbacks
 
@@ -460,7 +464,8 @@ hit/miss/conflict statistics.
   vendor DDR4 wiring. Other organizations and remapping contexts require
   separately supported profiles.
 - GB-MOV is limited to the selected directed singleton same-chip neighbor
-  topology. LC/GB movement retains conservative Bank-aggregate concurrency.
+  topology. Disjoint movement concurrency, including the GB global path, is
+  an accepted project assumption, not physically proven MIMDRAM behavior.
 - There is no PuD preemption, abort, resume, refresh-postponement bound,
   retention guarantee, or physical target-transport resource model.
 - The accepted activation-current, command encoding, shared-resource,

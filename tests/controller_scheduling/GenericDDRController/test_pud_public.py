@@ -158,7 +158,7 @@ def test_public_first_fit_and_ninth_engine_wait(scheduler):
 def test_public_movement_recovery_locations_and_accounting(name, cycles, total, bits, blocked):
     d = system()
     if blocked:
-        assert d.submit(request(d), 0)
+        assert d.submit(request(d, mats=(6, 16)), 0)
     req = request(d, name)
     locations = req.snapshot()["locations"]
     assert req.size_bytes == -1 and d.submit(req, 1)
@@ -172,7 +172,8 @@ def test_public_movement_recovery_locations_and_accounting(name, cycles, total, 
     assert stats["controller"][f"pud_{key}_moved_bits"] == 0
     d.advance(start+total)
     assert times(d, 1) == [start+t for t in cycles]
-    assert all(e["locations"] == locations and not e["allocated"] for e in events(d, 1))
+    assert all(e["locations"] == locations for e in events(d, 1))
+    assert all(e["allocated"] for e in events(d, 1)[1:])
     stats = d.stats()["controller"]
     assert stats[f"num_pud_{key}_reqs_completed"] == 1
     assert stats[f"pud_{key}_moved_bits"] == bits

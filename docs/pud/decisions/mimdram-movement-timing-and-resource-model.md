@@ -36,6 +36,29 @@ rationale; they are not current baseline requirements. MIMDRAM's transport
 mechanisms and evaluated capacities remain source facts; their mapping to
 PRADA and detailed queue semantics were project simulator assumptions.
 
+**Movement resource refinement (Accepted 2026-09-16)**
+
+PuD conflict scope = physical mat-footprint intersection + separately modeled
+shared command/timing constraints. The [execution authority](mimdram-movement-execution-ownership-and-device.md)
+defines the single derived footprint and acquisition/recovery lifetime for all
+six compute/LC/GB pair classes. Same-Bank different-subarray concurrency stays
+unsupported; compute engines, ordinary traffic and maintenance policy do not
+change.
+
+LC/GB Device relationships formerly applied to latest target-Bank history now
+apply to latest history of that movement invocation. Source PRE→destination
+ACT and terminal recovery are footprint-local. A movement PRE never publishes
+a Bank/Rank deadline against otherwise-disjoint PuD. Incoming conventional
+PRE/PREab/autoprecharge/refresh recovery and shared Channel command issue still
+apply. Preserve all numeric intervals and occurrence-specific dependencies.
+
+This is a project resource abstraction. In particular, the global-row-buffer
+and interconnect are modeled to allow disjoint GB endpoint footprints to
+progress independently. MIMDRAM does not physically prove this pairwise
+contract. No new shared link, current, DQ or topology rule is inferred. The
+existing resolved-target/omitted-transport fidelity remains: no movement
+target queue or physical enqueue/dequeue schedule is invented.
+
 **History scopes and local timing**
 
 Compute phase history and terminal PRE recovery are range-local. Retain the
@@ -192,31 +215,15 @@ twice; the totals already include terminal nRP. The LC/GB 130/75 CK isolated
 local baselines below are
 retained, not claims about contended canonical end-to-end latency.
 
-**Retained legacy movement timing contract**
+**Retained movement timing contract**
 
-The following describes the existing Bank-conservative executable baseline.
-Its movement-local graph remains current; its Bank-serial compute and T3-only
-compute transport do not override the range-local Gate C rules above.
-
-Use a primitive-first, Bank-conservative resource abstraction. One range-wide
-LC-MOV remains one invocation whose selected mats progress in lockstep; range
-length changes payload width but not visible occurrence count or latency. One
-singleton GB-MOV remains one invocation with two separately issued,
-overlapping physical activation intervals.
-
-Assign all independent requests targeting the same flat Bank to one
-conservative conflict domain, including movement, ordinary, and inherited
-DDR4_PuD requests. Logical range, chip, mat,
-endpoint, and direction metadata remains available for semantics and future
-refinement but does not initially permit independent same-Bank concurrency.
-Different Banks have no new movement-specific conflict beyond accepted common
-controller and DRAM constraints.
-
-Do not initially add a per-mat scoreboard, per-link sidecar, explicit Chip,
-Subarray, or Mat timing node, multiple same-Bank movement contexts, a
-multi-address Device command, or true same-cycle multi-command issue.
-Continuous ownership of this resource domain is defined by
-`mimdram-movement-execution-ownership-and-device.md`.
+One range-wide LC-MOV remains one invocation whose selected mats progress in
+lockstep; range length changes payload width, not occurrence count or isolated
+latency. Singleton GB retains two separately issued endpoint activations.
+Independent requests conflict according to the footprint refinement above.
+No explicit Chip/Subarray/Mat timing hierarchy, per-link owner, or same-cycle
+multi-command issue is added. Multiple same-Bank movement contexts are allowed
+only on disjoint footprints in one legal execution subarray.
 
 Use T3 mat-information-transport fidelity. MIMDRAM's source defines a
 per-chip mat queue and `ACT-enqueue`, `PRE-enqueue`, and `ACT-dequeue`
@@ -226,9 +233,9 @@ transport-specific C/A contention, or resulting cross-Bank/Rank throughput.
 This is a scope abstraction, not a zero-cost hardware claim. The technical
 reference remains authoritative for the exact source transport mechanism and
 its unresolved LC/GB occurrence mapping.
-Revisit T3 before modeling command-bus-accurate transport, queue pressure,
-same-Bank disjoint-mat MIMD, mat-selective ordinary-command coexistence, or
-Device legality/timing/resource behavior that depends on individual mats.
+The footprint milestone retains this omission explicitly rather than treating
+it as physically free transport. Revisit it for command-bus-accurate target
+transport, queue pressure or mat-selective ordinary-command coexistence.
 
 A movement occurrence may issue only when all four conditions hold:
 
@@ -308,8 +315,8 @@ delay in this accepted graph.
 Use these context-independent LC Device relationships:
 
 ```text
-latest target-Bank ACT_MOV -> PREpb  = nRAS = 39 CK
-latest target-Bank ACT_MOV -> WR_MOV = nRAS = 39 CK
+latest invocation ACT_MOV -> PREpb  = nRAS = 39 CK
+latest invocation ACT_MOV -> WR_MOV = nRAS = 39 CK
 PREpb -> ACT_MOV                     = nRP  = 16 CK
 ```
 
@@ -355,8 +362,8 @@ destination ACT occurrence 1 has issued. Use these context-independent GB
 Device relationships:
 
 ```text
-latest target-Bank ACT_MOV -> WR_MOV = nRAS = 39 CK
-latest target-Bank ACT_MOV -> PREpb  = nRAS = 39 CK
+latest invocation ACT_MOV -> WR_MOV = nRAS = 39 CK
+latest invocation ACT_MOV -> PREpb  = nRAS = 39 CK
 PREpb -> later opening               = nRP  = 16 CK
 ```
 
@@ -412,7 +419,7 @@ include terminal `tRP`. Keep three boundaries distinct:
 
 ```text
 first ACT_MOV -> terminal PREpb issue
-    visible sequence and ownership/state-cleanup boundary
+    visible sequence retirement and active-state close boundary
 
 first ACT_MOV -> terminal PREpb recovery completion
     published-equation comparison boundary
@@ -421,9 +428,10 @@ request depart/callback/statistics completion
     request lifecycle uses terminal recovery; statistics remain a later gate
 ```
 
-When terminal `PREpb` issues at cycle `T`, Device state becomes `Closed`,
-movement ownership ends, and the request leaves active/schedulable controller
-state. Retain the retired request in the shared delayed-completion path with
+When terminal PREpb issues at cycle T, its invocation enters Recovering and
+the request leaves active/schedulable controller state. Footprint ownership
+continues through recovery. Retain the retired request in the shared
+delayed-completion path with
 `depart = T + nRP`. At cycle `T + nRP`, terminal recovery is complete; extract
 and erase the pending completion before invoking its callback exactly once.
 This lifecycle boundary does not define movement-specific statistics or
@@ -457,9 +465,9 @@ simulator choices necessary for coherent multi-engine consumption.
 
 The rationale below explains the retained legacy movement graph and omissions.
 
-The conservative Bank domain avoids unsupported precision about movement-
-specific mat/link conflicts while retaining existing different-Bank
-parallelism. T3 avoids inventing an LC/GB enqueue/dequeue schedule that the
+The former conservative Bank domain is superseded by the accepted physical-mat
+project inference. It adds no assertion that MIMDRAM proves all six pair
+classes. T3 still avoids inventing an LC/GB enqueue/dequeue schedule that the
 source does not provide.
 
 Splitting timing responsibility lets static Device history enforce general
@@ -483,18 +491,21 @@ accepted project assumptions, now superseded as baseline requirements by the
 linked abstraction. The relative-bound application remains Accepted.
 
 Current implementation facts: [Python timing generation](../../../python/ramulator/dram/spec.py)
-adjusts edge anchors for multi-cycle commands; [compute timing](../../../python/ramulator/dram/ddr4_pud.py)
-uses Bank histories; [movement occurrence timing](../../../src/ramulator/controller/pud_sequence.cpp)
-already supplements Device timing. Existing [compute](../../../tests/device_timings/test_ddr4_pud.py)
-and [movement](../../../tests/controller_scheduling/GenericDDRController/test_movement_local_timing.py)
-tests assert legacy intervals, not v2 transport or independence. Decimal
-arithmetic verified the four upper-envelope ceiling results above during
-acceptance; no runtime simulator tests were run for this documentation change.
+adjusts edge anchors for multi-cycle commands. Generated compute/movement Bank
+edges retain numeric authority, but canonical
+[associated Device dispatch](../../../src/ramulator/dram/device.cpp) checks them
+against [Request-local history](../../../src/ramulator/controller/pud_sequence.cpp).
+The same seam also enforces the six occurrence-specific LC/GB edges; incoming
+conventional recovery and shared Channel timing still use the hierarchy.
+The [milestone plan](../plans/pud-movement-footprint-plan.md) records isolated
+anchors, pairwise concurrency tests, regression validation and bounded GEMV
+evidence. Decimal arithmetic verified the four upper-envelope ceiling results
+above during the original acceptance.
 
 `docs/pud/references/mimdram-inter-column-data-movement.md` is authoritative
 for MIMDRAM's aggregate LC/GB equations, overlapping GB activation intervals,
 physical movement paths, mat queue and transport commands, unresolved exact
-GB C/A relation, and FIGARO's raw and guarded relocation evidence. The Bank
+GB C/A relation, and FIGARO's raw and guarded relocation evidence. The physical-mat
 resource domain, T3 abstraction, timing-domain split, selected baseline,
 application of `tRELOC`, directed-edge placements, and initial omissions are
 project simulator decisions.

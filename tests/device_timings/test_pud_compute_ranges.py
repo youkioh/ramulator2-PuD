@@ -147,7 +147,7 @@ def test_device_does_not_follow_a_cursor_advanced_without_its_action():
     a = add(d, r, "MAJ3")
     d.skip(a)  # Fabricated controller progress cannot establish charge sharing.
     before = d.state(a), d.shared()
-    with pytest.raises(RuntimeError, match="Incompatible compute range phase"):
+    with pytest.raises(RuntimeError, match="Incompatible PuD invocation phase"):
         d.dispatch(a, 200, issue=True)
     assert (d.state(a), d.shared()) == before
 
@@ -241,7 +241,7 @@ def test_stale_sensed_occurrence_cannot_repeat_n():
     saved = d.save(a)  # Sensed, N is next.
     issue(d, a, 40)   # Still sensed; occurrence must match the current Request.
     before = d.state(a), d.shared()
-    with pytest.raises(RuntimeError, match="Wrong or stale compute occurrence"):
+    with pytest.raises(RuntimeError, match="Wrong or stale PuD occurrence"):
         d.dispatch(a, 100, saved_occurrence=saved, issue=True)
     assert (d.state(a), d.shared()) == before
 
@@ -302,7 +302,7 @@ def test_protected_context_rejects_conventional_row_activation():
     d, r = _ComputeRangesUnderTest(dram_config()), resolver()
     a = add(d, r, "NOT")
     before = d.state(a), d.shared()
-    with pytest.raises(RuntimeError, match="protected compute context"):
+    with pytest.raises(RuntimeError, match="protected PuD invocation context"):
         d.raw("ACT", [0, 0, 0, 0, 77, 0], 0, issue=True)
     assert (d.state(a), d.shared()) == before
     issue(d, a, 0)

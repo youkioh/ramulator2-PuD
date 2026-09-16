@@ -485,7 +485,7 @@ class ControllerUnderTestCpp {
  public:
   inline static constexpr int kHarnessInternalSourceId = -2;
 
-  ControllerUnderTestCpp(nb::dict controller_config, int num_cores)
+  ControllerUnderTestCpp(nb::dict controller_config, int num_cores, bool install_profile = true)
       : m_frontend(std::make_unique<HarnessFrontEnd>(num_cores)),
         m_memory_system(std::make_unique<HarnessMemorySystem>(
             inject_issued_command_validation_hook(py_to_confignode(controller_config)))) {
@@ -496,6 +496,17 @@ class ControllerUnderTestCpp {
     m_controller_base = dynamic_cast<ControllerBase*>(m_controller);
     if (!m_controller_base) {
       throw std::runtime_error("ControllerUnderTest requires a ControllerBase-derived controller");
+    }
+
+    if (install_profile && spec().supports_movement_requests() && !m_controller->location_resolver()) {
+      auto profile = PuD::PlacementProfile::mimdram_ddr4_8gb_x8_v1();
+      // Fixture-only rank variants; the public physical profile is unchanged.
+      profile.rank_counts = {spec().organization.level_sizes[spec().get_level_id("Rank")]};
+      // This harness submits explicit vectors through PassThroughAddrMapper;
+      // install the fixture resolver directly, without claiming mapper support.
+      m_controller_base->m_location_resolver = std::make_shared<PuD::LocationResolver>(
+          std::move(profile), spec(), PuD::MappingContext{"physical", 1, "CacheLineInterleave",
+          "RoBaRaCoCh", false, 0});
     }
 
     m_validation_hook = m_memory_system->find_component<IControllerValidationHook>();
@@ -721,6 +732,20 @@ class ControllerUnderTestCpp {
     return out;
   }
 
+  Request located_movement(int type, const std::vector<AddrVec_t>& operands,
+                           int first, int second) const {
+    const auto resolver = m_controller->location_resolver();
+    std::vector<PuD::PairedOperand> paired;
+    for (size_t i = 0; i < operands.size(); ++i) {
+      const auto& a = operands[i];
+      const PuD::MatRange mats = type == Request::Type::LCMOV ? PuD::MatRange{first, second} :
+          PuD::MatRange{i == 0 ? first : second, i == 0 ? first : second};
+      paired.push_back(resolver->pair(resolver->group_footprint(
+          {a.at(0), a.at(1), a.at(2), a.at(3), a.at(4)}, mats, PuD::Group{a.at(5)})));
+    }
+    return Request(resolver, std::move(paired), type);
+  }
+
   nb::dict try_send_movement_request_for_testing(
       int type_id, const std::vector<AddrVec_t>& operands,
       int first_mat, int second_mat, int source_id) {
@@ -728,14 +753,9 @@ class ControllerUnderTestCpp {
       throw std::runtime_error("Movement execution test seam requires LC-MOV or GB-MOV");
     }
 
-    Request req(operands, type_id);
+    Request req = located_movement(type_id, operands, first_mat, second_mat);
     req.size_bytes = Request::kMovementSizeBytesNotApplicable;
     req.source_id = source_id;
-    if (type_id == Request::Type::LCMOV) {
-      req.movement = Request::LCMovementMetadata{{first_mat, second_mat}};
-    } else {
-      req.movement = Request::GBMovementMetadata{first_mat, second_mat};
-    }
     m_pud_completions_pending++;
     req.callback = [this](Request& completed) {
       if (m_pud_completions_pending == 0) {
@@ -781,14 +801,9 @@ class ControllerUnderTestCpp {
     }
     validate_concrete_addr_vec(forwarded_addr_vec);
 
-    Request req(operands, type_id);
+    Request req = located_movement(type_id, operands, first_mat, second_mat);
     req.size_bytes = Request::kMovementSizeBytesNotApplicable;
     req.source_id = source_id;
-    if (type_id == Request::Type::LCMOV) {
-      req.movement = Request::LCMovementMetadata{{first_mat, second_mat}};
-    } else {
-      req.movement = Request::GBMovementMetadata{first_mat, second_mat};
-    }
     m_pud_completions_pending++;
     req.callback = [this, forwarded_addr_vec, forwarded_source_id](Request& completed) {
       if (m_pud_completions_pending == 0) {
@@ -970,6 +985,12 @@ class ControllerUnderTestCpp {
   }
 
   Addr_t synthesize_addr(const AddrVec_t& addr_vec) const {
+    if (const auto resolver = m_controller->location_resolver()) {
+      const auto burst = resolver->burst_footprint({
+          {addr_vec.at(0), addr_vec.at(1), addr_vec.at(2), addr_vec.at(3), addr_vec.at(4)},
+          PuD::BurstColumn{addr_vec.at(5)}});
+      return resolver->inverse(resolver->cell_at(burst, 0)).byte;
+    }
     Addr_t addr = 0;
     for (int level = 0; level < spec().level_count; level++) {
       int count = spec().organization.level_sizes[level];

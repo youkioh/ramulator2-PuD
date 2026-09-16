@@ -66,7 +66,7 @@ PuDMovementState describe_pud_movement_state(const Request& req) {
   if (req.pud_locations) validate_pud_pairs(req);
   const bool lc = req.type_id == Request::Type::LCMOV;
   return {
-      .owns_bank = cursor > 0 && cursor < length,
+      .sequence_active = cursor > 0 && cursor < length,
       .source_active = cursor > 0 && cursor < (lc ? 3u : length),
       .destination_active = cursor >= (lc ? 4u : 2u) && cursor < length,
       .source_valid = cursor >= (lc ? 2u : 3u) && cursor < (lc ? 5u : 4u),
@@ -239,9 +239,9 @@ bool check_pud_occurrence_timing(
   return true;
 }
 
-bool check_pud_compute_occurrence_timing(const Request& req, Clk_t clk, const DRAMSpec& spec) {
-  if (!req.pud_locations || !is_inherited_pud_request_type(req.type_id)) {
-    throw std::logic_error("Range timing requires a located compute request");
+bool check_pud_local_timing(const Request& req, Clk_t clk, const DRAMSpec& spec) {
+  if (!req.pud_locations || !is_pud_request_type(req.type_id)) {
+    throw std::logic_error("Range timing requires a located PuD request");
   }
   const auto next = describe_pud_occurrence(req, req.occurrence_index, spec);
   const int bank = spec.get_level_id("Bank");

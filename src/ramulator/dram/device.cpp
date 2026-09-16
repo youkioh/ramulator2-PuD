@@ -17,16 +17,16 @@ void DRAMDevice::set_channel_id(int channel_id) {
   m_root->m_node_id = channel_id;
 }
 
-void DRAMDevice::protect_pud_compute(const std::shared_ptr<PuDComputeContext>& context) {
+void DRAMDevice::protect_pud(const std::shared_ptr<PuDExecutionContext>& context) {
   if (!context || context->m_device != this) {
-    throw std::logic_error("Cannot protect foreign compute context");
+    throw std::logic_error("Cannot protect foreign PuD invocation context");
   }
-  std::erase_if(m_protected_compute, [](const auto& held) { return held.expired(); });
-  m_protected_compute.push_back(context);
+  std::erase_if(m_protected_pud, [](const auto& held) { return held.expired(); });
+  m_protected_pud.push_back(context);
 }
 
-bool DRAMDevice::conflicts_with_protected_compute(int command, const AddrVec_t& addr_vec) const {
-  for (const auto& held : m_protected_compute) {
+bool DRAMDevice::conflicts_with_protected_pud(int command, const AddrVec_t& addr_vec) const {
+  for (const auto& held : m_protected_pud) {
     const auto context = held.lock();
     if (!context) continue;
     const int bank = get_flat_bank_id(context->locations()->operands.front().external);
@@ -36,55 +36,69 @@ bool DRAMDevice::conflicts_with_protected_compute(int command, const AddrVec_t& 
   return false;
 }
 
-std::unique_ptr<PuDComputeContext> DRAMDevice::make_pud_compute_context(const Request& req) const {
+std::unique_ptr<PuDExecutionContext> DRAMDevice::make_pud_context(const Request& req) const {
   if (!m_spec->supports_compute_requests() || !req.pud_locations ||
-      !is_inherited_pud_request_type(req.type_id)) {
-    throw std::logic_error("Range context requires a located compute-capable request");
+      !is_pud_request_type(req.type_id)) {
+    throw std::logic_error("PuD invocation context requires a located PuD request on a compute-capable Device");
   }
   validate_pud_placement(req, *m_spec, m_root->m_node_id, get_pud_placement_levels(*m_spec));
   if (req.occurrence_index != 0 || req.occurrence_issue_history.size() != get_pud_sequence_length(req)) {
-    throw std::logic_error("Range context requires an initialized, unissued Request sequence");
+    throw std::logic_error("PuD invocation context requires an initialized, unissued Request sequence");
   }
-  auto context = std::unique_ptr<PuDComputeContext>(new PuDComputeContext(this, req.pud_locations));
+  auto context = std::unique_ptr<PuDExecutionContext>(new PuDExecutionContext(this, req.pud_locations));
   validate_pud_command(req, describe_pud_occurrence(req, 0, *m_spec), context.get());
   return context;
 }
 
+bool DRAMDevice::conflicts_with_protected_pud(const Request& req) const {
+  for (const auto& held : m_protected_pud) {
+    const auto context = held.lock();
+    if (!context || context == req.pud_context.lock()) continue;
+    if (req.pud_locations->conflicts(*context->locations())) return true;
+  }
+  return false;
+}
+
 void DRAMDevice::validate_pud_command(const Request& req, const PuDOccurrence& occurrence,
-                                      const PuDComputeContext* context) const {
+                                      const PuDExecutionContext* context) const {
   if (!context || context->m_device != this || !req.pud_locations ||
       req.pud_locations != context->m_locations || occurrence.locations != context->m_locations ||
-      !is_inherited_pud_request_type(req.type_id)) {
-    throw std::logic_error("Wrong or unassociated compute range context");
+      !is_pud_request_type(req.type_id)) {
+    throw std::logic_error("Wrong or unassociated PuD invocation context");
   }
   const auto expected = describe_pud_occurrence(req, req.occurrence_index, *m_spec);
   if (occurrence.index != expected.index || occurrence.command != expected.command ||
       occurrence.operand_index != expected.operand_index || occurrence.role != expected.role ||
       occurrence.terminal != expected.terminal || req.final_command != expected.command ||
       req.addr_vec != expected.location()->external) {
-    throw std::logic_error("Wrong or stale compute occurrence context");
+    throw std::logic_error("Wrong or stale PuD occurrence context");
   }
   if (req.occurrence_issue_history.size() != get_pud_sequence_length(req)) {
-    throw std::logic_error("Inconsistent compute occurrence history");
+    throw std::logic_error("Inconsistent PuD occurrence history");
   }
   Clk_t last = Request::kOccurrenceNotIssued;
   for (size_t i = 0; i < req.occurrence_issue_history.size(); ++i) {
     const auto issued = req.occurrence_issue_history[i];
     if (i < req.occurrence_index) {
       if (issued <= last) {
-        throw std::logic_error("Missing or unordered compute occurrence history");
+        throw std::logic_error("Missing or unordered PuD occurrence history");
       }
       last = issued;
     } else if (issued != Request::kOccurrenceNotIssued) {
-      throw std::logic_error("Premature compute occurrence history");
+      throw std::logic_error("Premature PuD occurrence history");
     }
   }
 
-  using Phase = PuDComputeContext::Phase;
+  using Phase = PuDExecutionContext::Phase;
   const auto phase = context->m_phase;
   const auto& command = m_spec->command_names[expected.command];
   bool legal = false;
-  if (command == "ACT_PUD_OC" || command == "ACT_PUD_S_OC") {
+  if (is_movement_request_type(req.type_id)) {
+    const auto state = describe_pud_movement_state(req);
+    const auto expected_phase = !state.sequence_active ? Phase::Closed :
+        (state.source_valid ? Phase::MovementDataValid : Phase::MovementActive);
+    legal = phase == expected_phase;
+  } else if (command == "ACT_PUD_OC" || command == "ACT_PUD_S_OC") {
     legal = expected.index == 0 && phase == Phase::Closed;
   } else if (command == "ACT_PUD") {
     legal = phase == Phase::ChargeSharing || phase == Phase::Sensed;
@@ -96,51 +110,64 @@ void DRAMDevice::validate_pud_command(const Request& req, const PuDOccurrence& o
     legal = expected.terminal && phase == Phase::Sensed;
   }
   if (!legal) {
-    throw std::logic_error("Incompatible compute range phase");
+    throw std::logic_error("Incompatible PuD invocation phase");
   }
-  // Ordinary preparation is separate from architectural range dispatch. This
-  // seam never converts a range occurrence to a Bank-wide prerequisite PRE.
+  // Ordinary preparation is separate from architectural PuD dispatch. This
+  // seam never converts an invocation occurrence to a Bank-wide prerequisite PRE.
   const auto* bank = m_bank_nodes[get_flat_bank_id(expected.location()->external)];
   if (bank->m_state != m_spec->get_state_id("Closed") || !bank->m_row_state.empty()) {
-    throw std::logic_error("Compute range requires drained conventional Bank state");
+    throw std::logic_error("PuD invocation requires drained conventional Bank state");
   }
 }
 
 bool DRAMDevice::check_pud_timing(const Request& req, const PuDOccurrence& occurrence,
-                                 const PuDComputeContext* context, Clk_t clk) {
-  validate_pud_reservation(req, context);
+                                 const PuDExecutionContext* context, Clk_t clk) {
+  // An unissued movement may probe without acquiring protection. Actual issue
+  // below always requires the controller's committed reservation.
+  if (!is_movement_request_type(req.type_id) || req.occurrence_index != 0 ||
+      !req.pud_context.expired()) validate_pud_reservation(req, context);
   validate_pud_command(req, occurrence, context);
-  return clk >= m_compute_ca_ready && clk >= m_command_ca_ready &&
-         check_pud_compute_occurrence_timing(req, clk, *m_spec) &&
+  return clk >= m_pud_ca_ready && clk >= m_command_ca_ready &&
+         (!is_movement_request_type(req.type_id) ||
+          check_pud_occurrence_timing(req, clk, make_movement_timing_constraints(*m_spec))) &&
+         check_pud_local_timing(req, clk, *m_spec) &&
          m_root->check_timing(occurrence.command, occurrence.location()->external, clk);
 }
 
 void DRAMDevice::issue_pud_command(Request& req, const PuDOccurrence& occurrence,
-                                  PuDComputeContext* context, Clk_t clk) {
+                                  PuDExecutionContext* context, Clk_t clk) {
+  validate_pud_reservation(req, context);
   if (!check_pud_timing(req, occurrence, context, clk)) {
-    throw std::logic_error("Compute range timing not ready");
+    throw std::logic_error("PuD invocation timing not ready");
   }
   // Outgoing edge inventory (DDR4_PuD + DDR4_PuD_Movement Python definitions):
   // - Channel: retain explicit shared constraints and actual command occupancy.
+  // - Bank ACT_MOV -> WR_MOV/PRE and PRE -> ACT_MOV: invocation-local
+  //   movement history, alongside the occurrence-specific LC/GB edges.
   // - Bank ACT_PUD*/N -> compute/PRE: PRADA phases, interpreted only by the
   //   Request-local timing helper above; no Bank history/deadline update here.
   // - Terminal PRE -> ACT/compute/ACT_MOV (Bank), -> REFab (Rank): recovery
-  //   belongs to this range. Protected records enforce whole-scope exclusion, not a shared
-  //   deadline from this PRE. No conventional Bank/Rank state is closed here.
+  //   belongs to this invocation. Protected records enforce footprint conflicts
+  //   and ordinary/maintenance scopes, not a shared deadline from this PRE.
+  //   No conventional Bank/Rank state is closed here.
   // Incoming conventional PREpb/PREab/RDA/WRA/REFab edges are still checked by
   // the complete hierarchy. Ordinary commands keep their full update path,
-  // including nRRD/nFAW; compute ACTs enter neither activation-current history.
+  // including nRRD/nFAW; PuD ACTs enter neither activation-current history.
   // The current occurrence supplies the resolved row and MatRange together via
   // its validated immutable location/context association. The issued Request
   // prefix retains activated operand identity; no selected-range shadow exists.
   m_root->update_timing(occurrence.command, occurrence.location()->external, clk, false);
-  m_compute_ca_ready = clk + m_spec->command_cycles.at(occurrence.command);
+  m_pud_ca_ready = clk + m_spec->command_cycles.at(occurrence.command);
   const auto& command = m_spec->command_names[occurrence.command];
-  using Phase = PuDComputeContext::Phase;
+  using Phase = PuDExecutionContext::Phase;
   if (occurrence.terminal) {
     // Recovery time is recorded by the terminal Request occurrence below;
     // Controller retirement derives depart and retains protection until then.
     context->m_phase = Phase::Recovering;
+  } else if (is_movement_request_type(req.type_id)) {
+    if (command == "RD_MOV") context->m_phase = Phase::MovementDataValid;
+    else if (command == "WR_MOV" || occurrence.index == 0) context->m_phase = Phase::MovementActive;
+    // LC source PRE and destination ACT retain source-valid HFF metadata.
   } else if (command != "N") {
     if (command == "ACT_PUD_OC") {
       context->m_phase = Phase::ChargeSharing;
@@ -153,28 +180,28 @@ void DRAMDevice::issue_pud_command(Request& req, const PuDOccurrence& occurrence
   observe_pud_command_issue(req, occurrence.command, clk, *m_spec);
 }
 
-void DRAMDevice::validate_pud_reservation(const Request& req, const PuDComputeContext* context) const {
-  if (!context || req.pud_compute_context.lock().get() != context) {
-    throw std::logic_error("Compute issue requires allocated compute context");
+void DRAMDevice::validate_pud_reservation(const Request& req, const PuDExecutionContext* context) const {
+  if (!context || req.pud_context.lock().get() != context) {
+    throw std::logic_error("PuD issue requires an associated invocation context");
   }
-  for (const auto& held : m_protected_compute) {
+  for (const auto& held : m_protected_pud) {
     if (held.lock().get() == context) return;
   }
-  throw std::logic_error("Compute issue requires protected compute context");
+  throw std::logic_error("PuD issue requires protected PuD invocation context");
 }
 
 void DRAMDevice::issue_command(int command, const AddrVec_t& addr_vec, Clk_t clk) {
   validate_command(command, addr_vec, clk);
-  if (clk < m_compute_ca_ready) throw std::logic_error("C/A occupied by compute command");
+  if (clk < m_pud_ca_ready) throw std::logic_error("C/A occupied by PuD command");
   m_root->update_timing(command, addr_vec, clk);
   apply_action(command, addr_vec, clk);
-  // Range dispatch must respect the current ordinary/movement command cycle.
+  // PuD invocation dispatch must respect the current raw command cycle.
   // Conventional timing and dual/multi-cycle bus generation retain their behavior.
   m_command_ca_ready = clk + m_spec->command_cycles.at(command);
 }
 
 bool DRAMDevice::check_timing(int command, const AddrVec_t& addr_vec, Clk_t clk) {
-  return clk >= m_compute_ca_ready && m_root->check_timing(command, addr_vec, clk);
+  return clk >= m_pud_ca_ready && m_root->check_timing(command, addr_vec, clk);
 }
 
 int DRAMDevice::get_preq_command(int command, const AddrVec_t& addr_vec, Clk_t clk) {
@@ -234,9 +261,9 @@ std::vector<int> DRAMDevice::get_target_banks(int command, const AddrVec_t& addr
 
 void DRAMDevice::validate_command(int command, const AddrVec_t& addr_vec, Clk_t clk) const {
   // Validate the whole scope before even the first Bank prerequisite/action
-  // or hierarchical timing update. Range dispatch has its own explicit seam.
-  if (conflicts_with_protected_compute(command, addr_vec)) {
-    throw std::logic_error("Command conflicts with protected compute context");
+  // or hierarchical timing update. PuD dispatch has its own explicit seam.
+  if (conflicts_with_protected_pud(command, addr_vec)) {
+    throw std::logic_error("Command conflicts with protected PuD invocation context");
   }
   auto validate_fn = m_spec->funcs.validators[command];
   if (!validate_fn) return;

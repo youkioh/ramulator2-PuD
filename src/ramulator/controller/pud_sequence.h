@@ -20,16 +20,15 @@ class DRAMSpec;
  *        +------------+------------+
  *                     |
  *                     v
- *        Device dispatch + PuDComputeContext (device.h)
+ *        Device dispatch + PuDExecutionContext (device.h)
  *
  * Movement Request history ---> +-------------------------+
  *                               | PuDMovementState        |
  *                               | derived view only       |
  *                               +-------------------------+
  * Views retain placement, never independent progress. Request owns the cursor;
- * context owns only protocol phase; Controller owns recovery. Movement owns_bank
- * covers sequence activity,
- * not the recovery exclusion enforced by controller/Device checks.
+ * Context owns only protocol phase; Controller owns protection through recovery.
+ * Movement sequence_active describes schedulable progress, not resource lifetime.
  */
 
 enum class PuDOccurrenceRole {
@@ -50,10 +49,10 @@ struct PuDOccurrence {
   }
 };
 
-// A view of the retained per-Bank movement invocation, not another state
+// A view of the retained footprint-local movement invocation, not another state
 // machine/cursor. Endpoint identity remains in the Request's paired operands.
 struct PuDMovementState {
-  bool owns_bank = false;
+  bool sequence_active = false;
   bool source_active = false;
   bool destination_active = false;
   bool source_valid = false;
@@ -85,9 +84,9 @@ PuDMovementTimingConstraints make_movement_timing_constraints(const DRAMSpec& sp
 bool check_pud_occurrence_timing(
     const Request& req, Clk_t clk,
     const PuDMovementTimingConstraints& constraints);
-// Range-aware compute interprets the inherited PRADA Bank edge definitions against this
+// PuD dispatch interprets inherited compute/movement Bank edges against this
 // Request's occurrence history. Device must not also issue them into Bank history.
-bool check_pud_compute_occurrence_timing(const Request& req, Clk_t clk, const DRAMSpec& spec);
+bool check_pud_local_timing(const Request& req, Clk_t clk, const DRAMSpec& spec);
 const char* pud_occurrence_role_name(PuDOccurrenceRole role);
 
 }  // namespace Ramulator

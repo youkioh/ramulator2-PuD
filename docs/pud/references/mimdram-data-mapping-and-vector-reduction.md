@@ -129,6 +129,13 @@ may occupy disjoint ranges.
 
 ### Not specified by MIMDRAM
 
+The general disjoint-range support does not explicitly establish all six
+compute/LC/GB pairwise concurrency cases. The
+[Accepted footprint resource model](../decisions/mimdram-movement-execution-ownership-and-device.md)
+extends that support as a project inference, including independent progress
+through the global movement path for disjoint GB source/destination footprints.
+This changes neither the mapping nor the reduction schedules below.
+
 The paper does not completely reconcile the physical bank/subarray/mat
 hierarchy in §2.1 with the module-wide logical-mat encoding and evaluated
 organization in §4.2/Table 2. See the existing [movement reference's logical
