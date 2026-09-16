@@ -33,8 +33,8 @@ namespace PuD {
  * history. T-A consumes resolved targets at issue, so physical target-delivery
  * latency, queues and target-specific C/A contention are not modeled.
  *
- * DRAMNode owns conventional/shared state and timing. Compute phase/timing and
- * terminal recovery are range-local; movement retains its Bank lifecycle.
+ * DRAMNode owns conventional/shared state and timing. PuD phase/timing and
+ * terminal recovery are invocation-local for both compute and movement.
  */
 
 /*

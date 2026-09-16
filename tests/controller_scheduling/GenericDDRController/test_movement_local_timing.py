@@ -116,19 +116,15 @@ def test_occurrences_without_accepted_local_edges_add_no_local_constraint(
 def test_composite_readiness_also_preserves_a_device_only_block():
     dut = make_movement_dut()
     operands = movement_operands(dut)
-    dut.send_movement_request_for_testing("LC-MOV", operands, 0, 0)
-    assert [item.command for item in dut.tick()] == ["ACT_MOV"]
-    for _ in range(15):
-        assert dut.tick() == []
-    assert [item.command for item in dut.tick()] == ["RD_MOV"]
-    for _ in range(3):
-        assert dut.tick() == []
+    # Conventional recovery remains shared; movement history is now local.
+    dut.priority_send("PREab", [0, 0, -1, -1, -1, -1])
+    assert [item.command for item in dut.tick()] == ["PREab"]
 
     probe = dut.probe_movement_timing(
-        "LC-MOV", operands, 5, [0, 0, 0, 0, 0, -1]
+        "LC-MOV", operands, 0, [-1]*6
     )
 
-    assert probe["clk"] == 20
+    assert probe["clk"] == 1
     assert probe["local_ready"] is True
     assert probe["device_ready"] is False
     assert probe["request_ready"] is False

@@ -237,7 +237,7 @@ over the explicit selected mat-rows, using pre-operation operand values:
 | NOT_COPY | Write inverted original source to both source and destination. |
 
 Unselected mats, nonoperand rows, and other contexts retain their data.
-Scratch/constants must be managed over the whole selected region; there is
+Temporary rows/constants must be managed over the whole selected region; there is
 no implicit active-lane mask. This effect contract does not establish
 electrical intermediate visibility or repeated-row charge-sharing behavior.
 Fixed ordered groups provide no cross-position shuffle or scalar reduction;

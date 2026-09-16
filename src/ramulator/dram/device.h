@@ -25,14 +25,14 @@ class DRAMDevice;
  *                      | checks/updates
  *                      v
  *           +--------------------------+
- *           | PuDComputeContext        | <-- YOU ARE HERE
+ *           | PuDExecutionContext        | <-- YOU ARE HERE
  *           | Device association       |
  *           | immutable locations      |
  *           | Device-side phase        |
  *           +--------------------------+
  *                      ^
  *                      | owns lifetime
- *           ProtectedCompute (controller_base.h)
+ *           ProtectedPuD (controller_base.h)
  *
  * Device registry -- weak --> context (conflict visibility only)
  * DRAMDevice -- owns --> DRAMNode tree (node.h: conventional/shared state)
@@ -44,20 +44,20 @@ class DRAMDevice;
 
 // One Device-side protocol phase per lockstep invocation, never per mat.
 // Context identity associates the protected invocation with immutable locations.
-// One allocated invocation has one authoritative schedulable Request progression;
+// One protected invocation has one authoritative schedulable Request progression;
 // Device does not version Request copies. Request owns sequence/timing history,
 // and Controller protection plus delayed completion owns recovery lifetime.
-class PuDComputeContext {
+class PuDExecutionContext {
  public:
-  enum class Phase { Closed, ChargeSharing, Sensed, Recovering };
+  enum class Phase { Closed, ChargeSharing, Sensed, Recovering, MovementActive, MovementDataValid };
   Phase phase() const { return m_phase; }
   const auto& locations() const { return m_locations; }
-  PuDComputeContext(const PuDComputeContext&) = delete;
-  PuDComputeContext& operator=(const PuDComputeContext&) = delete;
+  PuDExecutionContext(const PuDExecutionContext&) = delete;
+  PuDExecutionContext& operator=(const PuDExecutionContext&) = delete;
 
  private:
   friend class DRAMDevice;
-  PuDComputeContext(const DRAMDevice* device, std::shared_ptr<const PuD::RequestLocations> locations)
+  PuDExecutionContext(const DRAMDevice* device, std::shared_ptr<const PuD::RequestLocations> locations)
       : m_device(device), m_locations(std::move(locations)) {}
   const DRAMDevice* m_device;
   std::shared_ptr<const PuD::RequestLocations> m_locations;
@@ -91,16 +91,17 @@ class DRAMDevice {
   // Timing-only check — hierarchical (walks node tree)
   bool check_timing(int command, const AddrVec_t& addr_vec, Clk_t clk);
 
-  // Range construction creates no ownership; GenericDDR allocates protection
-  // before public compute issue. Occurrences are checked against the current
+  // Context construction creates no ownership; GenericDDR protects compute at
+  // allocation and movement at first ACT issue. Occurrences are checked against the current
   // authoritative Request before any timing/action. Null/foreign associations
   // and stale occurrences fail; callers must not dispatch divergent Request copies.
-  std::unique_ptr<PuDComputeContext> make_pud_compute_context(const Request& req) const;
+  std::unique_ptr<PuDExecutionContext> make_pud_context(const Request& req) const;
 
   // Non-owning visibility of controller reservations, including pre-ACT and
   // recovery. Controller release remains the sole lifetime authority.
-  void protect_pud_compute(const std::shared_ptr<PuDComputeContext>& context);
-  bool conflicts_with_protected_compute(int command, const AddrVec_t& addr_vec) const;
+  void protect_pud(const std::shared_ptr<PuDExecutionContext>& context);
+  bool conflicts_with_protected_pud(int command, const AddrVec_t& addr_vec) const;
+  bool conflicts_with_protected_pud(const Request& req) const;
 
   // Prerequisite check — flat bank dispatch
   int get_preq_command(int command, const AddrVec_t& addr_vec, Clk_t clk);
@@ -163,19 +164,20 @@ class DRAMDevice {
   friend class ::ComputeRangesUnderTest;
   friend class ::ComputeLifecycleUnderTest;
   friend class PuDConflictUnderTest;
-  // Actual command occupancy only. Compute uses the combined DDR4 single bus;
+  // Actual command occupancy only. Compute and movement share the canonical
+  // PuD deadline below on the combined DDR4 single bus;
   // ordinary paths retain generated timing (including other standards' dual
-  // buses). Their deadlines gate compute, not unrelated bus arbitration.
-  Clk_t m_compute_ca_ready = -1;
+  // buses). Their deadlines gate PuD, not unrelated bus arbitration.
+  Clk_t m_pud_ca_ready = -1;
   Clk_t m_command_ca_ready = -1;
-  void validate_pud_reservation(const Request& req, const PuDComputeContext* context) const;
+  void validate_pud_reservation(const Request& req, const PuDExecutionContext* context) const;
   bool check_pud_timing(const Request& req, const PuDOccurrence& occurrence,
-                        const PuDComputeContext* context, Clk_t clk);
+                        const PuDExecutionContext* context, Clk_t clk);
   void issue_pud_command(Request& req, const PuDOccurrence& occurrence,
-                         PuDComputeContext* context, Clk_t clk);
-  std::vector<std::weak_ptr<PuDComputeContext>> m_protected_compute;
+                         PuDExecutionContext* context, Clk_t clk);
+  std::vector<std::weak_ptr<PuDExecutionContext>> m_protected_pud;
   void validate_pud_command(const Request& req, const PuDOccurrence& occurrence,
-                            const PuDComputeContext* context) const;
+                            const PuDExecutionContext* context) const;
   // Run any command-specific defensive validation across the complete target
   // scope before prerequisite resolution, timing mutation, or state mutation.
   void validate_command(int command, const AddrVec_t& addr_vec, Clk_t clk) const;

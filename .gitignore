@@ -36,3 +36,6 @@ sweep_log.txt
 !visualizer/package.json
 !visualizer/package-lock.json
 !visualizer/tsconfig.json
+
+*.log
+hypo_gemv.sh

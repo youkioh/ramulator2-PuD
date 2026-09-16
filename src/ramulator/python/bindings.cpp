@@ -1,11 +1,13 @@
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/string.h>
+#include <nanobind/stl/vector.h>
 
 #include <memory>
 #include <sstream>
 #include <stdexcept>
 
 #include "ramulator/base/factory.h"
+#include "ramulator/dram/pud_location.h"
 #include "ramulator/frontend/i_frontend.h"
 #include "ramulator/memory_system/i_memory_system.h"
 #include "ramulator/python/binding_utils.h"
@@ -98,6 +100,24 @@ class Simulation {
 // ---- nanobind module ----
 
 NB_MODULE(_ramulator, m) {
+  // Expose the existing modeled placement data; do not implement a Python mapper.
+  m.def("pud_placement_profile", []() {
+    const auto p = PuD::PlacementProfile::mimdram_ddr4_8gb_x8_v1();
+    nb::dict result;
+    result["name"] = p.name;
+    result["bank_groups"] = p.bank_groups;
+    result["banks_per_group"] = p.banks_per_group;
+    result["rows_per_bank"] = p.rows_per_bank;
+    result["rows_per_subarray"] = p.rows_per_subarray;
+    result["chips"] = p.chips;
+    result["mats_per_chip"] = p.mats_per_chip;
+    result["cells_per_mat_row"] = p.cells_per_mat_row;
+    result["hffs_per_mat"] = p.hffs_per_mat;
+    result["rank_counts"] = nb::cast(p.rank_counts);
+    result["gb_successor"] = nb::cast(p.gb_successor);
+    result["group_position_to_column"] = nb::cast(p.group_position_to_column);
+    return result;
+  });
   m.doc() = "Ramulator2 Python bindings";
 
   nb::class_<Simulation>(m, "Simulation")

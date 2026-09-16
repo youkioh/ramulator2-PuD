@@ -215,8 +215,16 @@ execution of:
 
 The corresponding movement-specific mat, local-I/O, global-I/O,
 neighboring-link, command-interface, and other shared-resource conflict rules
-therefore remain unresolved. A simulator decision to use a conservative Bank
-resource domain is a project modeling choice, not a MIMDRAM source fact.
+therefore remain physically unresolved. The project's
+[Accepted execution authority](../decisions/mimdram-movement-execution-ownership-and-device.md)
+now selects physical-mat-footprint intersection, replacing its earlier
+conservative Bank domain. Source-supported facts are LC's selected mat-local
+row-buffer/HFF/column resources (§1.4) and GB's explicit source/destination
+ranges and neighboring global path (§1.5). The simulator assumes disjoint GB
+endpoint footprints may use that global-row-buffer/interconnect structure
+independently. Shared command/timing constraints can still limit overlap.
+Neither the earlier Bank policy nor the new six-pair concurrency policy is
+physically proven by the paper.
 
 **Sources:** MIMDRAM §4.2, control-unit description and Fig. 7; MIMDRAM §6.1,
 Table 1, "Data Move".
@@ -773,7 +781,7 @@ omissions below are source/specification gaps, not established paper errors.
 4. **What is the supported reachability for non-neighbor GB-MOV targets?**
    - The physical connection shown is `SA_(i-1) -> SA_i`.
    - The paper does not specify how forward multi-hop routes are generated,
-     how intermediate scratch rows are used, or another direct route for
+     how intermediate temporary rows are used, or another direct route for
      arbitrary non-neighbor source/destination mats.
    - Reverse-direction routing where the depicted graph has no reverse edge
      is unspecified.

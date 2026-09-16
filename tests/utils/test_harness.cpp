@@ -485,7 +485,7 @@ class ControllerUnderTestCpp {
  public:
   inline static constexpr int kHarnessInternalSourceId = -2;
 
-  ControllerUnderTestCpp(nb::dict controller_config, int num_cores)
+  ControllerUnderTestCpp(nb::dict controller_config, int num_cores, bool install_profile = true)
       : m_frontend(std::make_unique<HarnessFrontEnd>(num_cores)),
         m_memory_system(std::make_unique<HarnessMemorySystem>(
             inject_issued_command_validation_hook(py_to_confignode(controller_config)))) {
@@ -496,6 +496,17 @@ class ControllerUnderTestCpp {
     m_controller_base = dynamic_cast<ControllerBase*>(m_controller);
     if (!m_controller_base) {
       throw std::runtime_error("ControllerUnderTest requires a ControllerBase-derived controller");
+    }
+
+    if (install_profile && spec().supports_movement_requests() && !m_controller->location_resolver()) {
+      auto profile = PuD::PlacementProfile::mimdram_ddr4_8gb_x8_v1();
+      // Fixture-only rank variants; the public physical profile is unchanged.
+      profile.rank_counts = {spec().organization.level_sizes[spec().get_level_id("Rank")]};
+      // This harness submits explicit vectors through PassThroughAddrMapper;
+      // install the fixture resolver directly, without claiming mapper support.
+      m_controller_base->m_location_resolver = std::make_shared<PuD::LocationResolver>(
+          std::move(profile), spec(), PuD::MappingContext{"physical", 1, "CacheLineInterleave",
+          "RoBaRaCoCh", false, 0});
     }
 
     m_validation_hook = m_memory_system->find_component<IControllerValidationHook>();
@@ -721,6 +732,20 @@ class ControllerUnderTestCpp {
     return out;
   }
 
+  Request located_movement(int type, const std::vector<AddrVec_t>& operands,
+                           int first, int second) const {
+    const auto resolver = m_controller->location_resolver();
+    std::vector<PuD::PairedOperand> paired;
+    for (size_t i = 0; i < operands.size(); ++i) {
+      const auto& a = operands[i];
+      const PuD::MatRange mats = type == Request::Type::LCMOV ? PuD::MatRange{first, second} :
+          PuD::MatRange{i == 0 ? first : second, i == 0 ? first : second};
+      paired.push_back(resolver->pair(resolver->group_footprint(
+          {a.at(0), a.at(1), a.at(2), a.at(3), a.at(4)}, mats, PuD::Group{a.at(5)})));
+    }
+    return Request(resolver, std::move(paired), type);
+  }
+
   nb::dict try_send_movement_request_for_testing(
       int type_id, const std::vector<AddrVec_t>& operands,
       int first_mat, int second_mat, int source_id) {
@@ -728,14 +753,9 @@ class ControllerUnderTestCpp {
       throw std::runtime_error("Movement execution test seam requires LC-MOV or GB-MOV");
     }
 
-    Request req(operands, type_id);
+    Request req = located_movement(type_id, operands, first_mat, second_mat);
     req.size_bytes = Request::kMovementSizeBytesNotApplicable;
     req.source_id = source_id;
-    if (type_id == Request::Type::LCMOV) {
-      req.movement = Request::LCMovementMetadata{{first_mat, second_mat}};
-    } else {
-      req.movement = Request::GBMovementMetadata{first_mat, second_mat};
-    }
     m_pud_completions_pending++;
     req.callback = [this](Request& completed) {
       if (m_pud_completions_pending == 0) {
@@ -781,14 +801,9 @@ class ControllerUnderTestCpp {
     }
     validate_concrete_addr_vec(forwarded_addr_vec);
 
-    Request req(operands, type_id);
+    Request req = located_movement(type_id, operands, first_mat, second_mat);
     req.size_bytes = Request::kMovementSizeBytesNotApplicable;
     req.source_id = source_id;
-    if (type_id == Request::Type::LCMOV) {
-      req.movement = Request::LCMovementMetadata{{first_mat, second_mat}};
-    } else {
-      req.movement = Request::GBMovementMetadata{first_mat, second_mat};
-    }
     m_pud_completions_pending++;
     req.callback = [this, forwarded_addr_vec, forwarded_source_id](Request& completed) {
       if (m_pud_completions_pending == 0) {
@@ -970,6 +985,12 @@ class ControllerUnderTestCpp {
   }
 
   Addr_t synthesize_addr(const AddrVec_t& addr_vec) const {
+    if (const auto resolver = m_controller->location_resolver()) {
+      const auto burst = resolver->burst_footprint({
+          {addr_vec.at(0), addr_vec.at(1), addr_vec.at(2), addr_vec.at(3), addr_vec.at(4)},
+          PuD::BurstColumn{addr_vec.at(5)}});
+      return resolver->inverse(resolver->cell_at(burst, 0)).byte;
+    }
     Addr_t addr = 0;
     for (int level = 0; level < spec().level_count; level++) {
       int count = spec().organization.level_sizes[level];
@@ -983,6 +1004,61 @@ class ControllerUnderTestCpp {
   }
 };
 
+// Controlled completion/backpressure for the real PuDTrace frontend. This
+// test-only memory endpoint assigns no DRAM timing or GEMV meaning to requests.
+class PuDTraceUnderTestCpp final : public IMemorySystem {
+ public:
+  PuDTraceUnderTestCpp(const std::string& path, LocationResolverUnderTest& resolver,
+                      const std::vector<int>& chain_ids, const std::vector<int>& checkpoints)
+      : m_resolver(resolver.resolver()) {
+    ConfigNode ids(ConfigNode::Seq{}), requests(ConfigNode::Seq{});
+    for (int id : chain_ids) ids.push_back(id);
+    for (int checkpoint : checkpoints) requests.push_back(checkpoint);
+    m_trace.reset(Factory::create_frontend(ConfigNode(ConfigNode::Map{
+        {"frontend", ConfigNode::Map{{"impl", "PuDTrace"}, {"clock_ratio", 1}, {"path", path},
+                                    {"latency_chain_ids", ids}, {"latency_checkpoint_requests", requests}}}})));
+    m_trace->connect_memory_system(this);
+  }
+
+  std::shared_ptr<const PuD::LocationResolver> location_resolver() const override { return m_resolver; }
+  int get_clock_ratio() override { return 1; }
+  int get_tx_bytes() override { return 64; }
+  void tick() override { m_trace->tick(); }
+  bool send(Request& request) override {
+    if (m_attempted != -1) throw std::logic_error("more than one send attempt per tick");
+    const int row = request.operands.at(0).at(4);
+    m_attempted = row;
+    auto [it, inserted] = m_first_attempt.emplace(row, &request);
+    if (!inserted && it->second != &request)
+      throw std::logic_error("retry replaced the canonical Request");
+    if (m_accept && !m_pending.emplace(row, request).second)
+      throw std::logic_error("request accepted twice");
+    return m_accept;
+  }
+  int step(bool accept) {
+    m_accept = accept;
+    m_attempted = -1;
+    tick();
+    return m_attempted;
+  }
+  void complete(int row, const std::vector<Clk_t>& history) {
+    Request request = std::move(m_pending.at(row));
+    m_pending.erase(row);
+    request.occurrence_issue_history = history;
+    request.callback(request);
+  }
+  bool finished() { return m_trace->is_finished(); }
+  nb::dict stats() const { return nb::cast<nb::dict>(confignode_to_py(m_trace->collect_stats())); }
+
+ private:
+  std::shared_ptr<const PuD::LocationResolver> m_resolver;
+  std::unique_ptr<IFrontEnd> m_trace;
+  std::map<int, Request> m_pending;
+  std::map<int, const Request*> m_first_attempt;
+  bool m_accept = true;
+  int m_attempted = -1;
+};
+
 // ---- nanobind module ----
 
 #include "pud_request_harness.h"
@@ -991,6 +1067,15 @@ NB_MODULE(_ramulator_test, m) {
   m.doc() = "Ramulator2 test harness bindings";
   bind_pud_location_harness(m);
   bind_pud_request_harness(m);
+
+  nb::class_<PuDTraceUnderTestCpp>(m, "_PuDTraceUnderTest")
+      .def(nb::init<const std::string&, LocationResolverUnderTest&, const std::vector<int>&, const std::vector<int>&>(),
+           nb::arg("path"), nb::arg("resolver"), nb::arg("chain_ids") = std::vector<int>{},
+           nb::arg("checkpoints") = std::vector<int>{})
+      .def("step", &PuDTraceUnderTestCpp::step)
+      .def("complete", &PuDTraceUnderTestCpp::complete)
+      .def("finished", &PuDTraceUnderTestCpp::finished)
+      .def("stats", &PuDTraceUnderTestCpp::stats);
 
   nb::class_<DeviceUnderTestCpp>(m, "_DeviceUnderTest")
       .def(nb::init<nb::dict, int>(), nb::arg("dram_config"), nb::arg("channel_id") = 0)

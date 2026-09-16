@@ -54,7 +54,7 @@ class GenericDDRController : public ControllerBase {
   PuDPlacementLevels m_pud_placement_levels{};
   PuDMovementTimingConstraints m_movement_timing{};
   // One control-unit pool per controller/channel, shared across Banks/Ranks.
-  // Occupancy and range ownership are derived from m_protected_compute.
+  // Occupancy and range ownership are derived from m_protected_pud.
   int m_pud_compute_engines = 8;
   void allocate_pud_compute();
   Candidate pick_allocated_compute();
@@ -64,7 +64,7 @@ class GenericDDRController : public ControllerBase {
     return m_device.m_spec->supports_compute_requests();
   }
   bool is_pud_eligible_before_prerequisite(const Request& candidate) const override;
-  bool is_retained_movement_owner(const Request& req) const;
+  bool is_active_movement_sequence(const Request& req) const;
 };
 
 bool GenericDDRController::check_request_timing(const Request& req) {
@@ -72,7 +72,7 @@ bool GenericDDRController::check_request_timing(const Request& req) {
     if (!req.pud_locations) {
       throw std::logic_error("PuD compute timing requires canonical resolved locations");
     }
-    if (!req.pud_compute_context.expired()) return check_pud_compute_issue(req);
+    if (!req.pud_context.expired()) return check_pud_compute_issue(req);
     // Unallocated compute may only prepare conventional Bank state. Its first
     // architectural ACT requires allocation, never a scheduler-side reservation.
     return req.command >= 0 && req.command != req.final_command &&
@@ -80,6 +80,9 @@ bool GenericDDRController::check_request_timing(const Request& req) {
   }
   if (!is_movement_request_type(req.type_id)) {
     return ControllerBase::check_request_timing(req);
+  }
+  if (req.pud_locations && req.command == req.final_command) {
+    return check_pud_movement_issue(req);
   }
   return check_pud_occurrence_timing(req, m_clk, m_movement_timing) &&
          ControllerBase::check_request_timing(req);
@@ -94,14 +97,14 @@ void GenericDDRController::allocate_pud_compute() {
     if (!it->pud_locations) {
       throw std::logic_error("Pending PuD compute is missing canonical resolved locations");
     }
-    if (it->pud_compute_context.expired()) pending.push_back(it);
+    if (it->pud_context.expired()) pending.push_back(it);
   }
   std::stable_sort(pending.begin(), pending.end(),
       [](auto a, auto b) { return a->arrive < b->arrive; });
   for (auto it : pending) {
     int engine = 0;
     for (; engine < m_pud_compute_engines; ++engine) {
-      if (std::none_of(m_protected_compute.begin(), m_protected_compute.end(),
+      if (std::none_of(m_protected_pud.begin(), m_protected_pud.end(),
           [&](const auto& held) { return held.engine == engine; })) break;
     }
     if (engine == m_pud_compute_engines) break;
@@ -118,7 +121,7 @@ ControllerBase::Candidate GenericDDRController::pick_allocated_compute() {
     if (!it->pud_locations) {
       throw std::logic_error("Allocated PuD compute is missing canonical resolved locations");
     }
-    if (it->pud_compute_context.expired() || !check_pud_compute_issue(*it)) continue;
+    if (it->pud_context.expired() || !check_pud_compute_issue(*it)) continue;
     if (!candidate.valid || it->arrive < candidate.it->arrive) {
       candidate = {true, it, &m_pud_buffer};
     }
@@ -152,39 +155,16 @@ std::optional<bool> GenericDDRController::try_send_special_request(Request& req)
   return true;
 }
 
-bool GenericDDRController::is_retained_movement_owner(const Request& req) const {
+bool GenericDDRController::is_active_movement_sequence(const Request& req) const {
   if (!is_movement_request_type(req.type_id)) {
     return false;
   }
-  return describe_pud_movement_state(req).owns_bank;
+  return describe_pud_movement_state(req).sequence_active;
 }
 
 bool GenericDDRController::is_pud_eligible_before_prerequisite(
     const Request& candidate) const {
   if (!ControllerBase::is_pud_eligible_before_prerequisite(candidate)) return false;
-  auto avoids_bank = [&](int owner_bank) {
-    const auto avoids_command = [&](int command) {
-      return m_device.for_each_target_bank_while(
-          command, candidate.addr_vec,
-          [&](int target_bank) { return target_bank != owner_bank; });
-    };
-    return avoids_command(candidate.final_command) &&
-           (candidate.command < 0 || avoids_command(candidate.command));
-  };
-  // A failed active-buffer promotion retains the movement owner in its original
-  // buffer. Compute ownership instead lives in protected range records.
-  for (const auto* buffer : {&m_active_buffer, &m_pud_buffer}) {
-    for (const auto& owner : buffer->buffer) {
-      if (!is_retained_movement_owner(owner) || &candidate == &owner) continue;
-      if (!avoids_bank(m_device.get_flat_bank_id(owner.operands.front()))) return false;
-    }
-  }
-  // Terminal PRE retires movement ownership, but independent commands cannot
-  // reuse or close its Bank until the existing delayed recovery has completed.
-  for (const auto& recovering : m_pending) {
-    if (is_movement_request_type(recovering.type_id) && recovering.depart > m_clk &&
-        !avoids_bank(m_device.get_flat_bank_id(recovering.operands.front()))) return false;
-  }
   // Unallocated compute must also wait for existing ordinary active requests;
   // otherwise a preparatory PRE could destroy their conventional row state.
   if (is_inherited_pud_request_type(candidate.type_id)) {
@@ -192,8 +172,9 @@ bool GenericDDRController::is_pud_eligible_before_prerequisite(
       throw std::logic_error("PuD compute arbitration requires canonical resolved locations");
     }
   }
-  if (is_inherited_pud_request_type(candidate.type_id) && candidate.pud_compute_context.expired()) {
+  if (is_inherited_pud_request_type(candidate.type_id) && candidate.pud_context.expired()) {
     for (const auto& active : m_active_buffer.buffer) {
+      if (active.pud_locations && is_movement_request_type(active.type_id)) continue;
       if (is_inherited_pud_request_type(active.type_id)) {
         if (!active.pud_locations) {
           throw std::logic_error("Active PuD compute is missing canonical resolved locations");
@@ -232,7 +213,7 @@ void GenericDDRController::tick() {
     return is_pud_eligible_before_prerequisite(req);
   };
   auto movement_prerequisite_compatibility = [&](const Request& req) {
-    if (is_retained_movement_owner(req) && req.command != req.final_command) {
+    if (is_active_movement_sequence(req) && req.command != req.final_command) {
       throw std::logic_error(fmt::format(
           "Active {} occurrence {} resolved incompatible prerequisite {} instead of {}",
           request_type_name(req.type_id), req.occurrence_index,
@@ -248,7 +229,7 @@ void GenericDDRController::tick() {
     // pending work or let priority maintenance strand its continuation.
     cand = pick_best_ready_from(m_pud_buffer, movement_prerequisite_compatibility,
         [&](const Request& req) {
-          return is_retained_movement_owner(req) && pud_eligibility(req);
+          return is_active_movement_sequence(req) && pud_eligibility(req);
         });
   }
   // Allocated compute has active-continuation precedence regardless of first
@@ -273,8 +254,8 @@ void GenericDDRController::tick() {
       }
       // Only conventional preparation reaches the generic prerequisite path.
       // Allocated compute uses its explicit occurrence; it never repairs a Bank.
-      return req.pud_compute_context.expired() &&
-             !m_device.conflicts_with_protected_compute(req.final_command, req.addr_vec);
+      return req.pud_context.expired() &&
+             !m_device.conflicts_with_protected_pud(req.final_command, req.addr_vec);
     });
     Candidate rw_cand = pick_rw_if({}, pud_eligibility);
     if (!pud_cand.valid) {
@@ -292,7 +273,7 @@ void GenericDDRController::tick() {
     if (compute && !cand.it->pud_locations) {
       throw std::logic_error("Selected PuD compute is missing canonical resolved locations");
     }
-    const bool allocated_compute = compute && !cand.it->pud_compute_context.expired();
+    const bool allocated_compute = compute && !cand.it->pud_context.expired();
     if (allocated_compute) cand.it->command = cand.it->final_command;
     // Rowpolicy *may* upgrade the command to AutoPrecharge version
     m_rowpolicy->try_upgrade_command(*cand.it);
@@ -311,7 +292,7 @@ void GenericDDRController::tick() {
     }
     bool ready_to_issue = false;
     if (still_eligible) {
-      if (is_retained_movement_owner(*cand.it) &&
+      if (is_active_movement_sequence(*cand.it) &&
           cand.it->command != cand.it->final_command) {
         throw std::logic_error(fmt::format(
             "Active {} occurrence {} became incompatible before issue: {} instead of {}",
@@ -324,9 +305,12 @@ void GenericDDRController::tick() {
       } else if (compute) {
         // A preparatory PRE owns no compute resources and advances no occurrence.
         ready_to_issue = cand.it->command != cand.it->final_command &&
-            !m_device.conflicts_with_protected_compute(cand.it->command, cand.it->addr_vec) &&
+            !m_device.conflicts_with_protected_pud(cand.it->command, cand.it->addr_vec) &&
             cand.it->command == get_preq_command(cand.it->final_command, cand.it->addr_vec) &&
             check_request_timing(*cand.it);
+      } else if (is_movement_request_type(cand.it->type_id) && cand.it->pud_locations &&
+                 cand.it->command == cand.it->final_command) {
+        ready_to_issue = get_preq_command(*cand.it) == cand.it->command && check_request_timing(*cand.it);
       } else {
         ready_to_issue = validate_request_for_issue(*cand.it);
       }
@@ -340,16 +324,20 @@ void GenericDDRController::tick() {
       // Issue command to DRAM device
       // Range dispatch advances the sole Request internally. Preserve only a
       // transient pre-issue view for existing row-policy/plugin notifications.
-      std::optional<Request> compute_issued;
+      std::optional<Request> pud_issued;
       if (allocated_compute) {
-        compute_issued = *cand.it;
+        pud_issued = *cand.it;
         issue_pud_compute(*cand.it);
+      } else if (is_movement_request_type(cand.it->type_id) && cand.it->pud_locations &&
+                 cand.it->command == cand.it->final_command) {
+        pud_issued = *cand.it;
+        issue_pud_movement(*cand.it);
       } else {
         m_device.issue_command(cand.it->command, cand.it->addr_vec, m_clk);
       }
 
       // Notify row policy and plugins of the issued command
-      const auto& issued = compute_issued ? *compute_issued : *cand.it;
+      const auto& issued = pud_issued ? *pud_issued : *cand.it;
       m_rowpolicy->on_issue(issued);
       for (auto* p : m_plugins) {
         p->on_issue(issued);
@@ -361,12 +349,18 @@ void GenericDDRController::tick() {
           // Keep engine + range protected until delayed recovery departure.
           retire_request(cand.it, *cand.buffer);
         }
+      } else if (pud_issued) {
+        if (cand.it->occurrence_index == get_pud_sequence_length(*cand.it)) {
+          retire_request(cand.it, *cand.buffer);
+        } else if (cand.buffer != &m_active_buffer) {
+          promote_to_active(cand.it, *cand.buffer);
+        }
       } else if (is_pud_request_type(cand.it->type_id)) {
         const auto progress = observe_pud_command_issue(
             *cand.it, cand.it->command, m_clk, *m_device.m_spec);
         if (progress == PuDOccurrenceAdvance::Complete) {
-          // Terminal PREpb ends ownership and schedulable state at issue. PuD
-          // callbacks remain delayed through the accepted nRP recovery.
+          // Only preparatory commands use this observation path. Canonical
+          // movement/compute issue advances its Request in Device dispatch.
           retire_request(cand.it, *cand.buffer);
         } else if (progress == PuDOccurrenceAdvance::Advanced &&
                    cand.buffer != &m_active_buffer) {

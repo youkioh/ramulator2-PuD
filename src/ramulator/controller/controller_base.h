@@ -16,6 +16,7 @@
 #include "ramulator/dram/device.h"
 
 class LocatedSystemUnderTest;
+class ControllerUnderTestCpp;
 
 namespace Ramulator {
 
@@ -28,18 +29,19 @@ class PuDConflictUnderTest;
 /*
  * Unified public GenericDRAM -> GenericDDR admission -> existing PuD buffer.
  * GenericDDR: E=8 default, shared across this channel's Banks/Ranks
- * m_pud_buffer: pending + allocated compute Requests (sole schedulable copies)
+ * m_pud_buffer: pending PuD + allocated compute Requests (sole schedulable copies)
  *                    |
- *       oldest-to-newest first fit: engine + complete range
+ *       compute: oldest-to-newest first fit, engine + complete range
+ *       movement: first ACT acquires footprint, no compute engine
  *                    |
  *                    v
  *        +----------------------------------+
- *        | ControllerBase::ProtectedCompute | <-- YOU ARE HERE
+ *        | ControllerBase::ProtectedPuD | <-- YOU ARE HERE
  *        +----------------+-----------------+
  *                         | owns lifetime
  *                         v
  *                +-------------------+
- * Request -weak->| PuDComputeContext |<-weak- Device registry
+ * Request -weak->| PuDExecutionContext |<-weak- Device registry
  *                +-------------------+       (conflict visibility)
  *                         |
  *         terminal PRE -> recovery -> release -> completion/callback
@@ -51,7 +53,7 @@ class PuDConflictUnderTest;
  * Delayed completion owns depart = terminal Request timestamp + nRP and releases
  * protection before accounting/callback.
  * Protected records retain resource identity/lifetime via explicit reservations.
- * Compute issue --> Device consumes the current resolved occurrence (device.h).
+ * PuD issue --> Device consumes the current resolved occurrence (device.h).
  * GenericDDR derives free engines/ranges from this store (E=8 by default).
  * Allocation derives from the Request/context association. Ready allocated
  * compute uses GenericDDR's narrow candidate path; no active-buffer ownership,
@@ -72,6 +74,7 @@ class ControllerBase : public IController, public Implementation {
   virtual bool is_pud_eligible_before_prerequisite(const Request& req) const;
   bool validate_request_for_issue(const Request& req);
   int get_preq_command(int command, const AddrVec_t& addr_vec);
+  int get_preq_command(const Request& req);
 
   // IController overrides
   void set_channel_id(int channel_id) override;
@@ -97,6 +100,7 @@ class ControllerBase : public IController, public Implementation {
  protected:
   friend class PuDConflictUnderTest;
   friend class ::LocatedSystemUnderTest;
+  friend class ::ControllerUnderTestCpp;
   ControllerBase(const ConfigNode& config, Implementation* parent)
       : Implementation(config, "controller", "ControllerBase", parent) {
   }
@@ -148,25 +152,27 @@ class ControllerBase : public IController, public Implementation {
   // Maintained by promote_to_active / retire_request.
   std::vector<int> m_active_per_bank;
 
-  // Range-aware lifetime: GenericDDR selects free engines using these reservations.
+  // PuD invocation lifetime; compute reservations also retain engine allocation.
   // Neither this store nor the context owns a cursor or duplicates mat geometry.
-  struct ProtectedCompute {
-    int engine;
-    std::shared_ptr<PuDComputeContext> context;
+  struct ProtectedPuD {
+    int engine;  // -1 for movement; it never consumes a compute engine.
+    std::shared_ptr<PuDExecutionContext> context;
     bool completion_pending = false;
   };
-  std::vector<ProtectedCompute> m_protected_compute;
+  std::vector<ProtectedPuD> m_protected_pud;
   bool reserve_pud_compute(Request& req, int engine);
   bool pud_compute_resources_available(const Request& req, int engine) const;
   bool pud_compute_start_eligible(const Request& req) const;
-  PuDComputeContext& protected_pud_context(const Request& req) const;
-  ProtectedCompute& protected_pud_record(const Request& req);
+  PuDExecutionContext& protected_pud_context(const Request& req) const;
+  ProtectedPuD& protected_pud_record(const Request& req);
   void release_completed_resources(Request& req);
 
-  // Issue mechanics for explicitly allocated contexts. These methods neither
-  // allocate engines nor select/schedule pending work.
+  // Issue mechanics for protected contexts; movement acquires at first ACT.
+  // These methods neither allocate engines nor select/schedule pending work.
   bool check_pud_compute_issue(const Request& req);
   void issue_pud_compute(Request& req);
+  bool check_pud_movement_issue(const Request& req);
+  void issue_pud_movement(Request& req);
 
   // Stats
   Clk_t m_measured_clk = 0;

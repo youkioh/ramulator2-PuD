@@ -53,6 +53,12 @@ reverse, wrapping, cross-chip, or magical arbitrary-distance GB edges.
 
 **C. Direct reduction placement policy**
 
+The full-fragment-then-local schedule below is the policy used by the explicit
+`MIMDRAM-InterMatFirst` GEMV baseline. The [Accepted GEMV contract](pud-gemv-macro-contract.md)
+also selects `MIMDRAM-IntraMatFirst`, which reduces mat-local fragments before
+the same directed fold. Both retain this document's topology, singleton GB
+lowering, highest reachable sink and external completion boundary.
+
 Divide each reduction input into mat-local fragments according to the Accepted
 Gate B placement profile. Within each connected GB domain, arrange and reason
 about the participating fragments in the forward order of the directed
@@ -81,7 +87,7 @@ the intra-mat reduction.
 The extension from the two-mat example to this K-mat fold is an Accepted
 project orchestration choice, not a merge schedule explicitly supplied by
 MIMDRAM. It adds no interconnect. It also does not select an ADD primitive
-sequence, scratch-row allocation, or numeric macro contract. Dependent work
+sequence, temporary-row allocation, or numeric macro contract. Dependent work
 remains subject to Gate C's producer-completion boundary.
 
 **D. Reachability boundary**
@@ -97,11 +103,11 @@ are combined by the host under Gate A's existing completion and accounting
 boundary. Four residuals per domain does not mean four residuals for the
 whole workload when connectivity cannot merge all contributions.
 
-Forward multi-hop through intermediate scratch is structurally expressible in
+Forward multi-hop through intermediate temporary rows is structurally expressible in
 the project model by composing accepted directed one-hop transfers. It is not
 required by
 the selected consecutive-mat placement and forward fold: each fold step
-merges at the next participating neighbor. Scratch/dependency semantics for
+merges at the next participating neighbor. Temporary-row/dependency semantics for
 such composition and generic multi-hop `bbop_mov` routing are neither
 source-established nor accepted capabilities; they require a later decision.
 
@@ -208,12 +214,12 @@ Open issues
 
 - The source/specification gaps catalogued in the movement reference remain:
   multi-mat GB pairing and simultaneous execution, overlapping ranges,
-  non-neighbor/forward multi-hop lowering and scratch interaction, reverse
+  non-neighbor/forward multi-hop lowering and temporary-row interaction, reverse
   routing, cross-chip routing, and the exact lowering algorithm for those
   cases. They are not established paper errors or substrate prerequisites.
 - The future reduction/numeric macro must determine represented and accumulator
   precision, arithmetic behavior, concrete ADD/LC-MOV sequences and counts,
-  scratch use, and explicit dependencies. This decision fixes none of those
+  temporary-row use, and explicit dependencies. This decision fixes none of those
   implementation details or INT8/FP8 choices.
 - Generic `bbop_mov` routing or additional supported placement/topology would
   require a later decision; neither is promised by this boundary.

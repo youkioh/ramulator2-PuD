@@ -72,7 +72,7 @@ def test_protected_scope_blocks_before_prerequisite_and_final_issue(scheduler, p
     if command in ("PREpb", "PREab", "RDA", "WRA"):
         assert result["close"]
     for issue in (False, True):
-        with pytest.raises(RuntimeError, match="protected compute"):
+        with pytest.raises(RuntimeError, match="protected PuD invocation"):
             d.raw(command, target, issue)
         assert d.shared() == before
 
@@ -82,7 +82,7 @@ def test_protected_scope_blocks_before_prerequisite_and_final_issue(scheduler, p
 def test_compute_blocks_real_movement_through_recovery(scheduler, name):
     d, r = fixture(scheduler)
     assert d.add(compute(r), 1, 0)
-    d.movement(movement(r, name), 2)  # Disjoint mats still conflict at Bank scope.
+    d.movement(movement(r, name, mat=0), 2)  # Intersecting physical mats conflict.
     d.advance(5)
     assert d.issued() == []  # Allocated but no first ACT, no active-buffer entry.
     finish(d, 1, offset=6)
@@ -104,7 +104,7 @@ def test_movement_blocks_compute_and_unrelated_close_through_recovery(name, prom
     d.capacity(promotion_capacity)
     d.movement(movement(r, name), 1)
     d.advance(1)
-    candidate = compute(r)  # Different mats and operand rows.
+    candidate = compute(r, mats=(8, 8))  # Same mat, different rows.
     timeline, total = MOVES[name]
     for clk in [1, 2, timeline[-1]+1, total]:
         d.advance(clk)
@@ -143,10 +143,10 @@ def test_conventional_preab_recovery_blocks_reservation():
 
 @pytest.mark.parametrize("first,second", list(itertools.product(MOVES, repeat=2)))
 @pytest.mark.parametrize("scheduler", ["FRFCFS", "FRFCFS-RowHit"])
-def test_all_movement_pairs_remain_bank_serial_with_disjoint_mats(first, second, scheduler):
+def test_all_movement_pairs_serialize_intersecting_mats(first, second, scheduler):
     d, r = fixture(scheduler)
     d.movement(movement(r, first, mat=0), 1)
-    d.movement(movement(r, second, mat=8), 2)
+    d.movement(movement(r, second, mat=0), 2)
     d.advance(300)
     first_events = [e["clk"] for e in d.issued() if e["source_id"] == 1]
     second_events = [e["clk"] for e in d.issued() if e["source_id"] == 2]
@@ -193,7 +193,7 @@ def test_movement_validity_and_endpoint_identity_are_retained(name):
         assert paired["same_bundle"] and paired["locations"] == locations
         assert tuple(paired[k] for k in ("source_active", "destination_active", "source_valid")) == state
         assert observed["cursor"] == index+1
-        assert observed["owns_bank"] == (index+1 != len(timeline))
+        assert observed["sequence_active"] == (index+1 != len(timeline))
         # Both source PRE recovery and terminal recovery preserve identity.
         d.advance(min(clk+2, total))
         assert d.movement_state(1)["external"] == external
@@ -262,7 +262,7 @@ def test_priority_maintenance_waits_for_last_recovery_before_whole_scope_action(
     assert d.issued() == []  # Last recovery is NOT at 101, even though MAJ3 drained at 67.
     before = d.shared()
     for raw_command in ("PREab", "REFab"):
-        with pytest.raises(RuntimeError, match="protected compute"):
+        with pytest.raises(RuntimeError, match="protected PuD invocation"):
             d.raw(raw_command, scope(), True)
         assert d.shared() == before
     d.advance(101)

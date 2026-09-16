@@ -166,9 +166,13 @@ request.size_bytes = Request::kMovementSizeBytesNotApplicable;
 LC-MOV range width determines moved bits as
 `selected_mat_count * hffs_per_mat`. GB-MOV moves
 `hffs_per_mat` bits. The `-1` size is a named not-applicable contract, not
-a byte count. Movement does not consume a compute engine, but its accepted
-Bank-aggregate conflict policy serializes it against same-Bank compute,
-ordinary traffic, and other movement through recovery.
+a byte count. Movement consumes no compute engine. Compute and LC protect
+their selected physical mats; GB protects the union of its source/destination
+mats. Disjoint PuD footprints in the same Bank/subarray may progress
+concurrently; intersecting footprints serialize through terminal recovery.
+Shared command/timing constraints still apply. Movement acquires at first ACT
+and releases at terminal PRE+nRP. Ordinary traffic and maintenance retain
+their existing Bank/Rank scopes; different subarrays do not execute in parallel.
 
 ## Submission, recovery, and callbacks
 
@@ -237,6 +241,157 @@ for engines in 1 2 8; do
     build/ddr4_pud_trace.csv.ch0
 done
 ```
+
+## GEMV trace generation and execution
+
+Authoritative semantics are in the
+[programming-model reference](references/gpu-pud-gemv-programming-model.md)
+and [canonical CUDA specification](references/gpu-pud-gemv-programming-model.cu).
+The `.cu` is specification code, not generator runtime input.
+The accepted restriction is `N > 0 && N % HFFS_PER_MAT == 0`, with
+`HFFS_PER_MAT=4`. N need not be divisible by 512: N=516 is supported.
+One-to-three-element tails are rejected; no masking, padding, or host tail
+fallback is provided.
+
+From the repository root, using the repository Python environment:
+
+```bash
+cmake -S . -B build
+cmake --build build --target _ramulator -j $(nproc)
+
+PYTHONPATH=python python3 -m tools.pud_operation_generator.requirements --out build/pud-gemv/generated
+for baseline in MIMDRAM-InterMatFirst MIMDRAM-IntraMatFirst; do
+  for format in int8 fp8-e4m3 fp8-e5m2; do
+    PYTHONPATH=python python3 -m tools.pud_gemv_generator --profile "$baseline-$format" --m 2 --n 516 --out build/pud-gemv
+  done
+done
+```
+
+Each GEMV invocation writes `<profile>.layout.json` and `<profile>.trace`
+under `build/pud-gemv/`, plus `generated/pud_operation_requirements.json`
+and `generated/pud_operation_requirements.h`. The layout records placement,
+resources, and expected request counts; the trace contains one
+dependency chain per output with its physical requests in completion order.
+Use `--m 2` or larger to generate multiple chains. Requirements can also be
+generated independently as shown above.
+
+To generate and run one baseline independently of pytest, use the
+[standalone experiment runner](../../experiments/pud_gemv_baseline.py) from the
+repository root in the same Python environment:
+
+```bash
+PYTHONPATH=python:. python3 experiments/pud_gemv_baseline.py --profile MIMDRAM-InterMatFirst-int8 --m 2 --n 12 --out build/pud-gemv --csv build/pud-gemv/results.csv
+```
+
+It uses the canonical one-rank configuration above and prints JSON with output
+placement, compute/LC-MOV/GB-MOV and total Request counts, peak inflight and
+controller cycles. Omit `--csv` to skip appending the same fields to a CSV file.
+
+The standalone runner also measures each output chain's MUL and reduction
+phases within that same full execution. It requires one domain per output
+(currently N <= 8192); longer inputs interleave MUL and reduction across domains
+and are rejected by this experiment. General GEMV generation and PuDTrace
+execution still support multiple domains.
+
+Add `--chain-csv` to write `<out>/<profile>.chains.csv` with `chain_id`,
+`first_submit_cycle`, `mul_complete_cycle`, `final_complete_cycle`,
+`start_delay_cycles`, `mul_cycles`, `reduction_cycles`, and `chain_cycles`.
+Cycles start at zero. First-submit is successful admission, and both completion
+timestamps come from full Request callbacks, including terminal recovery:
+
+```text
+start_delay_cycles = first_submit_cycle
+mul_cycles        = mul_complete_cycle - first_submit_cycle
+reduction_cycles  = final_complete_cycle - mul_complete_cycle
+chain_cycles      = final_complete_cycle - first_submit_cycle
+```
+
+Waiting before the first accepted Request contributes only to start delay;
+waiting after MUL completion contributes to reduction. With no physical
+reduction (N=4), MUL and final completion coincide. The JSON/summary CSV adds
+mean, min, max, p50, p95 and p99 for each phase and the whole chain, plus mean
+start delay. Percentiles interpolate sorted samples at `(count - 1) * p`.
+Use a new summary CSV when its existing header predates these fields.
+
+Layout schema 4 adds `chain_id`, `first_request_index`, and
+`initial_mul_final_request_index` per output, using one-based flattened
+physical indices; the final Request is already identified by the last domain's
+`completion_index`. Trace contents are unchanged. The runner converts the MUL
+boundary to a one-based index within its chain and configures PuDTrace's optional
+`latency_chain_ids` and `latency_checkpoint_requests` parallel lists. The frontend
+reports matching `first_submit_cycles`, `checkpoint_complete_cycles`, and
+`final_complete_cycles` lists with opaque `latency_chain_ids`; it assigns no
+arithmetic meaning. Unreached timestamps are -1. Collection requires equal
+frontend/memory clock ratios (both one here), so acceptance and callback clocks
+share controller-cycle units.
+
+The only active schedules are **MIMDRAM-InterMatFirst** (full-vector forward
+GB-MOV/ADD, then the sink's LC-MOV/ADD tree) and **MIMDRAM-IntraMatFirst**
+(local LC-MOV/ADD trees first, then residual-only forward GB-MOV/ADD).
+Each supports `int8`, `fp8-e4m3`, and `fp8-e5m2`, yielding the six exact
+`--profile` values constructed above. The generic profiles `int8-gemv`,
+`fp8-e4m3-gemv`, and `fp8-e5m2-gemv` are rejected; no aliases or old
+placement modes remain. FP8 profiles are validated against their own schedule
+graphs; the two orders need not produce equal results.
+
+Both use identical [Accepted BLP-first placement](decisions/pud-gemv-macro-contract.md):
+all bank-group/bank pairs before another legal K-mat range slot, then chip,
+subarray capacity fallback and row-band capacity fallback. M=2,N=12 uses
+bank0/mat0 and bank1/mat0; M=2,N=516 uses bank0/mats0..1 and bank1/mats0..1.
+Subarrays provide capacity only; no SALP is modeled or assumed. Each output
+reserves its maximum domain K and each domain uses the required prefix.
+No ranged operation combines different outputs. Layout schema 4 records the
+explicit baseline, arithmetic format and placement policy, alongside each
+domain's physical `mat_begin`. Regenerate older layouts/traces. See the
+[placement contract](references/gpu-pud-gemv-programming-model.md#baseline-placement-and-physical-trace-contract).
+
+Use the one-rank `memory_system` component tree from
+[Canonical configuration](#canonical-configuration), with `import ramulator`.
+Run this Python code in the same environment with `PYTHONPATH=python`:
+
+```python
+frontend = ramulator.frontend.PuDTrace(
+    clock_ratio=1,
+    path="build/pud-gemv/MIMDRAM-InterMatFirst-int8.trace",
+)
+sim = ramulator.Simulation(frontend, memory_system)
+sim.run()
+stats = sim.stats
+sim.finalize()
+print(stats["frontend"])
+print(stats["memory_system"]["controller"])
+```
+
+Select another explicit baseline/format trace by changing `path`. Frontend counters
+`physical_requests_submitted`, `physical_requests_completed`, and
+`physical_command_occurrences_completed` show stream execution; compare the
+request counts with the layout's `request_count` and `request_counts`.
+`physical_requests_peak_inflight` reports peak accepted but not yet completed
+Requests, including queued work and recovery. Values above one verify
+outstanding-request overlap, not necessarily simultaneous DRAM command execution.
+Controller counters are described under [Statistics](#statistics).
+`sim.finalize()` flushes the configured command recorder; see
+[Command traces and latency](#command-traces-and-latency) for its output.
+
+PuDTrace reads `PUD_TRACE` with `CHAIN <id>` selections, as defined in the
+[physical trace contract](references/gpu-pud-gemv-programming-model.md#baseline-placement-and-physical-trace-contract).
+The frontend treats IDs as opaque dependency identities. It permits one
+outstanding Request per chain and releases the next only on full completion.
+Its fair ready queue makes at most one send attempt per frontend tick, rotating
+rejected chains for retry and appending newly ready chains after callbacks.
+A `CHAIN` selection is mandatory before any physical Request.
+
+Controller cycles model concurrent execution of the generated PuD physical
+Request stream, **not full end-to-end GEMV latency**. GPU launch/x duplication,
+transposition, readout/conversion, and residual/domain final combination remain
+excluded, including readout before workspace reuse. Static placement and the
+controller/substrate's timing and resource conflicts still constrain overlap.
+The [baseline plan](plans/pud-gemv-baselines-plan.md) reports compute primitive,
+LC-MOV, GB-MOV and total physical Request counts, controller cycles and peak
+inflight for both baselines under identical placement. Repeat with `--n 12`
+for the focused K=1 case. Cycles are performance evidence, not a fixed oracle.
+Historical same-bank characterization remains in its completed plan and is
+not an active evaluation policy.
 
 ## Command traces and latency
 
@@ -309,7 +464,8 @@ hit/miss/conflict statistics.
   vendor DDR4 wiring. Other organizations and remapping contexts require
   separately supported profiles.
 - GB-MOV is limited to the selected directed singleton same-chip neighbor
-  topology. LC/GB movement retains conservative Bank-aggregate concurrency.
+  topology. Disjoint movement concurrency, including the GB global path, is
+  an accepted project assumption, not physically proven MIMDRAM behavior.
 - There is no PuD preemption, abort, resume, refresh-postponement bound,
   retention guarantee, or physical target-transport resource model.
 - The accepted activation-current, command encoding, shared-resource,

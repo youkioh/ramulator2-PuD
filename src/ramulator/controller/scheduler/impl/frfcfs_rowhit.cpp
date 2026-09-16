@@ -43,7 +43,7 @@ class FRFCFSRowHitScheduler : public IScheduler, public Implementation {
       if (eligibility_filter && !eligibility_filter(*it)) {
         continue;
       }
-      it->command = m_ctrl->get_preq_command(it->final_command, it->addr_vec);
+      it->command = m_ctrl->get_preq_command(*it);
 
       if (m_ctrl->m_device.check_rowbuffer_hit(it->final_command, it->addr_vec, m_ctrl->m_clk)) {
         const int bank_id = m_ctrl->m_device.get_flat_bank_id(it->addr_vec);

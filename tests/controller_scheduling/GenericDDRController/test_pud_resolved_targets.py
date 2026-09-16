@@ -201,7 +201,7 @@ def test_unallocated_and_released_associations_cannot_issue():
     d, r = fixture()
     before = snapshot(d)
     for mutate in (False, True):
-        with pytest.raises(RuntimeError, match="protected compute context"):
+        with pytest.raises(RuntimeError, match="protected PuD invocation context"):
             d.unallocated_dispatch(compute(r), mutate)
         assert snapshot(d) == before
     assert d.add(compute(r), 1, 0)
@@ -210,7 +210,7 @@ def test_unallocated_and_released_associations_cannot_issue():
     d.advance(61)
     before = snapshot(d, 1)
     for mutate in (False, True):
-        with pytest.raises(RuntimeError, match="protected compute context"):
+        with pytest.raises(RuntimeError, match="protected PuD invocation context"):
             d.compute_dispatch(1, issue=mutate)
         assert snapshot(d, 1) == before
 

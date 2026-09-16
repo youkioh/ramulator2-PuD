@@ -14,7 +14,7 @@
 
 namespace Ramulator {
 
-class PuDComputeContext;
+class PuDExecutionContext;
 
 /*
  * LocationResolver + PairedOperands (pud_location.h)
@@ -33,10 +33,10 @@ class PuDComputeContext;
  *           +-------------+-------------+
  *                         |
  *                         +--> occurrence/movement views (pud_sequence.h)
- *                         +-- weak --> PuDComputeContext (device.h)
+ *                         +-- weak --> PuDExecutionContext (device.h)
  *                                      ^
  *                                      | owns lifetime
- *                                ProtectedCompute (controller_base.h)
+ *                                ProtectedPuD (controller_base.h)
  * Copies/retries share placement; each allocated invocation has one authoritative
  * schedulable Request progression. Controller buffer transfers preserve it.
  */
@@ -48,6 +48,10 @@ namespace PuD {
 struct RequestLocations {
   std::shared_ptr<const LocationResolver> resolver;
   std::vector<PairedOperand> operands;
+  // Derived physical union; never a second placement authority.
+  std::vector<MatSegment> mat_footprint() const;
+  bool same_bank(const RequestLocations& other) const;
+  bool conflicts(const RequestLocations& other) const;
 };
 }  // namespace PuD
 
@@ -103,13 +107,13 @@ struct Request {
   // Ordered, request-owned row operands for PuD requests.
   // RowCopy uses operand 0 as source and operands 1..N as destinations.
   std::vector<AddrVec_t> operands{};
-  // Retained for internal Bank-aggregate movement component fixtures. Public
+  // Retained for legacy metadata validation component fixtures. Public
   // GenericDRAM PuD ingress requires pud_locations and rejects this as scope.
   MovementMetadata movement{};
   std::shared_ptr<const PuD::RequestLocations> pud_locations;
   // Non-owning invocation identity. Controller protection, not Request copies
   // or command-buffer membership, retains the temporal context until recovery.
-  std::weak_ptr<PuDComputeContext> pud_compute_context;
+  std::weak_ptr<PuDExecutionContext> pud_context;
 
   int command = -1;        // Current command to issue to progress the request
   int final_command = -1;  // Terminal command, or next controller-sequenced command

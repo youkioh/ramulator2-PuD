@@ -117,7 +117,7 @@ class LocationHarnessObserver final : public IControllerPlugin, public Implement
     out["clk"] = controller->m_clk;
     out["command"] = controller->m_device.m_spec->command_names.at(req.command);
     out["source_id"] = req.source_id;
-    out["allocated"] = !req.pud_compute_context.expired();
+    out["allocated"] = !req.pud_context.expired();
     events.append(out);
   }
 };
@@ -174,7 +174,7 @@ class LocatedSystemUnderTest {
       out["source_id"] = done.source_id;
       out["arrive"] = done.arrive;
       out["depart"] = done.depart;
-      out["held"] = m_controller->m_protected_compute.size();
+      out["held"] = m_controller->m_protected_pud.size();
       completed.append(out);
       if (!callback.is_none()) callback(out);
     };
@@ -202,10 +202,10 @@ class LocatedSystemUnderTest {
       auto item = located_snapshot(req, false);
       item["source_id"] = req.source_id;
       item["arrive"] = req.arrive;
-      const auto context = req.pud_compute_context.lock();
+      const auto context = req.pud_context.lock();
       item["phase"] = context ? static_cast<int>(context->phase()) : -1;
       item["engine"] = -1;
-      for (const auto& held : m_controller->m_protected_compute) {
+      for (const auto& held : m_controller->m_protected_pud) {
         if (held.context == context) item["engine"] = held.engine;
       }
       return item;
@@ -214,7 +214,7 @@ class LocatedSystemUnderTest {
     for (const auto& req : m_controller->m_pending) recovering.append(snapshot(req));
     out["pending"] = pending;
     out["recovering"] = recovering;
-    out["held"] = m_controller->m_protected_compute.size();
+    out["held"] = m_controller->m_protected_pud.size();
     out["active_size"] = m_controller->m_active_buffer.size();
     return out;
   }
@@ -303,9 +303,9 @@ class ComputeRangesUnderTest {
   }
   size_t add(Request req) {
     initialize_pud_sequence(req, *device.m_spec);
-    std::shared_ptr<PuDComputeContext> context = device.make_pud_compute_context(req);
-    device.protect_pud_compute(context);
-    req.pud_compute_context = context;
+    std::shared_ptr<PuDExecutionContext> context = device.make_pud_context(req);
+    device.protect_pud(context);
+    req.pud_context = context;
     records.push_back({std::move(req), std::move(context)});
     return records.size() - 1;
   }
@@ -337,7 +337,7 @@ class ComputeRangesUnderTest {
     auto& target = foreign_device ? other : device;
     const bool ready = target.check_pud_timing(req, occurrence, context, clk);
     if (!issue) return ready;
-    if (!ready) throw std::logic_error("Compute range timing not ready");
+    if (!ready) throw std::logic_error("PuD invocation timing not ready");
     target.issue_pud_command(req, occurrence, context, clk);
     // Exercise Request relocation after every action, retaining one cursor.
     Request copied = req;
@@ -354,7 +354,7 @@ class ComputeRangesUnderTest {
     // prefix. Terminal PRE closes that view without erasing Request history.
     std::vector<size_t> activated;
     std::vector<AddrVec_t> rows;
-    if (context.phase() != PuDComputeContext::Phase::Recovering) {
+    if (context.phase() != PuDExecutionContext::Phase::Recovering) {
       for (size_t i = 0; i < record.req.occurrence_index; ++i) {
         if (record.req.occurrence_issue_history.at(i) == Request::kOccurrenceNotIssued) continue;
         const auto occurrence = describe_pud_occurrence(record.req, i, *device.m_spec);
@@ -375,7 +375,7 @@ class ComputeRangesUnderTest {
         nb::dict item;
         item["level"] = level;
         if (level == 0) item["command_occupancy"] =
-            std::vector<Clk_t>{device.m_compute_ca_ready, device.m_command_ca_ready};
+            std::vector<Clk_t>{device.m_pud_ca_ready, device.m_command_ca_ready};
         item["id"] = node->m_node_id;
         item["state"] = node->m_state;
         item["rows"] = std::map<int, int>(node->m_row_state.begin(), node->m_row_state.end());
@@ -404,7 +404,7 @@ class ComputeRangesUnderTest {
 
  private:
   DRAMDevice device;
-  struct Record { Request req; std::shared_ptr<PuDComputeContext> context; };
+  struct Record { Request req; std::shared_ptr<PuDExecutionContext> context; };
   std::vector<Record> records;
   std::vector<PuDOccurrence> saved;
 };
@@ -441,7 +441,7 @@ class ComputeLifecycleUnderTest : public ControllerBase {
       event["arrive"] = completed.arrive;
       event["depart"] = completed.depart;
       event["callback_clk"] = m_clk;
-      event["context_expired"] = completed.pud_compute_context.expired();
+      event["context_expired"] = completed.pud_context.expired();
       event["stats"] = snapshot();
       events.append(event);
       if (!callback.is_none()) callback(event);
@@ -470,7 +470,7 @@ class ComputeLifecycleUnderTest : public ControllerBase {
     if (coincident_terminal && occurrence.terminal && clk == last_issue) {
       // Synthetic equal-deadline fixture only: bypass the occupied issue cycle,
       // while keeping the same Device occurrence, phase and timing checks.
-      m_device.m_compute_ca_ready = clk;
+      m_device.m_pud_ca_ready = clk;
     }
     it->command = occurrence.command;
     m_device.issue_pud_command(*it, occurrence, &context, m_clk);
@@ -493,7 +493,7 @@ class ComputeLifecycleUnderTest : public ControllerBase {
     saved.push_back(*it);
     return saved.size() - 1;
   }
-  bool saved_expired(size_t id) const { return saved.at(id).pud_compute_context.expired(); }
+  bool saved_expired(size_t id) const { return saved.at(id).pud_context.expired(); }
   bool reserve_saved(size_t id, int engine) { return reserve_pud_compute(saved.at(id), engine); }
   void stale_dispatch(size_t id) {
     auto req = saved.at(id);
@@ -559,15 +559,15 @@ class ComputeLifecycleUnderTest : public ControllerBase {
     out["active"] = m_active_buffer.size();
     out["active_per_bank"] = m_active_per_bank;
     out["delayed"] = m_pending.size();
-    out["device_context_references"] = m_device.m_protected_compute.size();
+    out["device_context_references"] = m_device.m_protected_pud.size();
     out["rw_buffered"] = m_read_buffer.size() + m_write_buffer.size();
     nb::list held;
-    for (const auto& record : m_protected_compute) {
+    for (const auto& record : m_protected_pud) {
       nb::dict item;
       item["engine"] = record.engine;
       item["phase"] = static_cast<int>(record.context->phase());
       const auto pending = std::find_if(m_pending.begin(), m_pending.end(),
-          [&](const Request& req) { return req.pud_compute_context.lock() == record.context; });
+          [&](const Request& req) { return req.pud_context.lock() == record.context; });
       item["depart"] = pending == m_pending.end() ? nb::none() : nb::cast(pending->depart);
       item["completion_pending"] = record.completion_pending;
       held.append(item);
@@ -600,7 +600,7 @@ namespace Ramulator {
 class PuDConflictUnderTest {
  public:
   // W6's explicit-reservation fixture uses sources 0..11; W7 uses 0..8.
-  explicit PuDConflictUnderTest(nb::dict config) : dut(config, 12), ctrl(dut.m_controller_base) {}
+  explicit PuDConflictUnderTest(nb::dict config) : dut(config, 12, false), ctrl(dut.m_controller_base) {}
   // W7 only: bypass public ingress, but exercise the real GenericDDR buffer,
   // allocator, arbitration and completion. No fixture engine assignment.
   bool enqueue(Request req, int source, nb::object callback) {
@@ -632,7 +632,7 @@ class PuDConflictUnderTest {
     std::vector<int> unallocated, allocated, recovering;
     for (const auto& req : ctrl->m_pud_buffer.buffer) {
       if (!req.pud_locations || !is_inherited_pud_request_type(req.type_id)) continue;
-      (req.pud_compute_context.expired() ? unallocated : allocated).push_back(req.source_id);
+      (req.pud_context.expired() ? unallocated : allocated).push_back(req.source_id);
     }
     for (const auto& req : ctrl->m_pending) {
       if (req.pud_locations && is_inherited_pud_request_type(req.type_id)) recovering.push_back(req.source_id);
@@ -711,16 +711,6 @@ class PuDConflictUnderTest {
     check_source(source);
     validate_pud_placement(req, *ctrl->m_device.m_spec, 0,
                            get_pud_placement_levels(*ctrl->m_device.m_spec));
-    // Explicit legacy fixture conversion; this is not a v2 dispatch path. The
-    // separate located lifetime fixture checks the paired endpoint retention.
-    const auto& source_mats = req.pud_locations->operands[0].location.origin.mats;
-    const auto& destination_mats = req.pud_locations->operands[1].location.origin.mats;
-    if (req.type_id == Request::Type::LCMOV) {
-      req.movement = Request::LCMovementMetadata{{source_mats.first, source_mats.last}};
-    } else {
-      req.movement = Request::GBMovementMetadata{source_mats.first, destination_mats.first};
-    }
-    req.pud_locations.reset();
     req.source_id = source;
     req.callback = [this](Request& r) {
       nb::dict event = movement_snapshot(r);
@@ -728,7 +718,7 @@ class PuDConflictUnderTest {
       event["depart"] = r.depart;
       completed.append(event);
     };
-    if (!ctrl->send(req)) throw std::logic_error("fixture movement enqueue failed");
+    if (!ctrl->try_send_special_request(req).value()) throw std::logic_error("fixture movement enqueue failed");
   }
   nb::dict movement_state(int source) const {
     for (const auto* buffer : {&ctrl->m_pud_buffer, &ctrl->m_active_buffer}) {
@@ -783,7 +773,8 @@ class PuDConflictUnderTest {
   }
   nb::list issued() const { return history; }
   nb::list completions() const { return completed; }
-  size_t held() const { return ctrl->m_protected_compute.size(); }
+  size_t held() const { return std::count_if(ctrl->m_protected_pud.begin(), ctrl->m_protected_pud.end(),
+      [](const auto& held) { return held.engine >= 0; }); }
   nb::dict stats() { ctrl->update_stats(); return nb::cast<nb::dict>(confignode_to_py(ctrl->IController::collect_stats())); }
   void capacity(size_t active) { ctrl->m_active_buffer.max_size = active; }
 
@@ -804,10 +795,10 @@ class PuDConflictUnderTest {
   nb::dict compute_state(int source) const {
     const auto& req = find_compute(source);
     auto out = located_snapshot(req, false);
-    const auto context = req.pud_compute_context.lock();
+    const auto context = req.pud_context.lock();
     out["phase"] = context ? static_cast<int>(context->phase()) : -1;
     int engine = -1;
-    for (const auto& held : ctrl->m_protected_compute) {
+    for (const auto& held : ctrl->m_protected_pud) {
       if (held.context == context) engine = held.engine;
     }
     out["engine"] = engine;
@@ -843,7 +834,7 @@ class PuDConflictUnderTest {
     return true;
   }
   std::vector<Clk_t> command_occupancy() const {
-    return {ctrl->m_device.m_compute_ca_ready, ctrl->m_device.m_command_ca_ready};
+    return {ctrl->m_device.m_pud_ca_ready, ctrl->m_device.m_command_ca_ready};
   }
 
  private:
@@ -865,7 +856,7 @@ class PuDConflictUnderTest {
     out["source_active"] = state.source_active;
     out["destination_active"] = state.destination_active;
     out["source_valid"] = state.source_valid;
-    out["owns_bank"] = state.owns_bank;
+    out["sequence_active"] = state.sequence_active;
     return out;
   }
   ControllerUnderTestCpp dut;

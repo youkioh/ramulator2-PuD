@@ -95,16 +95,16 @@ def test_backpressured_movement_does_not_increment_accepted_count():
 @pytest.mark.parametrize(
     ("type_name", "mats", "expected_bits"),
     [
-        ("LC-MOV", (0, 0), 7),
-        ("LC-MOV", (4, 8), 35),
-        ("LC-MOV", (112, 127), 112),
-        ("GB-MOV", (4, 5), 7),
+        ("LC-MOV", (0, 0), 4),
+        ("LC-MOV", (4, 8), 20),
+        ("LC-MOV", (112, 127), 64),
+        ("GB-MOV", (4, 5), 4),
     ],
 )
 def test_completion_accounts_latency_and_exact_bits_at_terminal_recovery(
     type_name, mats, expected_bits
 ):
-    dut = make_dut(hffs_per_mat=7)
+    dut = make_dut()
     stat_name = type_name.lower().replace("-", "")
     send_movement(dut, type_name, mats)
     terminal = tick_until_terminal_pre(dut, type_name)
