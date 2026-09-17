@@ -3,11 +3,12 @@
 Status: Phase 1 and the common execution-model correction complete on 2026-09-16.
 Phase 2 GDDR7 primitive substrate binding and validation are complete.
 Phase 1's frozen DDR4 equivalence evidence remains unchanged.
-G0, the common no-finite-control-engine model and GDDR7 G1/G2/G3/G4/G6 are
-Accepted. G5/G7 remain Open for target trace/hierarchy and GEMV placement
+G0, the common no-finite-control-engine model and GDDR7/HBM3 G1/G2/G3/G4/G6
+are Accepted. G5/G7 remain Open for target trace/hierarchy and GEMV placement
 portability; neither blocks direct-Request primitive binding/validation.
 Phase 2 was explicitly authorized by the user's implementation request.
-HBM3 target policy is unchanged; later target work requires separate approval.
+HBM3 G1/G2/G3/G4/G6 investigation and modeling acceptance are complete.
+HBM3 implementation is not authorized; Phase 3 requires separate user approval.
 Phase-1 baseline: `093af06009f0d3e403fc9e949682ce6722a8ec3a` on
 `feature/pud-multistandard-substrate`.
 
@@ -528,21 +529,45 @@ Invariant: approved HBM3 placement and timing operate through the same common
 substrate, retaining PC/Sid identity, dual-bus/half-cycle legality and full
 maintenance protection. No synthetic Rank and no loss of PC/Sid coordinates.
 
-Entry: Phase 1 and the common execution-model correction complete, and
-HBM3 G1/G2/G3/G4/G6 resolved together. Sequential
-execution after Phase 2 is recommended to exercise the shared boundary on the
-smaller hierarchy first; HBM3 research can precede GDDR7 completion without
-committing executable semantics. Neither target's acceptance accepts the other.
-The supplied two-pages/Channel, 1-KB/page claim is parked in the
-[GDDR7 investigation's evidence ledger](../references/gddr7-pud-modeling-reference.md#supplied-physical-organization-claims).
-Revisit its source and page/PC/subarray relationship here; 16 mats/page or
-subarray remains a hypothesis, not an accepted HBM3 profile.
+Entry: Phase 1, the common execution-model correction and Phase 2 are complete.
+HBM3 G1/G2/G3/G4/G6 are Accepted. Separate implementation authorization
+remains required before any Phase-3 code; modeling acceptance does not grant it.
+The 2026-09-17 investigation is complete at clean source HEAD
+`74b7a59210f7da85191e2066cbe95213a5a75730`; only documentation was changed.
+Recover the [HBM3 reference](../references/hbm3-pud-modeling-reference.md) and
+[Accepted HBM3 policy](../decisions/pud-multistandard-substrate.md#accepted--hbm3-g1g2g3g4g6-2026-09-17).
+GDDR7 acceptance does not select HBM3 geometry, timings or repair policy.
 
-Work units: (1) approved HBM profile and phase/command/tick binding;
-(2) HBM34 issue integration, ACT-like pairing classification and PC/Sid shared
-constraint publication; (3) primitive/ordinary/refresh integration verification.
-Keep HBM34's conventional behavior. Any shared clock-precision correction is
-a separately reviewed G6 change with its own affected-standard regression scope.
+Work units within this cohesive Phase, after separate implementation approval:
+
+1. Correct shared clock-duration precision transport to preserve exact
+   **312.5 ps per HBM3 half-CK tick** through serialization, runtime duration
+   and reporting before using HBM3 PuD physical-time calibration. The 312-ps
+   export is a truncation/reporting artifact, not the selected model. Preserve
+   integer half-tick scheduling semantics and conventional command timestamps.
+   Apply the Accepted G6 maintenance-recovery edges and nRREFD=13 CK correction,
+   with focused conventional validation before dependent PuD timings and review
+   of affected-standard regressions for shared duration consumers.
+2. Add the approved HBM profile and primitive declarations/binding. Generalize
+   the currently DDR4/GDDR7-only profile constructor without changing those
+   profiles; reuse mixed-radix placement and complete BankIdentity.
+3. Integrate common compute reservation, ACT-like HBM34 pairing and addressed-PC
+   shared timing publication. Reuse HBMControllerBase's common candidate/issue
+   seam and invocation-local recovery. Carry incoming conventional nRC/AP/REF
+   recovery into first openings.
+4. Complete LC/GB, ordinary/maintenance interaction and primitive validation
+   through directly constructed Requests. Add the new AllBank PC-scope
+   registration for the Accepted Open-row/AllBank-REF evaluation baseline.
+   Assert zero evaluation RFM; injected RFM is only for structural safety tests.
+   Automatic per-bank refresh evaluation is deferred until issue-based
+   set/cooldown bookkeeping is corrected; command support alone does not
+   validate that policy.
+
+These work units are not separately executable Phase exits. Do not expose a
+partially protected target. Shared dispatcher/default binding methods and
+generalized placement logic currently in DDR4-named files may move while adding
+the third binding where this isolates actual target validation; no filename-only
+cleanup or duplicated execution machinery is needed. G5/G7 remain untouched.
 
 Focused tests: distinguish otherwise-identical banks in different PCs/Sids;
 profile footprint identity; independently calculated half-cycle timelines,
@@ -550,6 +575,12 @@ reception/terminal recovery anchors; row/column occupancy, rising/falling PRE
 pairing including ACT-like PuD commands; the common no-finite-engine policy,
 disjoint PuD pair classes and no-SALP; per-bank and PC-wide maintenance across Sids,
 HBM34 refresh retries/set behavior, exact-once dependent completion.
+Cover each approved G6 recovery edge at its exact boundary and one tick early,
+late AP→per-bank maintenance, conventional ACT→PuD nRC after early AP,
+cross-PC independence, canonical wildcard scopes and zero evaluation RFM.
+Verify duration reporting agrees with calibration without double CK scaling.
+If automatic per-bank refresh is approved, test final-set issue delay under
+priority backpressure; enqueue success is not refresh completion.
 Regression: DDR4 equivalence fixtures, completed GDDR7 binding cases, and
 HBM3/HBM34 Device/edge/refresh/smoke tests; HBM4 tests when shared HBM34 code changes.
 
@@ -600,8 +631,9 @@ separate local evidence above. DDR4 and GDDR7 compute/movement have physical
 protection without finite engine accounting. GDDR7 primitive validation uses
 directly constructed Requests; G1/G2/G3/G4/G6 are Accepted. G5/G7 remain Open
 for target trace/hierarchy representation and GEMV placement portability in
-Phase 4. HBM3 remains conventional-only; its Phase-3 target gates and separate
-implementation authorization remain prerequisites for that binding.
+Phase 4. HBM3 remains conventional-only; its G1/G2/G3/G4/G6 modeling choices
+are Accepted, and Phase 3 can begin after separate implementation approval.
+Implementation is not authorized by this documentation update.
 Use the canonical decision for exact target status.
 Later target implementation requires separate approval.
 Trace/GEMV placement still

@@ -1,4 +1,4 @@
-Status: G0 Accepted; GDDR7 G1/G2/G3/G4/G6 Accepted; G5/G7 Open.
+Status: G0 Accepted; GDDR7 G1/G2/G3/G4/G6 Accepted; HBM3 G1/G2/G3/G4/G6 Accepted; G5/G7 Open.
 
 Question
 
@@ -9,12 +9,12 @@ keeping unresolved physical profiles and timing explicit?
 Decision
 
 **Accepted — G0 common architecture (2026-09-16).** Phase 1's DDR4-preserving
-extraction is complete. The common execution-model amendment below and GDDR7
-G1/G2/G3/G4/G6 are Accepted.
+extraction is complete. The common execution-model amendment below and
+GDDR7/HBM3 G1/G2/G3/G4/G6 are Accepted.
 G5/G7 remain Open for target trace/hierarchy and GEMV placement portability.
-HBM3 target choices are unchanged. These acceptances authorize no production
-implementation; the common finite-engine correction is complete, and GDDR7
-primitive binding requires separate user approval.
+The common finite-engine correction and GDDR7 Phase-2 primitive binding and
+validation are complete. HBM3 modeling acceptance does not authorize production
+implementation; HBM3 Phase 3 requires separate user approval.
 Older DDR4 authorities remain current except for the explicitly superseded
 finite-engine-accounting clauses listed below.
 
@@ -53,8 +53,9 @@ finite-engine-accounting clauses listed below.
    DDR4 defaults, legacy trace bytes and both existing GEMV schedules. Review
    target trace encoding and placement enumeration before their first use.
 
-The first implementation phase is a behavior-preserving DDR4 extraction.
-GDDR7 and HBM3 bindings remain gated. No target may become executable with
+The behavior-preserving DDR4 extraction and GDDR7 binding are complete.
+HBM3 implementation remains gated on separate user approval. No target may
+become executable with
 temporary DDR4 geometry, cycle counts, or a partially protected movement path.
 
 ### Accepted common execution model — no finite control-engine capacity (2026-09-16)
@@ -305,8 +306,108 @@ Ordinary REFab/REFpb and their interaction with PuD remain fully inside the
 evaluated model.
 
 No other G6 blocker was identified in the documented baseline investigation;
-G6 is Accepted. Implementation and primitive validation remain future work
-requiring separate user approval, not additional G6 modeling gates.
+G6 is Accepted. GDDR7 implementation and primitive validation are complete in
+Phase 2; its completion evidence is retained in the plan.
+
+### Accepted — HBM3 G1/G2/G3/G4/G6 (2026-09-17)
+
+**Accepted by the user's explicit instructions on 2026-09-17.** The following
+HBM3 modeling choices authorize no implementation; Phase 3 still requires
+separate user approval. The [HBM3 reference](../references/hbm3-pud-modeling-reference.md)
+owns source inventory, external provenance, calculations and uncertainty.
+The Accepted common no-finite-control-engine and no-SALP policies are unchanged.
+G5/G7 remain Open.
+
+| Gate | Accepted choice | First Phase-3 consumer |
+| --- | --- | --- |
+| G1 | Restrict initial profile to `HBM3_8Gb_8hi`: actual Channel/PC/Sid/BG/Bank identity, sixteen 512×512 mats/subarray, 512 rows/subarray, sixteen aggregate HFF-equivalent positions/mat and 32 groups. One logical 32-bit participating slice, never Sid-as-Chip. | Target profile factory and resolver validation |
+| G2 | Retain physical PRADA phases (9,4,32.992,27.992,35) ns, independently quantized at exact 312.5 ps/half-CK: A*=29, A=13, A_S*=106, A_S=90, N=112 ticks; target PRE=52 ticks. Correct duration precision before using this calibration. | Clock-duration transport, target timing definitions and occurrence/recovery binding |
+| G3 | Shared Channel row/column buses; ACT-like compute and ACT_MOV occupy 3 ticks, rising-only with I+3 pairing. N occupies 1 tick, rising-only; RD_MOV/WR_MOV occupy 2 ticks, rising-only; PuD PRE occupies 1 tick on legal rising/falling edges. | HBM34 reservation/edge integration and PC-scoped shared publication |
+| G4 | Retain common LC/GB sequences, same-Bank/subarray endpoint restrictions, HBM3 read/restore/recovery analogues and tRELOC=1 ns independently quantized to nRELOC=4 half-CK ticks. | Movement occurrence/local timing and topology validation |
+| G6 | Fixed project baseline from `HBM3_8Gb_8hi / HBM3_6400Mbps`, with exact-half-CK duration/reporting, narrowly scoped recovery repairs and nRREFD=13 CK source-consistency correction. Open row policy, AllBank REF evaluation, zero RFM; automatic per-bank evaluation remains gated on issue-based set tracking. | Conventional timing repair, clock reporting, refresh integration and mixed-traffic verification |
+
+**G1 evidence boundary and conventions.** The sixteen 512×512 mats and
+512 rows/subarray are representative older-HBM/HBM2 evidence, not verified
+HBM3 internal geometry. HBM3 mat/subarray/HFF wiring remains unverified. HFF-equivalent=16 is an aggregate logical 32-B-access
+abstraction, not sixteen physical HFFs or sixteen bits/mat in one physical
+internal cycle. The older-HBM source's two internal transfer cycles are not
+modeled as a separate clock domain; no internal-cycle-to-HBM-CK relationship
+is claimed.
+Authoritative explicit PuD placement is `Channel/PseudoChannel/Sid/BankGroup/Bank +
+Row + MatRange + optional Group`, with contiguous Row/512 subdivision.
+Identity group/bit tables and directed `m -> m+1` edges for m=0..14,
+without reverse/wrap/cross-subarray/Bank/Sid/PC paths, are project conventions.
+Retain one-Channel CacheLineInterleave+RoBaRaCoCh as provisional ordinary PA
+compatibility mapping, separately from authoritative explicit PuD placement.
+No realistic GPU PA hash or target trace encoding is selected.
+
+**G2 exact duration and anchors.** One HBM3 simulator tick is **312.5 ps**,
+the exact nominal half-CK at the selected preset. The existing 312-ps runtime/
+export value is an integer-truncation/reporting artifact, not the desired
+physical-time model; the 312-ps compatibility alternative is not selected.
+Phase 3 must correct shared clock-duration precision transport through
+serialization, runtime duration and reporting before using HBM3 PuD
+physical-time calibration. Preserve integer half-tick scheduling semantics:
+this is a duration/reporting correction, not a different clock model.
+Use final-reception anchors and apply
+`issue_gap=interval+occupancy_before-occupancy_after` once, then HBM edge
+legality. Terminal recovery is final PRE reception+nRP. Do not recalibrate
+sensing to preserve aggregate latency. No MIMDRAM ACT-overhead envelope or
+sensitivity case is introduced.
+
+**G3/G4 resource boundary.** Keep full physical-footprint conflicts and no-SALP,
+including PC/Sid in Bank identity. No E, pool or engine admission is introduced.
+Publish invocation PRE nPPD only to the addressed PC and retain Channel
+command occupancy; keep local recovery out of disjoint Bank/PC histories.
+Retain conventional timing scopes and incoming PRE/AP/REF/RFM recovery,
+including conventional ACT→new PuD opening nRC protection after early AP.
+Carry forward uncalibrated PuD activation-current and internal-movement
+external-DQ omissions, without inventing a per-PC engine or shared GB-link owner.
+Mat-selective PRE and LC source-HFF retention remain hypothetical target
+realizations of the common abstraction.
+
+The Accepted movement model uses nominal final-reception intervals:
+LC ACT0→RD1=nRCDRD, RD1→PRE2=nRTP, PRE2→ACT3=nRP,
+WR4→PRE5=nRELOC+nWR; GB source ACT0→RD2=nRAS,
+RD2→WR3=nRELOC, WR3→PRE4=nWR. Both retain applicable latest
+ACT_MOV→PRE/WR_MOV=nRAS and terminal nRP recovery.
+At the Accepted baseline these are 62,18,52,70 ticks for the LC-specific
+edges; 90,4,66 for GB; nRAS=90 and nRP=52. Preserve source occurrence 0
+rather than latest destination ACT for GB's source-read dependency.
+Retain `tRELOC=1 ns`, independently quantized to `nRELOC=4 half-CK ticks`.
+Movement remains within the same Bank/subarray and the directed local GB
+topology above. These timing and physical-path approximations do not calibrate
+HBM3 internal movement circuitry.
+The reference derives parity-aware timelines; these are not implemented tests.
+
+**G6 narrow repair/evaluation boundary.** Preserve the already-present HBM3
+ACT/RD/WR→PREpb/PREab and PREpb/PREab→ACT protections.
+The [HBM3 G6 analysis](../references/hbm3-pud-modeling-reference.md#7-g6-baseline-findings-and-bounded-repair-candidate)
+specifies the Accepted missing-edge matrix: PC PREab→per-bank maintenance;
+Bank AP→per-bank maintenance; all-bank maintenance recovery into subsequent
+maintenance/PREpb; per-bank maintenance recovery into covering all-bank
+commands and same-Bank maintenance/PREpb; missing interbank maintenance
+spacing pairs. Existing duration floors and scopes supply the conservative
+proxy; physical timing completeness is not claimed. Do not import GDDR7's
+blanket AP→PREab full-drain policy.
+
+The preset's nRREFD=8 CK overrides its documented max(3 CK,8 ns) fallback;
+13 CK is the Accepted source-consistency correction matching that fallback
+at 625 ps.
+Other preset values remain bounded repository calibration, not a verified
+vendor timing table. Manual all-bank tests/evaluation inputs must use canonical
+PC-wide wildcard vectors. Preserve RFM plumbing and protect active/reserved/
+recovering PuD against it, but evaluate no RFM-generating manager/plugin or
+manual RFM traffic and verify zero RFM in traces. Injected RFM is only for
+structural safety tests; it does not validate RFM latency. AllBank REF remains evaluated; automatic per-bank REF
+requires issue-based final-set cooldown (and reset handling if mixed with
+REFab) before that policy is evaluated. No retention guarantee under arbitrary
+PuD blockage is claimed.
+
+These Accepted choices define a bounded project evaluation model, not
+vendor-calibrated, JEDEC-complete, retention-proof or silicon-accurate HBM3.
+All reference fidelity limitations remain. Only the modeling gates are resolved;
+implementation still requires separate user approval.
 
 Rationale
 
@@ -360,6 +461,11 @@ evaluated under the baseline's stated fidelity limits.
 
 Evidence
 
+- The user's explicit HBM3 acceptance instructions on 2026-09-17 select
+  G1/G2/G3/G4/G6 above, including exact 312.5-ps half-CK duration. The
+  [HBM3 modeling reference](../references/hbm3-pud-modeling-reference.md)
+  retains the source facts, derivations, alternatives and fidelity limits;
+  acceptance does not authorize HBM3 implementation.
 - [GDDR7 Phase-2 modeling reference](../references/gddr7-pud-modeling-reference.md)
   records the 2026-09-16 G1/G2/G3/G4/G6 investigation, supplied geometry checks,
   timing/resource alternatives and conventional-baseline gaps. It selects no
@@ -392,19 +498,17 @@ Open issues
 ### Open — GDDR7 gates
 
 GDDR7 **G1/G2/G3/G4/G6 are Accepted; G5/G7 are Open**. G0 remains Accepted.
-The common finite-engine code correction is complete. GDDR7 primitive binding
-and validation using directly constructed Requests is the next implementation
-phase, after separate user approval. No ACT-envelope or sensitivity question
-remains open.
+The common finite-engine code correction and GDDR7 Phase-2 primitive binding
+and validation using directly constructed Requests are complete. No ACT-envelope
+or sensitivity question remains open.
 Exact realistic GPU PA hashing is deferred outside
 the provisional G1 mapping; target physical fidelity remains limited as stated.
 
 G5/G7 remain Open for target trace/hierarchy compatibility and GEMV physical
 placement portability, respectively. Neither blocks direct-Request primitive
 binding/validation or depends on engine identity or cross-output grouping.
-HBM3's gates and supplied page
-evidence remain for later investigation; GDDR7 acceptance does not select
-an HBM3 profile. The
+HBM3 G1/G2/G3/G4/G6 are Accepted above; its implementation still requires
+separate approval. The
 [audit gate table](../references/pud-multistandard-substrate-audit.md#6-decision-gates-and-required-information)
-retains first-consumer context; current GDDR7 status is authoritative here.
+retains first-consumer context; current target gate status is authoritative here.
 No energy, SALP, functional payload simulation or new GEMV baseline is proposed.
