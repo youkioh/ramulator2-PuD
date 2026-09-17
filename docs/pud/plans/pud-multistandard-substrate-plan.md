@@ -747,7 +747,7 @@ energy or payload-simulation claim is introduced.
 ### Phase-4 completion evidence
 
 Implemented from clean HEAD `fa2f8d113aaa2d00d45e2a0995d825efe4afdc88` on
-`feature/pud-multistandard-substrate`, without a commit or new modeling
+`feature/pud-multistandard-substrate`, without a new modeling
 decision. Shared global association/routing, versioned trace/layout, per-controller
 admission, packed/fused GEMV generation and replay, and multi-controller
 characterization are complete. The runner retains its D=1 bound; generator/
