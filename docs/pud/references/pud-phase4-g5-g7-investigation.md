@@ -8,9 +8,12 @@ Scope: G5/G7 research and documentation only. No production code, GEMV
 execution, generated baseline or primitive evidence was changed.
 
 This reference records code facts, derivations and investigated alternatives.
-G5/G7 selections were accepted by the user on 2026-09-17; the canonical
-decision owns their normative contracts. The descriptions below reflect those
-selections while preserving alternatives as evidence, not live gates.
+G5 remains Accepted; the user re-Accepted G7 on 2026-09-17 with the selected
+packing/fusion policy. The canonical decision owns status and normative
+contracts. Sections 4–6 retain the earlier one-output placement derivations
+as a comparison case; [section 11](#11-utilization-aware-output-packing-and-request-fusion)
+records packing/fusion evidence and alternatives, including the selected
+fusion-first policy. All other selected G7 contracts remain fixed.
 Phase-4 implementation remains unauthorized pending separate user approval.
 The [canonical decision](../decisions/pud-multistandard-substrate.md) owns
 acceptance; the [plan](../plans/pud-multistandard-substrate-plan.md#phase-4--reusable-operationgemv-integration-and-characterization)
@@ -817,10 +820,11 @@ local timing/resource bindings rather than distributing device arithmetic
 across controllers. The routing extension needs shared-boundary regression
 coverage; a filename change alone supplies none of it.
 
-The user's selections close G5/G7; the [canonical decision](../decisions/pud-multistandard-substrate.md)
-records acceptance. The alternative codecs, resolver facade, shorter domain
-policy and Bank-first enumeration above remain evidence of evaluated trade-offs.
-They are not live modeling gates. The selected frontend budget differs from
+The [canonical decision](../decisions/pud-multistandard-substrate.md) records G5/G7
+acceptance, including packing/fusion closure. Section 11 retains that evidence.
+The alternative codecs, resolver facade, shorter domain policy and Bank-first
+enumeration above remain evaluated alternatives, not live gates.
+The selected frontend budget differs from
 current source behavior and the previous global-one-attempt proposal; the
 selected HBM order replaces the prior Bank-before-BankGroup proposal.
 
@@ -890,3 +894,430 @@ unchanged manifest digests) passed again. All 86 local documentation links/
 anchors and `git diff --check` passed. The earlier source probes and focused
 test results above remain investigation evidence; derivations were not rerun,
 and no implementation or baseline regeneration was performed.
+
+## 11. Utilization-aware output packing and Request fusion
+
+This continuation inspected source HEAD
+`7962a7e5973c80476ab957ae6282f980ed195aeb` on 2026-09-17, starting clean.
+The investigation covered only G7 packing/fusion and its allocation/dependency
+consequences. The user subsequently selected bounded whole-slice packing,
+maximum legal path-bounded fusion before Channel striping, and one physical
+CHAIN per packed output group; the canonical decision records re-acceptance.
+G5 and all other G7 contracts remain fixed. Sections 4–6 retain the earlier
+one-output reservation policy and capacities as a comparison case.
+This section preserves evidence and alternatives; it is not decision authority.
+
+### 11.1 Verified operation and row semantics
+
+The generator reserves a complete row band for each output. Its local-row
+lowerer has no lane-dependent branches: the same symbolic graph and physical
+row bindings apply at every bit position. The
+[physical interpreter](../../../tools/pud_operation_generator/physical_replay.py)
+executes RowCopy, majority and inversion as bitwise operations on row words.
+This establishes independence between positions even for **destructive**
+MAJ3/MAJ5, NOT and NOT_COPY. In particular, NOT_COPY changes its source as
+well as its destination. Independence does not permit separate unsynchronized
+output programs to reuse those whole rows.
+
+| Storage role | Can equal-graph outputs share physical row IDs? | Required invariant |
+| --- | --- | --- |
+| A inputs | Yes, distinct position slices contain distinct matrix rows | Initialize each slice once; merge bits rather than overwrite the row |
+| x_duplicated inputs | Yes, each output slice contains its own copy of x | Logical duplication remains; this is not shared-vector broadcast or added copy traffic |
+| Product/primary rows | Yes | Execute one whole-row MUL graph for all participating slices |
+| Accumulation/result rows | Yes | All slices use the same stage and alternating row bindings; keep each output's residual positions separate |
+| Constant rows | Yes | Same constants/format, initialized across the row; lowerer protects them |
+| Micro-operation temporary rows | Yes | Identical graph/liveness and synchronized stages; no allocator redesign |
+| Reduction/movement workspaces | Yes | Populate every slice's required Group copies before shared ADD; preserve required suffixes before reuse |
+
+The [controller validator](../../../src/ramulator/controller/pud_request_validation.cpp)
+requires whole-row compute footprints, equal operand MatRanges, common
+Bank/subarray and distinct majority row roles. There is no compute mask,
+sub-mat ownership or Group-scoped compute. Overlapping packed outputs
+therefore cannot become independently executing Requests on shared mats.
+
+Spatial packing saves storage by placing more values in the same row.
+Request fusion replaces several compatible physical invocations by one.
+Controller concurrency concerns independently issuable Requests, footprints and
+resources. Neither of the first two creates new concurrency; wider fusion
+can reduce the number of independent chains and widen protected footprints.
+
+### 11.2 Bounded packing legality and alternatives
+
+For **H <= N <= W=512, N mod H=0**, equal-N outputs of one format/schedule can
+use p=floor(W/N) whole slices per mat. Slice s occupies ordered positions
+[s*N,(s+1)*N); its Group origin is s*N/H. A position is interpreted through
+the profile's group-position table, not a scalar PA or trace Column field.
+All three selected profiles have identity position maps.
+
+This is the bounded rule selected in the canonical decision, supported by the
+current primitive semantics subject to stage synchronization below.
+N alignment alone is insufficient: slice origins must also be Group-aligned;
+rows, constants, graph and control sequence must match. Equal N is a sufficient
+grouping restriction naturally satisfied by GEMV. Unequal lengths are not
+proven safe merely by disjointness and are outside the selected policy.
+
+| N | Outputs/mat p, all three targets | Useful positions/mat | Local ADD stages for H=4 / 8 / 16 |
+| --- | ---: | ---: | --- |
+| 128 | 4 | 512 | 5 / 4 / 3 |
+| 256 | 2 | 512 | 6 / 5 / 4 |
+| 512 | 1 | 512 | 7 / 6 / 5 |
+| 80 | 6 | 480 | 5 / 4 / 3, including the non-power-of-two prefold |
+| 192 | 2 | 384 | 6 / 5 / 4, including the prefold |
+| 240 | 2 | 480 | 6 / 5 / 4, including the prefold |
+
+For non-divisors of 512, leave W-p*N positions unused, with arbitrary contents;
+do not initialize them as padded zero terms or include them in readout.
+A final partially populated mat/range likewise has inactive slices, not
+additional GEMV outputs. Whole-row computation may change unused cells.
+
+More general assignment of whole Groups to noncontiguous slots can use the
+existing arbitrary source/destination Group selectors and preserve within-Group
+position order. For equal N with each output wholly in one mat, it cannot beat
+floor(W/N), and adds mapping complexity without a capacity benefit. Using
+otherwise stranded tails by splitting an output over extra mats would change
+the existing fragment/reduction graph, particularly FP8 grouping; it is not
+just a placement substitution. Mixed-N batching, sub-H slices, padding,
+cross-position shuffles or masking are not justified by this proof.
+
+The selected N>512 policy retains the existing K-mat, D-domain partition;
+it does not pack a new output into a partial last mat merely
+because some columns are unused. The other output's graph and destructive
+whole-row updates may differ. Cross-range fusion can still be considered
+separately under the exact compatibility conditions below.
+
+### 11.3 Physical Request fusion envelope
+
+All rows in this table mean the same **external row IDs**, with identical
+ordered operand roles, profile/association, Bank/subarray, ready dependency
+frontier and physical phase semantics. Matching opcode alone is insufficient.
+The inclusive union must be a contiguous MatRange containing no incompatible
+live storage; never span a hole holding another computation.
+
+| Primitive | Existing fusion support | Limitation |
+| --- | --- | --- |
+| RowCopy | One Request copies the same source/destination rows over the union range | Same destination list and order; does not copy between mats |
+| MAJ3 | One Request applies the same three-row destructive majority in each mat | Pairwise-distinct roles; every slice/mat must be at the same graph stage |
+| MAJ5 | Same for five rows | Same destructive-liveness constraint |
+| NOT | One Request inverts the same row across the range | No preservation of other active slices at a different stage |
+| NOT_COPY | One Request inverts source and copies to destination across the range | Source mutation matters; identical roles and readiness required |
+| LC-MOV | One Request copies one common source Group to one common destination Group, on the same range of mats | One bit-plane row pair and one Group pair only; no per-mat Group selector or multi-Group instruction |
+| GB-MOV | One directed singleton source/destination pair only | Cannot fuse independent edges, widen endpoints or move multiple Groups/bit planes in one Request |
+
+Thus compute can be shared across slices **inside** a mat and compatible
+adjacent mats. LC cannot merge slice0's group16->0 with slice1's group48->32
+into one Request (DDR4 N=128 first stage), even though the operation is
+conceptually the same. Those pairs can each be broadcast across adjacent
+mats with identical slice placement. They remain separate Requests from each
+other. GB remains separate per edge, bit plane and Group. H ordered positions
+are copied position-for-position; no permutation is supplied.
+
+DDR4 compute and LC may span chip boundaries under the existing range model.
+GB may not: the eight 16-mat paths remain disconnected. Path-bounded fusion
+is the selected baseline software policy, not a new hardware restriction on
+compute/LC. The user excluded cross-chip compute/LC fusion from this baseline.
+
+For N>W, initial MUL ranges may fuse if their union and bindings match.
+IntraMatFirst full-mat local trees may fuse only over contiguous compatible
+full mats; partial-tail stages often break such runs. InterMatFirst forward
+fold destinations in distinct K-mat reservations are normally K mats apart,
+so their ADDs cannot simply become one range over intervening live mats.
+Both schedules retain singleton GB edges and exact numerical fold order.
+There is no blanket Request-count division by the number of outputs.
+
+### 11.4 Reduction isolation and schedule proof
+
+For N<=W, K=D=1: both existing schedules execute the same local tree and have
+no GB phase. Relocate each output's existing local lane j to b+j, b=s*N.
+Keep this relocation invariant at every stage:
+
+1. Shared MUL computes independent products in all slices.
+2. For each existing local reduction stage, perform its bit-plane/Group LC
+   copies for **every** slice, translating both offsets by b. Each copy stays
+   inside that slice and preserves its ordered H positions.
+3. Execute the existing ADD graph once over the shared rows/range. In every
+   live lane it sees precisely that output's two required values. Other lanes
+   may become garbage but cannot enter a later live read.
+4. For a non-power-of-two prefold, t=2^floor(log2(N)), e=N-t. Copy each slice's
+   high e terms to its low movement lanes, perform shared ADD, then restore
+   [b+e,b+t) from the previous rows with slice-specific LC. Finish **all**
+   restores before another shared arithmetic stage. Continue the original
+   halving tree down to H.
+5. Read only [b,b+H) at the resulting rows. Each output still has H residuals
+   per domain, not one combined residual vector for the packed mat.
+
+Induction on these steps gives the same per-output scalar graph as separate
+execution for each target H. Inactive/poisoned positions never enter a valid
+source Group or host readout. All six actual lowered ADD/MUL graphs obey the
+column-wise invariant, including their destructive intermediates.
+
+Running a complete first-output reduction and then a complete second-output
+reduction on those same physical rows is unsafe: the first whole-row ADDs
+also overwrite the second slice's live products/intermediates. A per-stage
+rendezvous or one composed stream is required; disjoint position ranges alone
+are not an execution isolation boundary.
+
+For multi-mat outputs, the existing InterMatFirst W-value forward fold and
+IntraMatFirst H-residual forward fold remain unchanged. Fusion must preserve
+each output's original sink, Group sources and reduction operand order.
+There is no cross-output GB reduction. Repacking those graphs into narrower
+mat fragments is outside the proven single-mat candidate.
+
+### 11.5 Dependency representation and consumers
+
+The selected **packed output group** is a set of outputs in one
+Channel/Bank/subarray, with shared row bindings and one stage-synchronized
+physical Request stream. Members share a graph; their LC Group operands
+differ, so “identical Request sequence per member” must not be read literally.
+The composed stream includes all required member moves. The investigation's
+provisional “tile” term is not the selected name.
+
+| Representation | Consequence |
+| --- | --- |
+| One CHAIN per packed output group | Selected: current linear CHAIN scheduler already provides one outstanding Request, exact-once callback advancement and deterministic retry; no new runtime join state |
+| Per-output CHAINs sharing/fanning out a physical Request | Not selected: needs a multi-owner readiness join, single-submission ownership, completion fan-out and retry arbitration; current scheduler has none |
+| Per-output CHAINs with duplicated Requests on shared rows | Incorrect in general: destructive stages repeat or interleave and corrupt live values |
+| A separate non-output integer CHAIN for the composed stream plus output metadata | Same simple mechanism as the first option; no new frontend opcode or target/engine identity is necessary |
+
+A packed output group's CHAIN completes a physical Request once; metadata can
+associate that completion with several outputs. The group is not a finite
+engine, controller identity, new primitive or cross-Channel synchronization
+object. Physical coverage and routing remain in the Request. No packed output
+group spans Channels/Banks/subarrays.
+
+Required future layout/replay changes, still unimplemented:
+
+- Store each output ID, group membership, position/Group origin, term interval, domain, sink
+  mat/result rows and residual positions, with the owning physical chain and
+  checkpoint. Keep logical ADD/MUL work separate from emitted physical counts.
+- Initialize shared A/x rows by merging slices; initialize constants/workspace
+  once. Current execute_trace overwrites row words once per output.
+- Map each completion index to a **list** of output/domain readouts; current
+  events[index]=(output,...) silently overwrites coincident events. Snapshot
+  every member before reused rows can be overwritten.
+- Configure one frontend checkpoint per physical chain. Current frontend
+  rejects duplicate checkpoint chain IDs; current runner expects distinct
+  per-output chain IDs. Derive output-specific reporting from group membership
+  without counting callbacks/Requests multiple times. Common completion
+  times may be attributed to several outputs but are not independent latency
+  samples unless explicitly reported as output-weighted observations.
+- Keep the accepted per-controller admission budget and same-controller retry
+  order. Static stream membership/order is fixed before execution; no dynamic
+  fusion, load balancing or new dependency engine is needed.
+
+This selected dependency representation uses G5's existing CHAIN grammar and
+dependency-only meaning; the frontend mechanism needs no shared-Request join.
+
+### 11.6 Rows, capacity and metrics
+
+For equal-N packed slices using the selected rule, the same row IDs serve
+all p members. A, duplicated x, products/results, all three macro workspaces,
+constants and micro-temporaries share rows spatially. They do not require p
+copies of F rows. At D=1:
+
+```text
+F_group_per_mat = 2*w + 3*w + C + T = 60 / 64 / 59 rows
+```
+
+for INT8 / E4M3 / E5M2. A J-mat packed output group occupies J*F mat-rows,
+with up to J*p outputs. It never occupies just F rows worth of storage across
+all mats; charging J*p*F mat-rows double-counts shared storage.
+
+With J dividing P and completely filled groups:
+
+```text
+group_capacity = channels * B * S * C_s * (P/J) * floor(R/F)
+output_capacity = group_capacity * J * p
+```
+
+For the evaluated narrower-width alternatives, if J does not divide P and
+shorter tail groups are refused, replace P/J by floor(P/J); shorter compatible
+groups can recover that tail. The selected policy maximizes legal width within
+P and does not split ranges merely to activate additional Channels.
+For the simple per-mat packing limit, output capacity is the section-4 K=1
+capacity multiplied by p. At N=128 (p=4), aggregate output capacity is:
+
+| Scope | INT8 | E4M3 | E5M2 |
+| --- | ---: | ---: | ---: |
+| DDR4 one Channel, hypothetical opt-in packed policy | 8,912,896 | 8,388,608 | 8,912,896 |
+| GDDR7 x32 device, four Channels | 2,097,152 | 2,097,152 | 2,097,152 |
+| HBM3 selected stack, sixteen Channels | 8,388,608 | 8,388,608 | 8,388,608 |
+
+These are fully occupied storage limits, not chain counts, active mat counts
+or latency predictions. N=256 multiplies K=1 capacity by two; N=512 by one.
+For N>512 the selected policy leaves section-4 K/D/F accounting intact.
+Multiple domains still belong to one output; packing does not multiply D.
+D*H residual values/output and the existing host reduction order remain fixed.
+
+Report separately: useful element positions/mat-row; occupied mat-rows and
+stored outputs; physical Requests by opcode; controller/chain concurrency;
+and PuD in-memory phase latency. Fusion reduces some Request and command
+counts but also changes footprint width, available chains, bus contention,
+refresh interaction and scheduling. No proportional latency reduction follows.
+
+### 11.7 Connected paths and M=2048,N=128
+
+| Profile | H | Mats/path P | Outputs/mat | Outputs in a filled path | Useful input element positions/path |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| DDR4 | 4 | 16 | 4 | 64 | 8,192 |
+| GDDR7 | 8 | 32 | 4 | 128 | 16,384 |
+| HBM3 | 16 | 16 | 4 | 64 | 8,192 |
+
+These exact position occupancies are achievable with the existing primitive
+semantics and staged stream above, on both schedules. They describe input/
+product storage; live reduction occupancy naturally shrinks down to H per
+output. Packing does not imply that one Request reduces an entire path into
+one output. No GB is needed for these independent single-mat dot products.
+DDR4 has eight such separate paths per Bank/subarray; filling them does not
+create a cross-chip GB edge.
+
+M=2048 requires 512 occupied mats and one row band with the selected rule,
+regardless of format. The user selected **maximum legal fusion within one
+connected path first, then Channel striping**. Successive fused ranges map to
+Channel i % C, and placement within each Channel follows the fixed hierarchy.
+A small workload leaves Channels idle rather than splitting a legal range.
+Fusion-width/Channel-utilization sensitivity is outside the baseline.
+
+The previously derived full-path case therefore describes the selected
+structural placement (DDR4 is a separate future packed characterization mode):
+
+| Selected fusion-first placement, M=2048,N=128 | DDR4 | GDDR7 | HBM3 |
+| --- | ---: | ---: | ---: |
+| Outputs/mat; outputs/fused range | 4; 64 | 4; 128 | 4; 64 |
+| Mats/fused range | 16 | 32 | 16 |
+| Fused ranges / physical CHAINs | 32 | 16 | 32 |
+| Channels used | 1 | 4 | 16 |
+| Fused ranges/Channel | 32 | 4 | 2 |
+| Global Banks used | 16 | 16 | 32 |
+| Connected paths touched | 32 | 16 | 32 |
+
+All use subarray0/band0. DDR4 uses two separate chip paths per Bank.
+GDDR7 uses four Banks per Channel; HBM3 uses one Bank in each of its two PCs
+per Channel, with Sid0/BG0/Bank0. Both maximum path fusion and all configured
+Channels are utilized in this workload; no timing result follows.
+
+**Unselected alternative, retained for comparison:** stripe packed mat units
+across global Banks before widening ranges. The following table and its
+per-opcode counts below describe that alternative, not the selected baseline.
+
+| Structural quantity under packed-mat striping, then path-bounded fusion | DDR4 | GDDR7 | HBM3 |
+| --- | ---: | ---: | ---: |
+| Channels used | 1 | 4 | 16 |
+| Global Banks used | 16 | 64 | 512 |
+| Occupied mats per used Bank | 32 | 8 | 1 |
+| Connected path instances touched (one subarray each) | 32 | 64 | 512 |
+| Mats per fused stream J | 16 | 8 | 1 |
+| Outputs per stream | 64 | 32 | 4 |
+| Physical streams U | 32 | 64 | 512 |
+| Used path-position fraction | 100% | 25% | 6.25% |
+
+DDR4 uses two chip paths/Bank, GDDR7 eight mats in each 32-mat path, and HBM3
+one mat in each used 16-mat path. HBM3 uses both PCs, all BG/Bank values and
+Sid0: 32 Banks/Channel in the fixed Channel -> PC -> BG -> Bank -> Sid order.
+All use subarray0/band0; none needs SALP. Mat-row utilization is 100% in every
+occupied mat despite different whole-path occupancy.
+
+The selected full-path-first case uses fewer Banks on GDDR7/HBM3 than this
+unselected packed-mat-striping alternative. Path fullness, Channel utilization
+and maximum Bank exposure are distinct objectives. The user selected fused
+ranges as the Channel-striping unit without changing hierarchy order.
+Neither placement is established as globally optimal.
+
+For N=128 let L=log2(128/H), p=4, and a_c/m_c be the actual lowered ADD/MUL
+counts of compute opcode c. Independent outputs need
+
+```text
+compute_c = 2048 * (m_c + L*a_c)
+LC = 2048 * 8 * (128/H - 1), GB = 0
+```
+
+Packing alone changes the compute multiplier to 512 but leaves LC unchanged:
+each output still requires its distinct Group pairs. Fusing J adjacent
+identically packed mats changes it to U and LC to U*p*8*(128/H-1).
+For partial membership, use the actual Group-copy membership; do not invent
+dummy outputs to fill a group. These formulas cover all formats via a_c/m_c.
+
+Concrete **INT8 structural counts**, independent outputs -> packed mats only
+-> packed-mat striping with path-bounded fusion as tabulated above:
+
+| Opcode | DDR4 | GDDR7 | HBM3 |
+| --- | --- | --- | --- |
+| RowCopy | 937,984 -> 234,496 -> 14,656 | 899,072 -> 224,768 -> 28,096 | 860,160 -> 215,040 -> 215,040 |
+| MAJ3 | 339,968 -> 84,992 -> 5,312 | 321,536 -> 80,384 -> 10,048 | 303,104 -> 75,776 -> 75,776 |
+| MAJ5 | 208,896 -> 52,224 -> 3,264 | 190,464 -> 47,616 -> 5,952 | 172,032 -> 43,008 -> 43,008 |
+| NOT | 28,672 -> 7,168 -> 448 | 28,672 -> 7,168 -> 896 | 28,672 -> 7,168 -> 7,168 |
+| NOT_COPY | 208,896 -> 52,224 -> 3,264 | 190,464 -> 47,616 -> 5,952 | 172,032 -> 43,008 -> 43,008 |
+| LC-MOV | 507,904 -> 507,904 -> 31,744 | 245,760 -> 245,760 -> 30,720 | 114,688 -> 114,688 -> 114,688 |
+| GB-MOV | 0 -> 0 -> 0 | 0 -> 0 -> 0 | 0 -> 0 -> 0 |
+
+Both schedules coincide for this N. The **selected full-path-first case** has
+U=32/16/32: compute counts are U times 842/796/750, and LC counts are
+31,744/7,680/7,168. These are the existing derivations for that alternative,
+now selected; they are not generated target baselines or measured speedups.
+DDR4 compute/LC could technically span the two adjacent occupied chip paths,
+but the baseline explicitly excludes that further fusion. GB cannot cross
+the chip boundary under either grouping.
+
+### 11.8 Selection closure and compatibility
+
+The canonical decision records the user's final selections: bounded equal-N
+whole slices; maximum legal fusion within one connected path before Channel
+striping; separate DDR4 chip paths; and one physical CHAIN per synchronized
+packed output group with output-specific metadata. The alternatives above
+remain evidence, not live gates. No primitive or arithmetic proof was reopened
+during this documentation closure.
+
+All 14 frozen DDR4 workloads retain the legacy generator, trace/layout/CHAIN
+artifacts and exact behavior. Later packed DDR4 characterization requires an
+explicitly separate mode/artifact identity and may not overwrite the baseline.
+The storage/count derivations for packed DDR4 are conditional characterization
+evidence, not a change to frozen results or authorization to run a new baseline.
+New-target Phase-4 GEMV consumes the selected packing/fusion policy.
+
+G5's physical grammar needs no Group-slice mask, multi-edge GB opcode or CHAIN
+semantic extension. Layout v5 requires group membership, residual positions
+and physical checkpoint ownership; the selected G7 contract supplies these
+consumers of G5's versioned representation. Primitive geometry/timing evidence
+remains unchanged. Phase-4 implementation still requires separate user approval.
+
+### 11.9 Continuation validation
+
+Read-only commands used the checkout's existing virtual environment with
+PYTHONDONTWRITEBYTECODE=1, PYTHONPATH=python:., LD_LIBRARY_PATH=.; pytest used
+-p no:cacheprovider. No persistent packing generator, trace or baseline was
+created.
+
+- 216 transient word-level checks replayed actual lowered primitives with
+  H=4/8/16, all six profiles, N=80/128/192/240/256/512 and two poison patterns.
+  Each original LC pair was translated independently into every equal slice;
+  each compute stage ran once. Residual folding matched the existing scalar
+  graph and all A/x/constant rows were preserved. H substitution was a local
+  algebraic probe, not new-target generation or controller execution.
+- 568 existing tests passed: GEMV composition/replay, canonical Request
+  locations, DDR4 compute MatRanges and movement timing, GDDR7/HBM3 locations.
+  Command inputs were tools/pud_gemv_generator/test_integration.py,
+  tests/unit_tests/test_pud_request_locations.py,
+  tests/device_timings/test_pud_compute_ranges.py,
+  tests/device_timings/test_ddr4_pud_movement.py, and both target location suites.
+  Range tests validate one invocation over singleton, cross-chip and full
+  ranges; invalid Group shapes, unequal ranges and widened GB endpoints are
+  rejected. The simulator tests have no numerical payload; word-level replay
+  supplies the functional evidence separately.
+- 64 additional tests passed, 226 deselected: target compute/LC range
+  timelines and illegal movement, plus frontend checkpoint recovery,
+  admission retry/fairness and ranged local reduction. Selected from
+  tests/device_timings/test_{gddr7,hbm3}_pud{,_movement}.py and
+  tests/unit_tests/test_pud_gemv_frontend.py. These validate existing primitive
+  and linear-CHAIN mechanisms, not an implemented packed frontend/layout.
+- All 14 frozen DDR4 trace/layout pairs serialized **in memory only** were
+  byte-identical. All six previously recorded manifest digests and their
+  827 artifact entries verified unchanged, including command traces, CHAIN
+  CSVs and primitive evidence. No writer, capture driver or new performance
+  run was invoked for these comparisons.
+- All 91 local documentation links/anchors and git diff --check passed.
+
+At packing/fusion acceptance closure, all 14 in-memory DDR4 trace/layout byte
+comparisons, the six unchanged manifest digests and their 827 artifact entries,
+91 local documentation links/anchors and git diff --check passed again.
+Primitive legality, arithmetic proofs and the earlier test suites were not
+rerun; this closure changed documentation only. No packing/fusion implementation
+or baseline regeneration was performed.

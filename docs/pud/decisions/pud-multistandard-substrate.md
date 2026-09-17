@@ -11,9 +11,9 @@ Decision
 **Accepted — G0 common architecture (2026-09-16).** Phase 1's DDR4-preserving
 extraction is complete. The common execution-model amendment below and
 GDDR7/HBM3 G1/G2/G3/G4/G6 are Accepted.
-G5/G7 are Accepted below for target trace/hierarchy and GEMV placement
-portability. Phase-4 implementation remains unauthorized until separate user
-approval.
+G5 remains Accepted. G7 is re-Accepted with utilization-aware GEMV packing
+and physical Request fusion, including their allocation/dependency contracts
+below. Phase-4 implementation remains unauthorized until separate user approval.
 The common finite-engine correction and GDDR7 Phase-2 primitive binding and
 validation are complete. HBM3 Phase-3 primitive implementation and validation
 are also complete following separate user authorization.
@@ -455,15 +455,70 @@ deterministic arbitration when multiple ready chains target the same
 controller. Failed admission still consumes that controller's attempt.
 The single-controller DDR4 budget and frozen behavior remain unchanged.
 
-### Accepted G7 — profile-driven static GEMV placement (2026-09-17)
+### Accepted G7 — static GEMV placement, packing and fusion (2026-09-17)
 
-**Accepted by the user's explicit selections on 2026-09-17.** One logical
-output/domain/lane interface lowers to the selected profile's hierarchy through
-Bank + Row + inclusive MatRange + optional Group. Preserve the existing
-InterMatFirst/IntraMatFirst algorithms, arithmetic/precision, x duplication,
-per-output CHAIN semantics, designated rows, sequential domains and operation
-lowerer. Each output remains within one Channel/Bank/subarray; use the existing
-capacity allocation and reject excess capacity early.
+**Re-Accepted by the user's explicit packing/fusion selections.** The
+[packing/fusion investigation](../references/pud-phase4-g5-g7-investigation.md#11-utilization-aware-output-packing-and-request-fusion)
+retains primitive legality, arithmetic proofs, capacities and alternatives.
+The selected policy below applies to new-target Phase-4 GEMV; the frozen
+legacy DDR4 generator remains unchanged.
+
+**Packing and synchronization.** For H <= N <= 512 with N % H == 0, use
+outputs_per_mat=floor(512/N). Pack equal-N outputs into contiguous,
+Group-aligned position ranges in one mat. Leave unused positions unused;
+add no padding, masking, cross-position shuffle or mixed-N packing.
+For N>512 retain existing multi-mat placement, including an unused partial
+final mat tail; do not place another output in that tail.
+
+Outputs sharing physical rows execute arithmetic stages together. Complete
+every member's required movement and preceding-stage suffix restoration before
+executing the next shared arithmetic stage once. Preserve the existing
+non-power-of-two prefold order: movement -> shared ADD -> suffix restoration,
+with every member restored before the next arithmetic stage. Never execute
+one member's whole reduction before another member sharing those rows.
+Each output retains its own H residual positions and numerical result.
+
+**Request fusion.** Maximize legal fusion within one connected path.
+RowCopy, MAJ3, MAJ5, NOT and NOT_COPY may use one inclusive MatRange over
+contiguous compatible mats only when ordered row operands, stage, dependencies
+and physical semantics match. LC-MOV keeps distinct Group pairs as separate
+Requests; one common source/destination Group pair may fuse across a compatible
+contiguous range. GB-MOV remains one directed singleton mat pair; no multi-edge
+primitive is introduced. Use the profile's 16/32/16-mat path as the fusion
+boundary for DDR4/GDDR7/HBM3. Keep DDR4's eight chip paths separate even where
+compute/LC abstractions could span them.
+
+**Fusion before Channel striping.** Form maximally legal fused ranges first,
+then assign successive ranges round-robin to Channels: range i -> Channel
+i % C. Within each Channel, advance through the fixed hierarchy order below.
+Do not narrow or split a legal fused range merely to activate more Channels;
+leave excess Channels idle when there are fewer ranges than Channels.
+Small-workload fusion-width/Channel-utilization sensitivity is deferred.
+This baseline uses all Channels whenever enough fused ranges exist; it makes
+no claim of globally optimal latency.
+
+**Packed output group and dependency ownership.** Use one physical CHAIN per
+synchronized packed output group. This is software/layout grouping, not a
+hardware engine, controller identity or new primitive. Do not share a physical
+Request among independent CHAINs. Complete each physical Request exactly once;
+multiple logical outputs may observe the same completion through metadata.
+For every output retain output ID, position/Group origin, domain, sink/result
+rows, residual positions and physical CHAIN/checkpoint ownership. CHAIN
+remains dependency-only. Snapshot all member readouts before workspace reuse.
+
+**Capacity and reporting.** A/x rows, products/results, workspaces, constants
+and temporary rows use common physical row IDs across packed members; do not
+charge a full row band per member. Use the reference's derived row/capacity
+accounting and reject excess capacity early. Report useful-position utilization,
+occupied mat-rows, logical outputs stored, physical Requests by opcode,
+active CHAINs/controllers and PuD in-memory phase latency separately.
+Request-count reduction does not establish proportional speedup.
+
+Logical output/domain/lane identity still lowers to hierarchy through Bank +
+Row + inclusive MatRange + optional Group. Preserve InterMatFirst/IntraMatFirst
+arithmetic graphs, precision, x duplication, reduction semantics, sequential
+domains, designated-row roles, arithmetic liveness and the operation lowerer.
+Each output and packed output group remains within one Channel/Bank/subarray.
 
 Use each target profile's H directly: DDR4 H=4, GDDR7 H=8, HBM3 H=16.
 Use its connected path: respectively 16, 32 and 16 mats. DDR4 has eight x8
@@ -472,7 +527,8 @@ Bank/subarray under one shared Channel interface. Channel aggregation
 multiplies independent output placements and controller resources, never one
 output's connected reduction extent or mats/Bank.
 
-Static placement order, fastest to slowest:
+Static placement order for successive fused ranges, fastest to slowest
+(the legacy DDR4 path retains its existing unfused traversal):
 
 | Target | Accepted order |
 | --- | --- |
@@ -480,8 +536,12 @@ Static placement order, fastest to slowest:
 | GDDR7 | Channel -> Bank -> range slot -> subarray -> row band |
 | HBM3 | Channel -> PseudoChannel -> BankGroup -> Bank -> Sid -> range slot -> subarray -> row band |
 
-This is a deterministic maximum-parallelism baseline, not a claim of global
-optimality. HBM3 BankGroup-before-Bank replaces the earlier investigated order.
+This is a deterministic fusion-first baseline with Channel striping.
+HBM3 BankGroup-before-Bank remains fixed. For M=2048,N=128, full-path fusion
+and full Channel utilization coexist: DDR4 has 32 fused 16-mat ranges on one
+Channel, GDDR7 has 16 fused 32-mat ranges across four Channels, and HBM3 has
+32 fused 16-mat ranges across sixteen Channels. DDR4 here describes the
+separate packed characterization policy, not a change to its legacy baseline.
 No cross-Channel movement, SALP, finite engine limit, padding, shuffle or
 arithmetic/liveness redesign is introduced.
 
@@ -506,11 +566,20 @@ command counts, total issued-command counts and completed PuD occurrence
 counts separate. Aggregate counts across controllers without summing elapsed
 controller cycles.
 
+Evaluation scopes, multi-Channel routing/admission, H, connected paths,
+Channel-first hierarchy order, refresh policies and all exclusions above are
+not reopened. Preserve all 14 frozen DDR4 workloads exactly: legacy placement,
+trace/layout bytes, Request counts, CHAIN CSVs and cycles. Do not enable packing
+on the legacy generator path or reinterpret its artifacts. Any later packed
+DDR4 characterization must use an explicitly separate mode/artifact identity
+and must not overwrite the frozen baseline.
+
 The [placement evidence](../references/pud-phase4-g5-g7-investigation.md#5-g7-logical-placement-interface)
-retains capacity derivations, schedule mappings and alternatives. These
-acceptances authorize documentation only. **Phase-4 implementation remains
-unauthorized until separate user approval.** No baseline regeneration or
-new target GEMV baseline is authorized.
+retains the earlier one-output capacity derivations and schedule mappings as
+a comparison case; section 11 records the packing/fusion evidence and selected
+alternative. G7 has no remaining packing/fusion gate. **Phase-4 implementation
+remains unauthorized until separate user approval.** No baseline regeneration
+or new target GEMV baseline is authorized.
 
 Rationale
 
@@ -564,9 +633,13 @@ evaluated under the baseline's stated fidelity limits.
 
 Evidence
 
-- The user's explicit Phase-4 selections on 2026-09-17 accept G5/G7, including
+- The user's Phase-4 selections on 2026-09-17 accepted G5/G7, including
   evaluation scopes, per-controller frontend admission, HBM3 placement order
-  and runner refresh policy. The [Phase-4 investigation](../references/pud-phase4-g5-g7-investigation.md)
+  and runner refresh policy. After the narrow packing/fusion investigation,
+  the user's explicit closure selections re-Accept G7 with whole-slice packing,
+  path-bounded fusion before Channel striping, and one physical CHAIN per
+  packed output group, preserving all other selections. The
+  [Phase-4 investigation](../references/pud-phase4-g5-g7-investigation.md)
   retains source facts, derivations, compatibility checks and alternatives;
   implementation requires separate approval.
 - The user's explicit HBM3 acceptance instructions on 2026-09-17 select
@@ -604,8 +677,9 @@ Evidence
 
 Open issues
 
-G5/G7 are resolved. Implementation and its validation require separate user
-approval under the [Phase-4 plan](../plans/pud-multistandard-substrate-plan.md#phase-4--reusable-operationgemv-integration-and-characterization).
+G5/G7 are Accepted, including packing/fusion and the DDR4 compatibility boundary.
+Phase-4 implementation and its validation require separate user approval under
+the [Phase-4 plan](../plans/pud-multistandard-substrate-plan.md#phase-4--reusable-operationgemv-integration-and-characterization).
 Exact realistic GPU PA hashing remains deferred outside the provisional G1
 mapping; physical-fidelity limitations remain as recorded in the references.
 No energy, SALP or functional payload simulation is selected by G5/G7.

@@ -5,9 +5,10 @@ Phase 2 GDDR7 primitive substrate binding and validation are complete.
 Phase 3 HBM3 primitive substrate binding and validation are complete on 2026-09-17.
 Phase 1's frozen DDR4 equivalence evidence remains unchanged.
 G0, the common no-finite-control-engine model and GDDR7/HBM3 G1/G2/G3/G4/G6
-are Accepted. G5/G7 are Accepted for target trace/hierarchy and GEMV placement
-portability. Phase-4 implementation remains unauthorized until separate user
-approval; completed primitive evidence remains unchanged.
+are Accepted. G5 remains Accepted and G7 is re-Accepted with utilization-aware
+packing and path-bounded Request fusion before Channel striping. Phase-4
+implementation remains unauthorized until separate user approval; frozen DDR4
+artifacts and primitive evidence remain unchanged.
 Phase 2 was explicitly authorized by the user's implementation request.
 HBM3 G1/G2/G3/G4/G6 investigation and modeling acceptance are complete.
 Phase 3 was separately authorized by the user's implementation request.
@@ -639,11 +640,14 @@ pre-audit captures remain separately recorded within the new Phase-3 tree.
 Investigation completed on 2026-09-17 at source HEAD
 `1072848f5c3360f12caa7921cca9fb4d3aabada5`; see the
 [Phase-4 evidence and alternatives](../references/pud-phase4-g5-g7-investigation.md).
-G5/G7 are now Accepted in the
+G5 remains Accepted in the
 [canonical decision](../decisions/pud-multistandard-substrate.md#accepted-g5--common-trace-and-global-channel-identity-2026-09-17).
+G7 is re-Accepted with the final packing/fusion contract; its
+[evidence and alternatives](../references/pud-phase4-g5-g7-investigation.md#11-utilization-aware-output-packing-and-request-fusion)
+remain in the reference.
 Only documentation is authorized; **Phase-4 implementation requires separate
 user approval**. Preserve all frozen DDR4 artifacts and target primitive
-evidence; no baseline regeneration is authorized by this acceptance.
+evidence; no baseline regeneration is authorized.
 
 Invariant: the common operation/lowering, both GEMV schedules and dependency
 machinery execute the selected profiles with global Channel identity and
@@ -652,9 +656,23 @@ DDR4 Channel/rank, one GDDR7 x32 device represented by four independent x8
 Channel controllers, and one selected HBM3 stack represented by sixteen HBM34
 controllers, each containing two PseudoChannels.
 
-Resolved entry contracts are G5 global association/codec and per-controller
-frontend admission, and G7 profile H/path placement and refresh. Do not
-reopen these gates at their first consumers. After implementation approval:
+Fixed entry contracts are G5 global association/codec and per-controller
+frontend admission, and G7 profile H/path, evaluation scopes, hierarchy order,
+arithmetic and refresh. Do not reopen them at their first consumers.
+
+The final G7 contract packs equal-N, contiguous Group-aligned slices only for
+H <= N <= 512 and N % H == 0, with floor(512/N) outputs/mat. For N>512 retain
+existing multi-mat placement without tail sharing. Synchronize members' stages
+in one physical CHAIN per packed output group, preserving original suffix
+restoration order and every output's residual/checkpoint identity.
+Maximize compatible compute/LC fusion within a 16/32/16-mat connected path,
+then stripe the fused ranges across Channels; never split a legal range only
+to expose more Channels. Keep distinct LC Group pairs and singleton GB edges.
+DDR4 chip paths remain separate for fusion. Row sharing changes accounting,
+not arithmetic liveness. All frozen DDR4 generation stays on its legacy path;
+later packed DDR4 characterization requires a separate mode/artifact identity.
+
+After separate implementation approval:
 
 1. Establish shared immutable system association initialization across existing
    homogeneous per-Channel controllers. Validate local Channel size1 separately
@@ -662,12 +680,21 @@ reopen these gates at their first consumers. After implementation approval:
    ordinary channel-compaction consistency. Check nonzero Channels, foreign
    associations, wrong roots and cross-Channel operand rejection.
 2. Export profile/global bounds and implement the common versioned codec/layout
-   replay, preserving legacy DDR4 trace and layout v4 bytes. Apply at most one
+   replay, preserving legacy DDR4 trace and layout v4 bytes. Represent packed
+   output membership, Group origins, residual positions and physical checkpoint
+   ownership; merge shared input slices and snapshot every output at coincident
+   completion events. Configure one checkpoint per physical CHAIN and derive
+   output observations through metadata. Apply at most one
    ready Request admission attempt per controller per frontend tick; preserve
    CHAIN ordering/retries and deterministic same-controller arbitration.
    Static destinations are not dynamic load balancing.
-3. Bind logical GEMV placement and runner configuration/reporting to Accepted
-   G7. Use profile H=4/8/16 and connected paths=16/32/16 mats. Preserve DDR4
+3. Bind logical GEMV placement and runner configuration/reporting to the
+   Accepted G7 packed output group contract and output-specific residual/
+   checkpoint metadata. Form the widest legal compatible range within one
+   connected path before Channel assignment; allow unused Channels when too
+   few ranges exist. Count shared rows and physical Requests once while
+   retaining per-output arithmetic and host work.
+   Use profile H=4/8/16 and connected paths=16/32/16 mats. Preserve frozen DDR4
    order; use Channel -> Bank for GDDR7 and
    Channel -> PseudoChannel -> BankGroup -> Bank -> Sid for HBM3, followed by
    range slot, subarray and row band. One output stays within one
@@ -697,6 +724,13 @@ admission budgets (including rejection), deterministic same-controller retries,
 cross-controller CHAIN completion, selected Channel/PC/BG/Bank enumeration,
 capacity boundaries and D>1 placement, exact Request counts, arithmetic replay,
 row/constant preservation, partial final mats and actual overlapping issues.
+For the selected packed policy, additionally verify Group-aligned slice isolation,
+non-divisor tails, destructive stages, range-fusion eligibility, singleton GB,
+DDR4 chip-path boundaries, fusion before Channel striping (including fewer
+ranges than Channels), multiple output readouts at one checkpoint, exact-once
+physical completion and deterministic retries. Separate storage utilization,
+Request counts, concurrency and latency; fewer Requests do not establish a
+proportional speedup.
 DDR4 traces, layouts, CHAIN CSVs, Request counts and all fourteen workload cycles
 must remain exact. Complete Phase validation includes all three bindings,
 affected conventional regressions, lowering/requirements and all six GEMV
@@ -713,7 +747,7 @@ energy or payload-simulation claim is introduced.
 
 Phases 1–3 and the common execution-model correction are complete.
 G0 and target G1/G2/G3/G4/G6 remain fixed; G5/G7 are Accepted.
-Recover the canonical decision and Phase-4 reference before implementation.
-The remaining entry requirement is separate user authorization to implement
-Phase 4. This documentation update does not authorize Phase-4 production
-changes or baseline regeneration.
+Recover the canonical decision, including the final packing/fusion contract,
+and Phase-4 reference before implementation. The remaining authorization gate
+is separate user approval to implement Phase 4. This documentation update
+does not authorize Phase-4 production changes or baseline regeneration.
