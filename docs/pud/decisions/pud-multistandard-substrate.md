@@ -1,4 +1,4 @@
-Status: G0 Accepted; GDDR7 G1/G2/G3/G4/G6 Accepted; HBM3 G1/G2/G3/G4/G6 Accepted; G5/G7 Open.
+Status: G0 Accepted; GDDR7 G1/G2/G3/G4/G6 Accepted; HBM3 G1/G2/G3/G4/G6 Accepted; G5/G7 Accepted.
 
 Question
 
@@ -11,10 +11,12 @@ Decision
 **Accepted — G0 common architecture (2026-09-16).** Phase 1's DDR4-preserving
 extraction is complete. The common execution-model amendment below and
 GDDR7/HBM3 G1/G2/G3/G4/G6 are Accepted.
-G5/G7 remain Open for target trace/hierarchy and GEMV placement portability.
+G5/G7 are Accepted below for target trace/hierarchy and GEMV placement
+portability. Phase-4 implementation remains unauthorized until separate user
+approval.
 The common finite-engine correction and GDDR7 Phase-2 primitive binding and
-validation are complete. HBM3 modeling acceptance does not authorize production
-implementation; HBM3 Phase 3 requires separate user approval.
+validation are complete. HBM3 Phase-3 primitive implementation and validation
+are also complete following separate user authorization.
 Older DDR4 authorities remain current except for the explicitly superseded
 finite-engine-accounting clauses listed below.
 
@@ -54,7 +56,7 @@ finite-engine-accounting clauses listed below.
    target trace encoding and placement enumeration before their first use.
 
 The behavior-preserving DDR4 extraction and GDDR7 binding are complete.
-HBM3 implementation remains gated on separate user approval. No target may
+HBM3 Phase-3 primitive implementation and validation are complete. No target may
 become executable with
 temporary DDR4 geometry, cycle counts, or a partially protected movement path.
 
@@ -311,12 +313,12 @@ Phase 2; its completion evidence is retained in the plan.
 
 ### Accepted — HBM3 G1/G2/G3/G4/G6 (2026-09-17)
 
-**Accepted by the user's explicit instructions on 2026-09-17.** The following
-HBM3 modeling choices authorize no implementation; Phase 3 still requires
-separate user approval. The [HBM3 reference](../references/hbm3-pud-modeling-reference.md)
+**Accepted by the user's explicit instructions on 2026-09-17.** HBM3 Phase-3
+primitive implementation and validation were separately authorized and are
+complete. The [HBM3 reference](../references/hbm3-pud-modeling-reference.md)
 owns source inventory, external provenance, calculations and uncertainty.
 The Accepted common no-finite-control-engine and no-SALP policies are unchanged.
-G5/G7 remain Open.
+G5/G7 are Accepted in the Phase-4 sections below.
 
 | Gate | Accepted choice | First Phase-3 consumer |
 | --- | --- | --- |
@@ -406,8 +408,109 @@ PuD blockage is claimed.
 
 These Accepted choices define a bounded project evaluation model, not
 vendor-calibrated, JEDEC-complete, retention-proof or silicon-accurate HBM3.
-All reference fidelity limitations remain. Only the modeling gates are resolved;
-implementation still requires separate user approval.
+All reference fidelity limitations remain. HBM3 Phase-3 primitive implementation
+and validation are complete; only Phase-4 implementation still requires
+separate user approval.
+
+### Accepted G5 — common trace and global Channel identity (2026-09-17)
+
+**Accepted by the user's explicit selections on 2026-09-17.** Use
+`PUD_TRACE 2`, exact PROFILE, ordered BANK_LEVELS, global BANK_SIZES and
+variable coordinates through Bank, with explicit Row, inclusive MatRange and
+movement Group. There is no Column field, scalar-PA requirement or synthetic
+Device/Stack hierarchy level. CHAIN remains dependency-only.
+
+Evaluation scopes and global Bank bounds are:
+
+| Target | Evaluation scope | BANK_SIZES |
+| --- | --- | --- |
+| DDR4 | One 64-bit Channel/rank using eight x8 chips | 1 1 4 4 |
+| GDDR7 | One x32 device containing four independent x8 Channels, represented by four independent GDDR7 controller instances | 4 16 |
+| HBM3 | One selected stack containing sixteen Channels, each with two PseudoChannels; one HBM34 controller instance per Channel | 16 2 2 4 4 |
+
+These are Ramulator evaluation scopes. The GDDR7 standard does not require one
+implementation-level memory-controller object to manage all four Channels.
+
+Use a shared immutable system association across homogeneous per-Channel
+controllers. Retain global Channel identity end-to-end in canonical locations,
+Request projections, routing and command observations. Each Device retains
+one local root with its global controller ID. Initialize the association once
+before frontend setup; validate global bounds against system construction and
+local geometry against every controller profile. Preserve foreign-association,
+controller-ID and primitive-legality checks. Ordinary origin validation must
+remain consistent with existing channel compaction; PuD execution does not
+require scalar PA.
+
+Preserve legacy DDR4 trace and layout v4 bytes/content exactly. New targets use
+the common versioned trace and layout v5, including global named Bank metadata.
+Resolve FULL_MAT to explicit inclusive endpoints. The
+[codec and compatibility evidence](../references/pud-phase4-g5-g7-investigation.md#3-g5-representation-candidates)
+records grammar, validation and investigated alternatives.
+
+**Frontend admission:** at most one ready Request admission attempt per
+controller per frontend tick: up to 1/4/16 attempts for DDR4/GDDR7/HBM3.
+Static placement determines the destination Channel; no dynamic load balancing.
+Preserve CHAIN ordering/retry semantics, one outstanding Request per chain and
+deterministic arbitration when multiple ready chains target the same
+controller. Failed admission still consumes that controller's attempt.
+The single-controller DDR4 budget and frozen behavior remain unchanged.
+
+### Accepted G7 — profile-driven static GEMV placement (2026-09-17)
+
+**Accepted by the user's explicit selections on 2026-09-17.** One logical
+output/domain/lane interface lowers to the selected profile's hierarchy through
+Bank + Row + inclusive MatRange + optional Group. Preserve the existing
+InterMatFirst/IntraMatFirst algorithms, arithmetic/precision, x duplication,
+per-output CHAIN semantics, designated rows, sequential domains and operation
+lowerer. Each output remains within one Channel/Bank/subarray; use the existing
+capacity allocation and reject excess capacity early.
+
+Use each target profile's H directly: DDR4 H=4, GDDR7 H=8, HBM3 H=16.
+Use its connected path: respectively 16, 32 and 16 mats. DDR4 has eight x8
+chips, each contributing a separate 16-mat GB path: 128 logical mats per
+Bank/subarray under one shared Channel interface. Channel aggregation
+multiplies independent output placements and controller resources, never one
+output's connected reduction extent or mats/Bank.
+
+Static placement order, fastest to slowest:
+
+| Target | Accepted order |
+| --- | --- |
+| DDR4 | Preserve the frozen existing order exactly |
+| GDDR7 | Channel -> Bank -> range slot -> subarray -> row band |
+| HBM3 | Channel -> PseudoChannel -> BankGroup -> Bank -> Sid -> range slot -> subarray -> row band |
+
+This is a deterministic maximum-parallelism baseline, not a claim of global
+optimality. HBM3 BankGroup-before-Bank replaces the earlier investigated order.
+No cross-Channel movement, SALP, finite engine limit, padding, shuffle or
+arithmetic/liveness redesign is introduced.
+
+**D = number of domains belonging to one GEMV output.** A domain partitions
+one dot product; it is not an independent output. Capacity tables use
+“output capacity when D=1” or “single-domain-per-output capacity.”
+Each domain leaves H PuD residual values; report D * H residual values/output.
+The existing zero-initialized host graph's D*(H+1) ADD calls/output remain
+separately reportable work.
+
+Report **PuD in-memory phase latency**, ending at PuD residual completion
+including terminal recovery. Host residual readout/folding and inter-domain
+accumulation remain outside the timing model. Cross-target FP8 bit-exact
+equality is not claimed because reduction grouping depends on H and
+connected-path geometry. INT8 semantics remain unchanged.
+
+Runner refresh policy: preserve frozen DDR4 NoRefresh; use GDDR7 Open +
+AllBank REF + zero RFM independently on each of the four x8 Channel
+controllers; retain HBM3's existing Accepted Open + AllBank REF + zero RFM.
+No device-wide refresh barrier or new staggering policy. Keep maintenance
+command counts, total issued-command counts and completed PuD occurrence
+counts separate. Aggregate counts across controllers without summing elapsed
+controller cycles.
+
+The [placement evidence](../references/pud-phase4-g5-g7-investigation.md#5-g7-logical-placement-interface)
+retains capacity derivations, schedule mappings and alternatives. These
+acceptances authorize documentation only. **Phase-4 implementation remains
+unauthorized until separate user approval.** No baseline regeneration or
+new target GEMV baseline is authorized.
 
 Rationale
 
@@ -461,11 +564,17 @@ evaluated under the baseline's stated fidelity limits.
 
 Evidence
 
+- The user's explicit Phase-4 selections on 2026-09-17 accept G5/G7, including
+  evaluation scopes, per-controller frontend admission, HBM3 placement order
+  and runner refresh policy. The [Phase-4 investigation](../references/pud-phase4-g5-g7-investigation.md)
+  retains source facts, derivations, compatibility checks and alternatives;
+  implementation requires separate approval.
 - The user's explicit HBM3 acceptance instructions on 2026-09-17 select
   G1/G2/G3/G4/G6 above, including exact 312.5-ps half-CK duration. The
   [HBM3 modeling reference](../references/hbm3-pud-modeling-reference.md)
   retains the source facts, derivations, alternatives and fidelity limits;
-  acceptance does not authorize HBM3 implementation.
+  HBM3 Phase-3 primitive implementation and validation were subsequently
+  authorized separately and are complete.
 - [GDDR7 Phase-2 modeling reference](../references/gddr7-pud-modeling-reference.md)
   records the 2026-09-16 G1/G2/G3/G4/G6 investigation, supplied geometry checks,
   timing/resource alternatives and conventional-baseline gaps. It selects no
@@ -495,20 +604,8 @@ Evidence
 
 Open issues
 
-### Open — GDDR7 gates
-
-GDDR7 **G1/G2/G3/G4/G6 are Accepted; G5/G7 are Open**. G0 remains Accepted.
-The common finite-engine code correction and GDDR7 Phase-2 primitive binding
-and validation using directly constructed Requests are complete. No ACT-envelope
-or sensitivity question remains open.
-Exact realistic GPU PA hashing is deferred outside
-the provisional G1 mapping; target physical fidelity remains limited as stated.
-
-G5/G7 remain Open for target trace/hierarchy compatibility and GEMV physical
-placement portability, respectively. Neither blocks direct-Request primitive
-binding/validation or depends on engine identity or cross-output grouping.
-HBM3 G1/G2/G3/G4/G6 are Accepted above; its implementation still requires
-separate approval. The
-[audit gate table](../references/pud-multistandard-substrate-audit.md#6-decision-gates-and-required-information)
-retains first-consumer context; current target gate status is authoritative here.
-No energy, SALP, functional payload simulation or new GEMV baseline is proposed.
+G5/G7 are resolved. Implementation and its validation require separate user
+approval under the [Phase-4 plan](../plans/pud-multistandard-substrate-plan.md#phase-4--reusable-operationgemv-integration-and-characterization).
+Exact realistic GPU PA hashing remains deferred outside the provisional G1
+mapping; physical-fidelity limitations remain as recorded in the references.
+No energy, SALP or functional payload simulation is selected by G5/G7.

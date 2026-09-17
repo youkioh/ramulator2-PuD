@@ -5,8 +5,9 @@ Phase 2 GDDR7 primitive substrate binding and validation are complete.
 Phase 3 HBM3 primitive substrate binding and validation are complete on 2026-09-17.
 Phase 1's frozen DDR4 equivalence evidence remains unchanged.
 G0, the common no-finite-control-engine model and GDDR7/HBM3 G1/G2/G3/G4/G6
-are Accepted. G5/G7 remain Open for target trace/hierarchy and GEMV placement
-portability; neither blocks direct-Request primitive binding/validation.
+are Accepted. G5/G7 are Accepted for target trace/hierarchy and GEMV placement
+portability. Phase-4 implementation remains unauthorized until separate user
+approval; completed primitive evidence remains unchanged.
 Phase 2 was explicitly authorized by the user's implementation request.
 HBM3 G1/G2/G3/G4/G6 investigation and modeling acceptance are complete.
 Phase 3 was separately authorized by the user's implementation request.
@@ -635,54 +636,84 @@ pre-audit captures remain separately recorded within the new Phase-3 tree.
 
 ## Phase 4 — reusable operation/GEMV integration and characterization
 
-Invariant: the existing arithmetic/lowering, two GEMV schedules, PuDTrace
-dependency engine and experiment runner execute all three approved profiles,
-with physical placement and timing units explicit in results.
+Investigation completed on 2026-09-17 at source HEAD
+`1072848f5c3360f12caa7921cca9fb4d3aabada5`; see the
+[Phase-4 evidence and alternatives](../references/pud-phase4-g5-g7-investigation.md).
+G5/G7 are now Accepted in the
+[canonical decision](../decisions/pud-multistandard-substrate.md#accepted-g5--common-trace-and-global-channel-identity-2026-09-17).
+Only documentation is authorized; **Phase-4 implementation requires separate
+user approval**. Preserve all frozen DDR4 artifacts and target primitive
+evidence; no baseline regeneration is authorized by this acceptance.
 
-Entry gates: G5 target hierarchy encoding/DDR4 compatibility and G7 target
-placement enumeration/group ordering. Neither depends on engine identity or
-cross-output grouping. Resolve these gates before target parser/emitter or
-placement code. A changed HFF width/mat extent must pass the existing reduction
-graph's alignment/partial-mat conditions; do not silently add padding, tail handling,
-cross-position shuffles or a new arithmetic baseline.
+Invariant: the common operation/lowering, both GEMV schedules and dependency
+machinery execute the selected profiles with global Channel identity and
+explicit PuD in-memory phase latency reporting. Evaluation units are one
+DDR4 Channel/rank, one GDDR7 x32 device represented by four independent x8
+Channel controllers, and one selected HBM3 stack represented by sixteen HBM34
+controllers, each containing two PseudoChannels.
 
-Work units: (1) select/export the canonical profile and generalize physical
-context parsing/emission while preserving current DDR4 trace bytes;
-(2) bind GEMV bank/domain placement and runner configuration to approved
-profiles; (3) run both schedules for all three formats and characterize
-isolated versus contended timing/concurrency. Keep lower_to_physical and
-operation requirements common, with explicit target row-capacity checks.
+Resolved entry contracts are G5 global association/codec and per-controller
+frontend admission, and G7 profile H/path placement and refresh. Do not
+reopen these gates at their first consumers. After implementation approval:
 
-Focused tests: old DDR4 trace compatibility, target round-trip coordinates and
-rejection of mismatched profiles, retry/fair dependency chains, exact Request
-counts versus emitted streams, functional replay of each existing arithmetic
-graph, row/constant preservation, partial-final-mat and capacity boundaries,
-and actual overlapping issues. Cross-standard traces/counts need not equal
-each other when physical mat geometry differs; symbolic arithmetic semantics
-and the selected baseline graph remain fixed. Behavior-preserving refactoring
-must retain its input baseline exactly; use the common execution-model
-correction's new execution baseline after that intentional correction, while
-retaining Phase 1's frozen historical evidence.
+1. Establish shared immutable system association initialization across existing
+   homogeneous per-Channel controllers. Validate local Channel size1 separately
+   from global 1/4/16 bounds; preserve association identity, global root IDs and
+   ordinary channel-compaction consistency. Check nonzero Channels, foreign
+   associations, wrong roots and cross-Channel operand rejection.
+2. Export profile/global bounds and implement the common versioned codec/layout
+   replay, preserving legacy DDR4 trace and layout v4 bytes. Apply at most one
+   ready Request admission attempt per controller per frontend tick; preserve
+   CHAIN ordering/retries and deterministic same-controller arbitration.
+   Static destinations are not dynamic load balancing.
+3. Bind logical GEMV placement and runner configuration/reporting to Accepted
+   G7. Use profile H=4/8/16 and connected paths=16/32/16 mats. Preserve DDR4
+   order; use Channel -> Bank for GDDR7 and
+   Channel -> PseudoChannel -> BankGroup -> Bank -> Sid for HBM3, followed by
+   range slot, subarray and row band. One output stays within one
+   Channel/Bank/subarray; preserve x duplication, sequential domains, arithmetic
+   and both schedules. Keep local-row allocation common and reject excess
+   capacity without padding, shuffle, cross-Channel movement or SALP.
+4. Validate both schedules for all three formats and characterize isolated
+   versus contended PuD in-memory phase latency and concurrency. Keep the
+   runner's D=1 bound, where D counts domains belonging to one GEMV output,
+   not outputs. General generator coverage includes sequential domains.
 
-Report standard, organization/profile, calibration/fidelity, the omitted
-finite-control-engine bottleneck, issue/queue configuration, native tick
-duration, CK/CK4 interpretation, physical-time
-conversion, requests/commands and overlap. Do not compare raw HBM half-ticks,
-GDDR7 CK4 and DDR4 CK as equal time units. Keep simulation wall time separate.
-Final integration closure covers the three bindings, conventional regressions,
-operation/lowering requirements, all six GEMV profiles, full diff review and
-`git diff --check`; no energy or full-system GEMV claim is introduced.
+Retain DDR4 NoRefresh, use GDDR7 Open/AllBank REF + zero RFM independently per
+x8 Channel controller, and retain HBM3 Accepted Open/AllBank REF + zero RFM.
+Add no device-wide refresh barrier or staggering policy. Collect every
+per-Channel command/statistic output; separate maintenance commands, total
+issued commands and completed PuD occurrences. Sum counts, not controller
+elapsed cycles. Report D * H residual values/output and host ADD work outside
+PuD timing; host readout/folding and inter-domain accumulation are not timed.
+Cross-target FP8 bit-exact equality is not claimed; INT8 semantics stay fixed.
+
+Common binding defaults/dispatch and placement validation in DDR4-named files
+may move only where the shared association/export consumers benefit. Preserve
+all target geometry/timing and primitive evidence; no filename-only cleanup.
+
+Focused checks cover codec/layout round trips and malformed bounds, per-controller
+admission budgets (including rejection), deterministic same-controller retries,
+cross-controller CHAIN completion, selected Channel/PC/BG/Bank enumeration,
+capacity boundaries and D>1 placement, exact Request counts, arithmetic replay,
+row/constant preservation, partial final mats and actual overlapping issues.
+DDR4 traces, layouts, CHAIN CSVs, Request counts and all fourteen workload cycles
+must remain exact. Complete Phase validation includes all three bindings,
+affected conventional regressions, lowering/requirements and all six GEMV
+profiles, full diff review and `git diff --check`.
+
+Report evaluation scope, standard/organization/profile, calibration/fidelity,
+the omitted finite-engine bottleneck, per-controller queues/admission rate,
+tick duration, CK/CK4 interpretation and physical-time conversion. DDR4 CK,
+GDDR7 CK4 and HBM3 half-CK counts are not equal time units. Keep simulation
+wall time separate from PuD in-memory phase latency. No end-to-end GEMV timing,
+energy or payload-simulation claim is introduced.
 
 ## Handoff
 
-Phases 1–3 and the common execution-model correction are complete with
-separate local evidence above. DDR4, GDDR7 and HBM3 compute/movement have
-physical protection without finite engine accounting. Target primitive
-validation uses directly constructed Requests; G1/G2/G3/G4/G6 are Accepted. G5/G7 remain Open
-for target trace/hierarchy representation and GEMV placement portability in
-Phase 4. HBM3 primitive implementation and validation are complete.
-Use the canonical decision for exact target status.
-Phase-4 implementation requires separate approval.
-Trace/GEMV placement still
-awaits G5/G7; SALP, payload simulation, energy modeling and CACTI integration
-remain outside scope.
+Phases 1–3 and the common execution-model correction are complete.
+G0 and target G1/G2/G3/G4/G6 remain fixed; G5/G7 are Accepted.
+Recover the canonical decision and Phase-4 reference before implementation.
+The remaining entry requirement is separate user authorization to implement
+Phase 4. This documentation update does not authorize Phase-4 production
+changes or baseline regeneration.
