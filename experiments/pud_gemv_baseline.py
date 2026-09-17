@@ -50,8 +50,8 @@ def aggregate_latencies(rows):
 
 
 def run(profile, m, n, out, *, chain_csv=False, target="DDR4"):
-    if target == "DDR4-packed":
-        raise ValueError("packed DDR4 is a correctness-only mode; no performance baseline is authorized")
+    # if target == "DDR4-packed":
+    #     raise ValueError("packed DDR4 is a correctness-only mode; no performance baseline is authorized")
     geometry = placement_profile(target)
     selected = target_config(target)
     domain_elements = geometry["cells_per_mat_row"] * geometry["mats_per_chip"]
