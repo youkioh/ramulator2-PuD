@@ -112,6 +112,7 @@ struct MappingContext {
   std::string channel_mapper, address_mapper;
   bool row_remapping;
   int reserved_rows_per_bank;
+  int interleave_bits = 0;
   bool operator==(const MappingContext&) const = default;
 };
 
@@ -135,6 +136,7 @@ struct PlacementProfile {
   std::vector<int> group_position_to_column;
   // Logical mat -> direct GB destination; -1 denotes no outgoing edge.
   std::vector<int> gb_successor;
+  bool operator==(const PlacementProfile&) const = default;
 
   static PlacementProfile mimdram_ddr4_8gb_x8_v1();
   static PlacementProfile mimdram_gddr7_16gb_x8_v1();

@@ -57,7 +57,8 @@ class LocationResolverUnderTest {
         std::move(p), *spec,
         PuD::MappingContext{context["address_space"].as<std::string>(), context["channels"].as<int>(),
                             context["channel_mapper"].as<std::string>(), context["address_mapper"].as<std::string>(),
-                            context["row_remapping"].as<bool>(), context["reserved_rows_per_bank"].as<int>()});
+                            context["row_remapping"].as<bool>(), context["reserved_rows_per_bank"].as<int>(),
+                            routing.contains("interleave_bits") ? nb::cast<int>(routing["interleave_bits"]) : 0});
   }
 
   std::shared_ptr<const PuD::LocationResolver> resolver() const { return m_resolver; }

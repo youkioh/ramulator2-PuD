@@ -112,6 +112,34 @@ void ControllerBase::set_location_resolver(std::shared_ptr<const PuD::LocationRe
   m_location_resolver = std::move(resolver);
 }
 
+void ControllerBase::initialize_system_locations(
+    std::shared_ptr<const PuD::LocationResolver> shared, int channels,
+    const std::string& channel_mapper, int interleave_bits) {
+  if (m_pud_placement_profile.empty()) {
+    if (shared) throw std::runtime_error("all controllers must select the same PuD profile");
+    return;
+  }
+  // Bindings validate the selected local geometry/capabilities. Installation is
+  // deferred until the system's global Channel bounds and root IDs are known.
+  const auto local = pud_binding(*m_device.m_spec).placement(
+      m_pud_placement_profile, *m_device.m_spec, m_addr_mapper->m_impl->get_name());
+  auto routing = local->association().routing;
+  routing.channels = channels;
+  routing.channel_mapper = channel_mapper;
+  routing.interleave_bits = interleave_bits;
+  if (shared) {
+    if (shared->association().routing != routing ||
+        shared->association().profile != local->association().profile)
+      throw std::runtime_error("heterogeneous PuD system association");
+  } else {
+    shared = std::make_shared<const PuD::LocationResolver>(
+        local->association().profile, *m_device.m_spec, routing);
+  }
+  if (m_channel_id < 0 || m_channel_id >= channels)
+    throw std::runtime_error("controller root outside global Channel bounds");
+  set_location_resolver(std::move(shared));
+}
+
 // ── Shared initialization ───────────────────────────────────────────────
 
 void ControllerBase::init_base() {

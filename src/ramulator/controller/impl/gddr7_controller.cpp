@@ -48,8 +48,7 @@ class GDDR7Controller final : public HBMControllerBase {
       m_movement_timing = make_movement_timing_constraints(*m_device.m_spec);
     }
     if (!placement_profile.empty()) {
-      set_location_resolver(pud_binding(*m_device.m_spec).placement(
-          placement_profile, *m_device.m_spec, m_addr_mapper->m_impl->get_name()));
+      m_pud_placement_profile = placement_profile;
     }
 
     RAMULATOR_PARSE_PARAM(m_rck_mode_str, std::string, "rck_mode").default_val("always_on");

@@ -115,9 +115,11 @@ class LocationHarnessObserver final : public IControllerPlugin, public Implement
 
  public:
   inline static ControllerBase* created_controller = nullptr;
+  inline static std::vector<ControllerBase*> created_controllers;
   nb::list events;
   void init() override {
     created_controller = cast_parent<ControllerBase>();
+    created_controllers.push_back(created_controller);
   }
   void on_issue(const Request& req) override {
     auto out = located_snapshot(req, false);
@@ -133,7 +135,7 @@ class LocationHarnessObserver final : public IControllerPlugin, public Implement
 class LocatedSystemUnderTest {
  public:
   LocatedSystemUnderTest(nb::dict controller, const LocationResolverUnderTest& fixture,
-                         const std::string& channel_mapper, bool install)
+                         const std::string& channel_mapper, bool install, int channels)
       : m_frontend(std::make_unique<HarnessFrontEnd>(64)), m_resolver(fixture.resolver()) {
     auto config = py_to_confignode(controller);
     auto plugins = config["controller_plugins"];
@@ -141,13 +143,15 @@ class LocatedSystemUnderTest {
     plugins.push_back(ConfigNode::Map{{"impl", "LocationHarnessObserver"}});
     config.set("controller_plugins", std::move(plugins));
     LocationHarnessObserver::created_controller = nullptr;
+    LocationHarnessObserver::created_controllers.clear();
     ConfigNode sys(ConfigNode::Map{{"impl", "GenericDRAM"},
                                    {"clock_ratio", 1},
                                    {"channel_mapper", ConfigNode::Map{{"impl", channel_mapper}}},
-                                   {"controllers", ConfigNode::Seq{config}}});
+                                   {"controllers", ConfigNode::Seq(channels, config)}});
     m_system = Factory::create_memory_system(wrap_interface_config(IMemorySystem::get_name(), sys));
     m_owner.reset(dynamic_cast<Implementation*>(m_system));
     m_controller = LocationHarnessObserver::created_controller;
+    m_controllers = LocationHarnessObserver::created_controllers;
     if (!m_controller) {
       throw std::runtime_error("missing observed controller");
     }
@@ -269,6 +273,18 @@ class LocatedSystemUnderTest {
     return out;
   }
   float tick_duration_ns() const { return m_system->get_tCK(); }
+  nb::list channel_info() const {
+    nb::list result;
+    for (auto* ctrl : m_controllers) {
+      nb::dict entry;
+      entry["id"] = ctrl->m_channel_id;
+      entry["local_channels"] = ctrl->m_device.m_spec->organization.level_sizes[0];
+      entry["shared"] = ctrl->location_resolver() == m_resolver;
+      entry["bank_sizes"] = m_resolver->association().bank_sizes;
+      result.append(entry);
+    }
+    return result;
+  }
   void finalize() { m_system->finalize(); }
   nb::dict stats() const {
     m_system->update_stats_recursive();
@@ -307,6 +323,7 @@ class LocatedSystemUnderTest {
   std::unique_ptr<Implementation> m_owner;
   IMemorySystem* m_system = nullptr;
   ControllerBase* m_controller = nullptr;
+  std::vector<ControllerBase*> m_controllers;
   std::shared_ptr<const PuD::LocationResolver> m_resolver;
   nb::list completed;
 };
@@ -1103,8 +1120,10 @@ inline void bind_pud_request_harness(nb::module_& m) {
     return out;
   });
   nb::class_<LocatedSystemUnderTest>(m, "_LocatedSystemUnderTest")
-      .def(nb::init<nb::dict, const LocationResolverUnderTest&, const std::string&, bool>(), nb::arg("controller"),
-           nb::arg("resolver"), nb::arg("channel_mapper") = "CacheLineInterleave", nb::arg("install") = true)
+      .def(nb::init<nb::dict, const LocationResolverUnderTest&, const std::string&, bool, int>(), nb::arg("controller"),
+           nb::arg("resolver"), nb::arg("channel_mapper") = "CacheLineInterleave", nb::arg("install") = true,
+           nb::arg("channels") = 1)
+      .def("channel_info", &LocatedSystemUnderTest::channel_info)
       .def("send", &LocatedSystemUnderTest::send, nb::arg("request"), nb::arg("path") = "system")
       .def("request", &LocatedSystemUnderTest::request)
       .def("submit", &LocatedSystemUnderTest::submit, nb::arg("request"), nb::arg("source"), nb::arg("callback") = nb::none())

@@ -43,6 +43,7 @@ class CacheLineInterleave final : public IChannelMapper, public Implementation {
     Addr_t high = req.addr >> (m_ch_shift + m_ch_width);
     req.intra_channel_addr = (high << m_ch_shift) | low;
   }
+  int interleave_bits() const override { return m_interleave_bits; }
 };
 
 }  // namespace Ramulator

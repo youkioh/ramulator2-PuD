@@ -6,9 +6,9 @@ Phase 3 HBM3 primitive substrate binding and validation are complete on 2026-09-
 Phase 1's frozen DDR4 equivalence evidence remains unchanged.
 G0, the common no-finite-control-engine model and GDDR7/HBM3 G1/G2/G3/G4/G6
 are Accepted. G5 remains Accepted and G7 is re-Accepted with utilization-aware
-packing and path-bounded Request fusion before Channel striping. Phase-4
-implementation remains unauthorized until separate user approval; frozen DDR4
-artifacts and primitive evidence remain unchanged.
+packing and path-bounded Request fusion before Channel striping. Phase 4 is
+implemented and validated following the user's separate implementation
+authorization; frozen DDR4 artifacts and primitive evidence remain unchanged.
 Phase 2 was explicitly authorized by the user's implementation request.
 HBM3 G1/G2/G3/G4/G6 investigation and modeling acceptance are complete.
 Phase 3 was separately authorized by the user's implementation request.
@@ -645,9 +645,10 @@ G5 remains Accepted in the
 G7 is re-Accepted with the final packing/fusion contract; its
 [evidence and alternatives](../references/pud-phase4-g5-g7-investigation.md#11-utilization-aware-output-packing-and-request-fusion)
 remain in the reference.
-Only documentation is authorized; **Phase-4 implementation requires separate
-user approval**. Preserve all frozen DDR4 artifacts and target primitive
-evidence; no baseline regeneration is authorized.
+The user's subsequent explicit Phase-4 implementation request authorized the
+implementation, validation, new target characterization and one fresh-context
+read-only audit. These are complete; see the completion evidence below.
+Frozen DDR4 artifacts and prior target primitive evidence remain unchanged.
 
 Invariant: the common operation/lowering, both GEMV schedules and dependency
 machinery execute the selected profiles with global Channel identity and
@@ -672,7 +673,7 @@ DDR4 chip paths remain separate for fusion. Row sharing changes accounting,
 not arithmetic liveness. All frozen DDR4 generation stays on its legacy path;
 later packed DDR4 characterization requires a separate mode/artifact identity.
 
-After separate implementation approval:
+Implementation work completed:
 
 1. Establish shared immutable system association initialization across existing
    homogeneous per-Channel controllers. Validate local Channel size1 separately
@@ -743,11 +744,52 @@ GDDR7 CK4 and HBM3 half-CK counts are not equal time units. Keep simulation
 wall time separate from PuD in-memory phase latency. No end-to-end GEMV timing,
 energy or payload-simulation claim is introduced.
 
+### Phase-4 completion evidence
+
+Implemented from clean HEAD `fa2f8d113aaa2d00d45e2a0995d825efe4afdc88` on
+`feature/pud-multistandard-substrate`, without a commit or new modeling
+decision. Shared global association/routing, versioned trace/layout, per-controller
+admission, packed/fused GEMV generation and replay, and multi-controller
+characterization are complete. The runner retains its D=1 bound; generator/
+replay coverage includes sequential domains.
+
+The final relevant regression suite passed **3,649 tests and 108 subtests**,
+including DDR4/GDDR7/HBM3, shared HBM34/HBM4, frontend, lowering/requirements,
+smoke/config/codegen and all six GEMV profiles. Focused checks include sustained
+rejection fairness, packed non-divisor slices, poisoned inactive positions,
+physical checkpoint ownership and multi-domain replay. All 19 generated DRAM
+declarations and 61 Python files are consistent; full diff review and
+`git diff --check` passed.
+
+All fourteen frozen DDR4 workloads retain exact cycles, traces, layouts, CHAIN
+CSVs, Request counts and generated artifacts. Reproduced 31 GDDR7 and 192 HBM3
+primitive artifacts are byte-identical; all 1,563 files in prior evidence trees
+remain unchanged.
+
+Both new targets completed all six M=2048,N=128 configurations and six isolated
+M=1,N=128 runs each, with full-output target-specific functional replay.
+Observed Channel/CHAIN overlap and separate maintenance/PuD command accounting
+are verified, with zero RFM. Both schedules have byte-identical physical streams
+and equal timing at N=128. These are new characterization results, not frozen
+performance baselines.
+
+The one authorized fresh-context read-only audit closed with no blocking
+findings. It independently verified source/binary/evidence hashes and passed
+24 additional in-memory replay probes. No audit fix was required.
+
+Ignored evidence is under `build/pud-phase4/`: `manifest.sha256.json`,
+`source.patch`, `provenance.json`, `validation-index.json`, `final-checks.json`,
+`audit.md`, and reproducible drivers. Current captures are
+`prior-regression-final/`, `hbm3-primitive-final/` and
+`characterization-final/{GDDR7,HBM3}/`; `characterization-analysis.json`
+records physical time and observed overlap. Earlier development captures are
+explicitly nonfinal. Decision and reference documents are unchanged.
+
 ## Handoff
 
-Phases 1–3 and the common execution-model correction are complete.
+Phases 1–4 and the common execution-model correction are complete.
 G0 and target G1/G2/G3/G4/G6 remain fixed; G5/G7 are Accepted.
-Recover the canonical decision, including the final packing/fusion contract,
-and Phase-4 reference before implementation. The remaining authorization gate
-is separate user approval to implement Phase 4. This documentation update
-does not authorize Phase-4 production changes or baseline regeneration.
+Recover the canonical decision, Phase-4 reference, current source/tests and
+the completion evidence above for subsequent work. Phase-4 changes remain
+uncommitted. New target characterization awaits review before any promotion
+to a frozen baseline; prior frozen artifacts remain authoritative.

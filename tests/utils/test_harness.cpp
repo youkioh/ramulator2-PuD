@@ -1024,24 +1024,36 @@ class PuDTraceUnderTestCpp final : public IMemorySystem {
 
   std::shared_ptr<const PuD::LocationResolver> location_resolver() const override { return m_resolver; }
   int get_clock_ratio() override { return 1; }
-  int get_tx_bytes() override { return 64; }
+  int get_tx_bytes() override { return m_resolver->burst_bytes(); }
   void tick() override { m_trace->tick(); }
   bool send(Request& request) override {
-    if (m_attempted != -1) throw std::logic_error("more than one send attempt per tick");
-    const int row = request.operands.at(0).at(4);
+    const int channel = request.operands.at(0).at(0);
+    for (const auto& attempt : m_attempts)
+      if (attempt[0] == channel) throw std::logic_error("more than one send attempt per controller per tick");
+    const int row = request.operands.at(0).at(m_resolver->association().bank_levels.size());
     m_attempted = row;
+    m_attempts.push_back({channel, row});
     auto [it, inserted] = m_first_attempt.emplace(row, &request);
     if (!inserted && it->second != &request)
       throw std::logic_error("retry replaced the canonical Request");
-    if (m_accept && !m_pending.emplace(row, request).second)
+    const bool accepted = m_accept_channels.empty() ? m_accept : m_accept_channels.at(channel);
+    if (accepted && !m_pending.emplace(row, request).second)
       throw std::logic_error("request accepted twice");
-    return m_accept;
+    return accepted;
   }
   int step(bool accept) {
     m_accept = accept;
     m_attempted = -1;
+    m_attempts.clear();
+    m_accept_channels.clear();
     tick();
     return m_attempted;
+  }
+  std::vector<std::vector<int>> step_channels(const std::vector<bool>& accept) {
+    m_accept_channels = accept;
+    m_attempts.clear();
+    tick();
+    return m_attempts;
   }
   void complete(int row, const std::vector<Clk_t>& history) {
     Request request = std::move(m_pending.at(row));
@@ -1059,6 +1071,8 @@ class PuDTraceUnderTestCpp final : public IMemorySystem {
   std::map<int, const Request*> m_first_attempt;
   bool m_accept = true;
   int m_attempted = -1;
+  std::vector<std::vector<int>> m_attempts;
+  std::vector<bool> m_accept_channels;
 };
 
 // ---- nanobind module ----
@@ -1075,6 +1089,7 @@ NB_MODULE(_ramulator_test, m) {
            nb::arg("path"), nb::arg("resolver"), nb::arg("chain_ids") = std::vector<int>{},
            nb::arg("checkpoints") = std::vector<int>{})
       .def("step", &PuDTraceUnderTestCpp::step)
+      .def("step_channels", &PuDTraceUnderTestCpp::step_channels)
       .def("complete", &PuDTraceUnderTestCpp::complete)
       .def("finished", &PuDTraceUnderTestCpp::finished)
       .def("stats", &PuDTraceUnderTestCpp::stats);

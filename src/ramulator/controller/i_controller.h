@@ -32,6 +32,11 @@ class IController {
   virtual bool supports_movement_requests() const { return false; }
   virtual bool supports_compute_requests() const { return false; }
   virtual std::shared_ptr<const PuD::LocationResolver> location_resolver() const { return nullptr; }
+  virtual void initialize_system_locations(
+      std::shared_ptr<const PuD::LocationResolver> shared, int channels,
+      const std::string& channel_mapper, int interleave_bits) {
+    if (shared) throw std::runtime_error("controller does not support system PuD locations");
+  }
 };
 
 struct ReqBuffer {

@@ -48,8 +48,7 @@ class HBM34Controller final : public HBMControllerBase {
       m_movement_timing = make_movement_timing_constraints(*m_device.m_spec);
     }
     if (!placement_profile.empty()) {
-      set_location_resolver(pud_binding(*m_device.m_spec).placement(
-          placement_profile, *m_device.m_spec, m_addr_mapper->m_impl->get_name()));
+      m_pud_placement_profile = placement_profile;
     }
     auto& spec = *m_device.m_spec;
 

@@ -33,6 +33,7 @@ class PuDTrace : public IFrontEnd, public Implementation {
   size_t m_inflight = 0;
   size_t s_peak_inflight = 0;
   size_t s_submitted = 0, s_completed = 0, s_completed_occurrences = 0;
+  size_t m_channels = 1;
 
  public:
   void init() override {
@@ -64,6 +65,7 @@ class PuDTrace : public IFrontEnd, public Implementation {
       throw std::runtime_error("PuDTrace latency collection requires equal frontend and memory clock ratios");
     auto resolver = memory->location_resolver();
     if (!resolver) throw std::runtime_error("PuDTrace requires an installed location resolver");
+    m_channels = resolver->association().routing.channels;
     std::ifstream input(m_path);
     if (!input) throw std::runtime_error("Cannot open PuDTrace: " + m_path);
     std::string line;
@@ -74,13 +76,30 @@ class PuDTrace : public IFrontEnd, public Implementation {
       if (!line.empty() && line.back() == '\r') line.pop_back();
     };
     read_line();
-    if (line != "PUD_TRACE") throw std::runtime_error("Expected PUD_TRACE");
+    const bool versioned = line == "PUD_TRACE 2";
+    if (!versioned && line != "PUD_TRACE") throw std::runtime_error("Expected PUD_TRACE or PUD_TRACE 2");
+    const auto& association = resolver->association();
+    const size_t depth = association.bank_levels.size();
     read_line();
     if (line != "PROFILE " + resolver->association().profile.name)
       throw std::runtime_error("PuDTrace placement profile mismatch");
-    read_line();
-    if (line != "RANKS " + std::to_string(resolver->association().ranks))
-      throw std::runtime_error("PuDTrace rank context mismatch");
+    if (versioned) {
+      auto check_header = [&](const std::string& key, const auto& values) {
+        read_line();
+        std::ostringstream expected;
+        expected << key;
+        for (const auto& value : values) expected << ' ' << value;
+        if (line != expected.str()) throw std::runtime_error("PuDTrace " + key + " mismatch");
+      };
+      check_header("BANK_LEVELS", association.bank_levels);
+      check_header("BANK_SIZES", association.bank_sizes);
+    } else {
+      if (association.bank_levels != std::vector<std::string>{"Channel", "Rank", "BankGroup", "Bank"})
+        throw std::runtime_error("legacy PuDTrace requires DDR4 hierarchy");
+      read_line();
+      if (line != "RANKS " + std::to_string(association.ranks))
+        throw std::runtime_error("PuDTrace rank context mismatch");
+    }
 
     std::unordered_map<int, size_t> chain_indices;
     size_t chain_index = 0;
@@ -117,25 +136,25 @@ class PuDTrace : public IFrontEnd, public Implementation {
         auto type = types.find(opcode);
         if (type == types.end()) throw std::runtime_error("unknown physical opcode");
         if (!chain_selected) throw std::runtime_error("physical request requires CHAIN selection");
-        if (values.size() < 7)
+        if (values.size() < depth + 3)
           throw std::runtime_error("expected integer context, mat endpoints and operands");
-        const int first = values[4], last = values[5];
+        const int first = values[depth], last = values[depth+1];
         auto row = [&](int id) {
-          return PuD::ExternalRow{{values[0], values[1], values[2], values[3]}, id};
+          return PuD::ExternalRow{{values.begin(), values.begin() + depth}, id};
         };
         std::vector<PuD::PairedOperand> operands;
         if (is_movement_request_type(type->second)) {
-          if (values.size() != 10) throw std::runtime_error("movement requires two row/group operands");
+          if (values.size() != depth + 6) throw std::runtime_error("movement requires two row/group operands");
           const PuD::MatRange src = type->second == Request::Type::GBMOV
                                       ? PuD::MatRange{first, first} : PuD::MatRange{first, last};
           const PuD::MatRange dst = type->second == Request::Type::GBMOV
                                       ? PuD::MatRange{last, last} : src;
           operands.push_back(resolver->pair(resolver->group_footprint(
-              row(values[6]), src, PuD::Group{values[7]})));
+              row(values[depth+2]), src, PuD::Group{values[depth+3]})));
           operands.push_back(resolver->pair(resolver->group_footprint(
-              row(values[8]), dst, PuD::Group{values[9]})));
+              row(values[depth+4]), dst, PuD::Group{values[depth+5]})));
         } else {
-          for (size_t i = 6; i < values.size(); ++i)
+          for (size_t i = depth + 2; i < values.size(); ++i)
             operands.push_back(resolver->pair(
                 resolver->compute_footprint(row(values[i]), PuD::MatRange{first, last})));
         }
@@ -189,22 +208,39 @@ class PuDTrace : public IFrontEnd, public Implementation {
     // Advance even while waiting for callbacks; simulation starts at cycle 0.
     ++m_clk;
     if (m_ready.empty()) return;
-    // One attempt per frontend tick, matching the existing memory traces.
-    // A chain leaves the ready queue until full completion or failed admission.
-    const size_t index = m_ready.front();
-    m_ready.pop_front();
-    auto& chain = m_chains[index];
-    const size_t request_index = chain.next;
-    ++m_inflight;
-    if (m_memory_system->send(chain.requests[chain.next])) {
-      if (chain.checkpoint_request && request_index == 0)
-        record_cycle(s_first_submit[chain.latency_index], m_clk - 1);
-      ++s_submitted;
-      s_peak_inflight = std::max(s_peak_inflight, m_inflight);
-    } else {
-      --m_inflight;
-      m_ready.push_back(index);
+    // Bounded scan in the existing ready order. A rejected send also consumes
+    // this Channel's budget; callbacks cannot add work to the current scan.
+    std::vector<bool> attempted(m_channels, false);
+    const size_t ready_count = m_ready.size();
+    size_t attempts = 0;
+    std::deque<size_t> deferred;
+    for (size_t scanned = 0; scanned < ready_count && attempts < m_channels; ++scanned) {
+      const size_t index = m_ready.front();
+      m_ready.pop_front();
+      auto& chain = m_chains[index];
+      const size_t channel = chain.requests[chain.next].operands.front().at(0);
+      if (attempted.at(channel)) {
+        deferred.push_back(index);
+        continue;
+      }
+      attempted[channel] = true;
+      ++attempts;
+      const size_t request_index = chain.next;
+      ++m_inflight;
+      if (m_memory_system->send(chain.requests[chain.next])) {
+        if (chain.checkpoint_request && request_index == 0)
+          record_cycle(s_first_submit[chain.latency_index], m_clk - 1);
+        ++s_submitted;
+        s_peak_inflight = std::max(s_peak_inflight, m_inflight);
+      } else {
+        --m_inflight;
+        m_ready.push_back(index);
+      }
     }
+    // Unattempted peers keep their place ahead of retries/callback arrivals.
+    // Re-appending them during the scan would put a rejected head back ahead
+    // of its same-controller peers on every tick and could starve those peers.
+    m_ready.insert(m_ready.begin(), deferred.begin(), deferred.end());
   }
 
   bool is_finished() override {

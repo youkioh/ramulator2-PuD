@@ -26,10 +26,10 @@ def scalar_operations(profile):
     return add, lambda a, b: scalar_fp8_mul_reference(a, b, format_)
 
 
-def scalar_graph(profile, matrix, vector):
+def scalar_graph(profile, matrix, vector, *, target="DDR4"):
     """The .cu scalar MUL/ADD graph, independently over lists of valid terms."""
     add, mul = scalar_operations(profile)
-    geometry = placement_profile()
+    geometry = placement_profile(target)
     width, h = geometry["cells_per_mat_row"], geometry["hffs_per_mat"]
     domain_size = width * geometry["mats_per_chip"]
 
@@ -72,7 +72,7 @@ def execute_trace(metadata, trace, matrix, vector, poison=0xA5):
     Unused cells begin with arbitrary test data, not zero-padded GEMV terms.
     No payload state enters Ramulator.
     """
-    geometry = placement_profile()
+    geometry = layout_geometry(metadata)
     width, h = geometry["cells_per_mat_row"], geometry["hffs_per_mat"]
     columns = geometry["group_position_to_column"]
     column = lambda lane: columns[lane]
@@ -92,19 +92,29 @@ def execute_trace(metadata, trace, matrix, vector, poison=0xA5):
                 rows = memory.setdefault((*context, mat), {})
                 for first in record["macro_operation_temporary_row_bases"].values():
                     for bit in range(bits):
-                        rows[first+bit] = mask if (poison >> bit) & 1 else 0
+                        rows.setdefault(first+bit, mask if (poison >> bit) & 1 else 0)
                 for name, row_id in record["constant_rows"].items():
                     rows[row_id] = mask if name == program.one else 0
                 valid = min(width, domain["elements"]-local_mat*width)
                 for first, values in ((a_row, matrix[output]), (x_row, vector)):
                     for bit in range(bits):
-                        word = mask if (poison >> bit) & 1 else 0
+                        word = rows.get(first+bit, mask if (poison >> bit) & 1 else 0)
                         for lane in range(valid):
-                            pos = column(lane)
+                            pos = column(record.get("position_origin", 0)+lane)
                             word = (word & ~(1 << pos)) | (((values[start+local_mat*width+lane] >> bit) & 1) << pos)
                         rows[first+bit] = word
-            events[domain["completion_index"]] = (output, context, domain)
+            events.setdefault(domain["completion_index"], []).append((output, context, domain))
             start += domain["elements"]
+
+    protected = {}
+    for record in metadata["outputs"]:
+        for domain_index, domain in enumerate(record["domains"]):
+            ids = list(record["constant_rows"].values())
+            ids += [row+bit for row in record["input_rows"][domain_index] for bit in range(bits)]
+            for mat in range(domain["mat_begin"], domain["mat_begin"]+domain["mat_count"]):
+                key = (*record["context"], mat)
+                for row in ids:
+                    protected[key, row] = memory[key][row]
 
     template = replace(lower_to_physical(program, make_default_physical_layout(program)),
                        designated_inputs=(), designated_constants=(), result_bindings=(),
@@ -113,8 +123,10 @@ def execute_trace(metadata, trace, matrix, vector, poison=0xA5):
     results = [0] * metadata["M"]
     for index, line in enumerate(trace, 1):
         opcode, *values = line.split()
-        ch, rank, bg, bank, first, last, *operands = map(int, values)
-        context = (ch, rank, bg, bank)
+        values = list(map(int, values))
+        depth = len(metadata.get("bank_levels", ["Channel", "Rank", "BankGroup", "Bank"]))
+        context = tuple(values[:depth])
+        first, last, *operands = values[depth:]
         if opcode in ("LC-MOV", "GB-MOV"):
             src, src_group, dst, dst_group = operands
             pairs = ((mat, mat) for mat in range(first, last+1)) if opcode == "LC-MOV" else ((first, last),)
@@ -132,13 +144,103 @@ def execute_trace(metadata, trace, matrix, vector, poison=0xA5):
             for mat in range(first, last+1):
                 key = (*context, mat)
                 memory[key] = execute_physical(lowered, memory[key], width)
-        if index in events:
-            output, context, domain = events[index]
+        for output, context, domain in events.get(index, []):
             rows = memory[(*context, domain["sink_mat"])]
             domain_sum = 0
-            for lane in range(domain["residual_count"]):
+            for lane in domain.get("residual_positions", range(domain["residual_count"])):
                 value = sum(((rows[row] >> column(lane)) & 1) << bit
                             for bit, row in enumerate(domain["result_rows"]))
                 domain_sum = add(domain_sum, value)
             results[output] = add(results[output], domain_sum)
+    if any(memory[key].get(row) != value for (key, row), value in protected.items()):
+        raise AssertionError("GEMV replay changed protected A/x/constant rows")
     return results
+
+
+def layout_geometry(metadata):
+    version = metadata.get("schema_version")
+    if version not in (4, 5):
+        raise ValueError("unsupported GEMV layout version")
+    geometry = placement_profile(metadata["target"] if version == 5 else "DDR4")
+    if metadata["placement_profile"] != geometry["name"]:
+        raise ValueError("GEMV layout profile mismatch")
+    if version == 5:
+        if len(metadata["outputs"]) != metadata["M"]:
+            raise ValueError("logical output count mismatch")
+        for key in ("bank_levels", "bank_sizes"):
+            if metadata[key] != geometry[key]:
+                raise ValueError(f"GEMV layout {key} mismatch")
+        h = geometry["hffs_per_mat"]
+        groups = metadata["packed_output_groups"]
+        members = []
+        end = 0
+        for chain_id, group in enumerate(groups):
+            if group["chain_id"] != chain_id or group["first_request_index"] != end+1:
+                raise ValueError("invalid physical CHAIN ownership")
+            end = group["completion_index"]
+            if not group["first_request_index"] <= group["initial_mul_final_request_index"] <= end:
+                raise ValueError("invalid physical checkpoint")
+            members.extend(group["output_ids"])
+        if sorted(members) != list(range(metadata["M"])) or end != metadata["request_count"]:
+            raise ValueError("packed output membership mismatch")
+        for output_id, record in enumerate(metadata["outputs"]):
+            if record["output_id"] != output_id or len(record["context"]) != len(geometry["bank_sizes"]):
+                raise ValueError("invalid output identity")
+            if any(type(v) is not int or not 0 <= v < bound for v, bound in zip(record["context"], geometry["bank_sizes"])):
+                raise ValueError("output Bank identity out of bounds")
+            origin = record["position_origin"]
+            if (origin < 0 or origin % h or record["group_origin"] != origin//h or
+                    origin+min(metadata["N"], geometry["cells_per_mat_row"]) > geometry["cells_per_mat_row"]):
+                raise ValueError("invalid packed slice alignment")
+            if type(record["chain_id"]) is not int or not 0 <= record["chain_id"] < len(groups):
+                raise ValueError("invalid physical CHAIN identity")
+            group = groups[record["chain_id"]]
+            if (output_id not in group["output_ids"] or record["packed_output_group"] != group["chain_id"] or
+                    record["context"] != group["context"] or record["first_request_index"] != group["first_request_index"] or
+                    record["initial_mul_final_request_index"] != group["initial_mul_final_request_index"]):
+                raise ValueError("output physical CHAIN mismatch")
+            previous = record["first_request_index"]-1
+            for domain in record["domains"]:
+                if domain["residual_positions"] != list(range(origin, origin+h)):
+                    raise ValueError("invalid output residual positions")
+                if (domain["chain_id"] != record["chain_id"] or
+                        not previous < domain["completion_index"] <= group["completion_index"] or
+                        domain["checkpoint_request"] != domain["completion_index"]-record["first_request_index"]+1):
+                    raise ValueError("output checkpoint ownership mismatch")
+                previous = domain["completion_index"]
+    return geometry
+
+
+def read_gemv(path):
+    """Read emitted v4/v5 artifacts and assert their shared trace association."""
+    import json
+    from pathlib import Path
+    from .generator import trace_header
+    path = Path(path)
+    metadata = json.loads(path.with_suffix(".layout.json").read_text())
+    layout_geometry(metadata)
+    text = path.read_text()
+    header = trace_header(metadata)
+    if not text.startswith(header):
+        raise ValueError("trace/layout header mismatch")
+    records = metadata.get("packed_output_groups", metadata["outputs"])
+    trace, selected, seen = [], None, set()
+    for line in text[len(header):].splitlines():
+        if line.startswith("CHAIN "):
+            selected = int(line.split()[1])
+            if selected < 0 or selected >= len(records) or selected in seen:
+                raise ValueError("unknown physical CHAIN")
+            seen.add(selected)
+            if len(trace)+1 != records[selected]["first_request_index"]:
+                raise ValueError("CHAIN boundary mismatch")
+        else:
+            if selected is None:
+                raise ValueError("physical Request without CHAIN")
+            record = records[selected]
+            end = record["completion_index"] if metadata["schema_version"] == 5 else record["domains"][-1]["completion_index"]
+            if len(trace) >= end:
+                raise ValueError("physical Request exceeds CHAIN boundary")
+            trace.append(line)
+    if len(trace) != metadata["request_count"]:
+        raise ValueError("trace/layout Request count mismatch")
+    return metadata, trace

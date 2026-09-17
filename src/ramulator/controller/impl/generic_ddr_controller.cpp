@@ -33,8 +33,7 @@ class GenericDDRController : public ControllerBase {
     std::string placement_profile;
     RAMULATOR_PARSE_PARAM(placement_profile, std::string, "pud_placement_profile").default_val("");
     if (!placement_profile.empty()) {
-      set_location_resolver(pud_binding(*m_device.m_spec).placement(
-          placement_profile, *m_device.m_spec, m_addr_mapper->m_impl->get_name()));
+      m_pud_placement_profile = placement_profile;
     }
   }
   void setup(IFrontEnd* frontend, IMemorySystem* memory_system) override {

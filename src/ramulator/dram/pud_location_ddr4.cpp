@@ -108,7 +108,8 @@ PlacementProfile PlacementProfile::mimdram_hbm3_8gb_8hi_v1() {
 
 LocationResolver::LocationResolver(PlacementProfile p, const DRAMSpec& spec, MappingContext context) {
   require(!p.name.empty() && !context.address_space.empty(), "profile/address-space association required");
-  require(context.channels == 1 && context.channel_mapper == "CacheLineInterleave" &&
+  require(context.channels > 0 && (context.channels & (context.channels - 1)) == 0 &&
+              context.interleave_bits == 0 && context.channel_mapper == "CacheLineInterleave" &&
               context.address_mapper == "RoBaRaCoCh" && !context.row_remapping && context.reserved_rows_per_bank == 0,
           "unsupported PuD mapper/remapping context");
   const bool gddr7 = spec.standard_name == "GDDR7" || spec.standard_name == "GDDR7_PuD";
@@ -183,7 +184,7 @@ LocationResolver::LocationResolver(PlacementProfile p, const DRAMSpec& spec, Map
   int64_t capacity_bits = product({p.rows_per_bank, p.chips, p.mats_per_chip, p.cells_per_mat_row});
   for (int i = 0; i < bank_extent; ++i) capacity_bits = product({capacity_bits, sizes[i]});
   require(capacity_bits % 8 == 0, "capacity must be byte-exact");
-  m_capacity_bytes = capacity_bits / 8;
+  m_capacity_bytes = product({capacity_bits / 8, context.channels});
   m_group_to_burst = inverse_permutation(p.burst_to_group, p.cells_per_mat_row / p.hffs_per_mat);
   m_slot_to_bit = inverse_permutation(p.bit_to_slot, burst_bits);
   m_column_to_group_position = inverse_permutation(p.group_position_to_column, p.cells_per_mat_row);
@@ -200,9 +201,11 @@ LocationResolver::LocationResolver(PlacementProfile p, const DRAMSpec& spec, Map
     require(p.gb_successor == initial_gb_successors(p.chips, p.mats_per_chip),
             "initial profile requires same-chip forward GB topology without wrap");
   }
+  std::vector<int> bank_sizes(sizes.begin(), sizes.begin() + bank_extent);
+  bank_sizes[0] = context.channels;
   m_association =
       std::make_shared<const LocationAssociation>(LocationAssociation{std::move(p), std::move(context), (hbm3 || gddr7) ? 0 : sizes[1],
-          {levels.begin(), levels.begin() + bank_extent}, {sizes.begin(), sizes.begin() + bank_extent}});
+          {levels.begin(), levels.begin() + bank_extent}, std::move(bank_sizes)});
 }
 
 ResolvedBit LocationResolver::resolve(PhysicalBit origin) const {
@@ -213,9 +216,12 @@ ResolvedBit LocationResolver::resolve(PhysicalBit origin) const {
   // Retain offset and bit before compacting the external view.
   int offset = origin.byte % burst_bytes();
   int64_t address = origin.byte / burst_bytes();
+  const int channel = address % m_association->routing.channels;
+  address /= m_association->routing.channels;
   int burst = address % groups();
   address /= groups();
   BankIdentity bank(m_association->bank_sizes.size(), 0);
+  bank[0] = channel;
   for (size_t i = 1; i < bank.size(); ++i) {
     bank[i] = address % m_association->bank_sizes[i];
     address /= m_association->bank_sizes[i];
@@ -246,7 +252,8 @@ PhysicalBit LocationResolver::inverse(const CellID& cell) const {
   for (size_t i = cell.bank.size(); i-- > 1;) {
     address = cell.bank[i] + m_association->bank_sizes[i] * address;
   }
-  address = bit / 8 + burst_bytes() * (burst + groups() * address);
+  address = bit / 8 + burst_bytes() *
+      (cell.bank[0] + m_association->routing.channels * (burst + groups() * address));
   return {address, bit % 8};
 }
 

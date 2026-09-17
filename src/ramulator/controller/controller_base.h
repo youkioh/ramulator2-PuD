@@ -88,6 +88,8 @@ class ControllerBase : public IController, public Implementation {
   // Install the shared placement authority before traffic; canonical public
   // execution also requires the combined standard capability.
   void set_location_resolver(std::shared_ptr<const PuD::LocationResolver> resolver);
+  void initialize_system_locations(std::shared_ptr<const PuD::LocationResolver> shared,
+      int channels, const std::string& channel_mapper, int interleave_bits) override;
 
   bool send(Request& req) override;
   bool priority_send(Request& req) override;
@@ -125,6 +127,7 @@ class ControllerBase : public IController, public Implementation {
   IRowPolicy* m_rowpolicy = nullptr;
   std::vector<IControllerPlugin*> m_plugins;
   std::shared_ptr<const PuD::LocationResolver> m_location_resolver;
+  std::string m_pud_placement_profile;
 
   // Request buffers
   std::deque<Request> m_pending;
