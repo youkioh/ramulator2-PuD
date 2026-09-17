@@ -103,6 +103,8 @@ struct DRAMSpec {
   int channel_width = -1;
   int data_payload_bytes = -1;
   Clk_t read_latency = -1;
+  // Physical duration is separate from integer scheduling intervals.
+  double tick_duration_ps = -1;
   bool supports_hffs_per_mat = false;
   std::optional<int> hffs_per_mat;
 
@@ -170,6 +172,8 @@ struct DRAMSpec {
 
   // Combined timing lookup + value access — throws if not found.
   int get_timing_value(const std::string& name) const {
+    if (name == "tCK_ps")
+      throw std::logic_error("Use tick_duration_ps for physical clock duration");
     auto it = timings.find(name);
     if (it == timings.end()) throw std::runtime_error("DRAMSpec: unknown timing '" + name + "'");
     return timing_vals[it->second];

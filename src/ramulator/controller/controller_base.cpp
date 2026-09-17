@@ -133,7 +133,7 @@ void ControllerBase::init_base() {
 
   // Cache frequently-used lookups
   m_bank_level = m_device.m_spec->get_level_id("Bank");
-  m_tCK_ps = m_device.m_spec->get_timing_value("tCK_ps");
+  m_tCK_ps = m_device.m_spec->tick_duration_ps;
 
   // Active buffer holds requests with in-flight opening commands (ACT).
   // One request per bank at most, so size to total bank count.

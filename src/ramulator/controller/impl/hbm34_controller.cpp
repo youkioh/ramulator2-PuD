@@ -1,6 +1,7 @@
 #include "ramulator/controller/impl/hbm_controller_base.h"
 
 #include "ramulator/base/base.h"
+#include "ramulator/base/param.h"
 #include "ramulator/dram/dram_spec.h"
 
 namespace Ramulator {
@@ -19,6 +20,7 @@ class HBM34Controller final : public HBMControllerBase {
   };
 
   int m_cmd_act = -1;
+  std::vector<int> m_act_like_commands;
   int m_cmd_prepb = -1;
   int m_cmd_preab = -1;
   int m_cmd_refab = -1;
@@ -35,9 +37,26 @@ class HBM34Controller final : public HBMControllerBase {
  public:
   void init() override {
     HBMControllerBase::init();
+    RAMULATOR_PARSE_PARAM(m_pud_buffer_size, int, "pud_buffer_size").default_val(32);
+    m_pud_buffer.max_size = m_pud_buffer_size;
+    std::string placement_profile;
+    RAMULATOR_PARSE_PARAM(placement_profile, std::string, "pud_placement_profile").default_val("");
+    if (m_config.is_map() && m_config.map().contains("pud_compute_engines"))
+      throw std::runtime_error("pud_compute_engines has been removed: finite PuD control-engine capacity is not modeled");
+    if (m_device.m_spec->supports_compute_requests()) {
+      m_pud_placement_levels = get_pud_placement_levels(*m_device.m_spec);
+      m_movement_timing = make_movement_timing_constraints(*m_device.m_spec);
+    }
+    if (!placement_profile.empty()) {
+      set_location_resolver(pud_binding(*m_device.m_spec).placement(
+          placement_profile, *m_device.m_spec, m_addr_mapper->m_impl->get_name()));
+    }
     auto& spec = *m_device.m_spec;
 
     m_cmd_act = spec.get_command_id("ACT");
+    m_act_like_commands = {m_cmd_act};
+    for (const char* name : {"ACT_PUD", "ACT_PUD_OC", "ACT_PUD_S", "ACT_PUD_S_OC", "ACT_MOV"})
+      if (spec.has_command(name)) m_act_like_commands.push_back(spec.get_command_id(name));
     m_cmd_prepb = spec.get_command_id("PREpb");
     m_cmd_preab = spec.get_command_id("PREab");
     m_cmd_refab = spec.get_command_id("REFab");
@@ -53,6 +72,7 @@ class HBM34Controller final : public HBMControllerBase {
 
   void tick() override {
     hbm_tick_prologue();
+    protect_pending_pud_compute();
 
     bool rising_edge = is_rising_edge();
     if (rising_edge) {
@@ -71,7 +91,20 @@ class HBM34Controller final : public HBMControllerBase {
     hbm_tick_epilogue();
   }
 
+  bool check_request_timing(const Request& req) override {
+    return check_pud_request_timing(req);
+  }
+
  protected:
+  std::optional<bool> try_send_special_request(Request& req) override {
+    return try_send_pud_request(req);
+  }
+  bool supports_range_aware_compute() const override {
+    return m_device.m_spec->supports_compute_requests();
+  }
+  bool is_pud_eligible_before_prerequisite(const Request& req) const override {
+    return is_pud_candidate_eligible(req);
+  }
   /**
    * Overloaded slot matching logic that checks 1) the current clock edge, and 2) the rising-edge state
    * to filter commands from the request buffers based on the clock edge and command pairing constraints
@@ -131,7 +164,9 @@ class HBM34Controller final : public HBMControllerBase {
     m_rising_edge_cmd_info.command = command;
     m_rising_edge_cmd_info.pc = addr_vec[m_level_pc];
     m_rising_edge_cmd_info.bank_key = is_all_bank_row_command(command) ? -1 : bank_key(addr_vec);
-    m_rising_edge_cmd_info.next_pairing_falling_edge = clk + (command == m_cmd_act ? 3 : 1);
+    const bool act_like = std::find(m_act_like_commands.begin(), m_act_like_commands.end(), command)
+                          != m_act_like_commands.end();
+    m_rising_edge_cmd_info.next_pairing_falling_edge = clk + (act_like ? 3 : 1);
   }
 
   inline bool is_all_bank_row_command(int command) const {

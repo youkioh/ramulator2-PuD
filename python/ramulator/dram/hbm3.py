@@ -157,6 +157,22 @@ class HBM3(DRAMStandard):
         TimingConstraint(level="Bank", preceding=["PREpb"], following=["RFMpb"], latency="nRP"),
     ]
 
+    # Accepted G6 conservative maintenance recovery, at existing PC/Bank scopes.
+    # RFM durations remain uncalibrated placeholders used for structural safety.
+    timing_constraints += [
+        TimingConstraint("PseudoChannel", ["PREab"], ["REFpb", "RFMpb"], "nRP"),
+        TimingConstraint("Bank", ["RDA"], ["REFpb", "RFMpb"], "nRTP + nRP"),
+        TimingConstraint("Bank", ["WRA"], ["REFpb", "RFMpb"], "nCWL + nBL + nWR + nRP"),
+        TimingConstraint("PseudoChannel", ["REFab"], ["REFab", "RFMab", "REFpb", "RFMpb", "PREpb"], "nRFC"),
+        TimingConstraint("PseudoChannel", ["RFMab"], ["REFab", "RFMab", "REFpb", "RFMpb", "PREpb"], "nRFMab"),
+        TimingConstraint("PseudoChannel", ["REFpb"], ["REFab", "RFMab", "PREab"], "nRFCpb"),
+        TimingConstraint("PseudoChannel", ["RFMpb"], ["REFab", "RFMab", "PREab"], "nRFMpb"),
+        TimingConstraint("Bank", ["REFpb"], ["REFpb", "RFMpb", "PREpb"], "nRFCpb"),
+        TimingConstraint("Bank", ["RFMpb"], ["REFpb", "RFMpb", "PREpb"], "nRFMpb"),
+        TimingConstraint("PseudoChannel", ["REFpb"], ["RFMpb"], "nRREFD"),
+        TimingConstraint("PseudoChannel", ["RFMpb"], ["REFpb", "RFMpb"], "nRREFD"),
+    ]
+
     # ---- Secondary timing resolution ----
     @classmethod
     def resolve_secondary_timings(cls, timing_dict, org_dict):
@@ -229,7 +245,7 @@ HBM3.timing_presets = {
         "nCCDS": 2, "nCCDL": 4, "nCCDR": 3,
         "nRRDS": 4, "nRRDL": 5, "nFAW": 24,
         "nWTRS": 7, "nWTRL": 10, "nRTW": 20,
-        "nRFCpb": 320, "nRREFD": 8, "nREFI": 6240,
+        "nRFCpb": 320, "nRREFD": 13, "nREFI": 6240,
         "nPPD": 2,
         "tCK_ps": 625,
     },

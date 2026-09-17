@@ -1,5 +1,5 @@
 /*
- * RAM2BIN v1.1 — Ramulator2 Binary Command Trace
+ * RAM2BIN v1.1/v1.2 — Ramulator2 Binary Command Trace
  * ==============================================
  *
  * A self-describing, Structure-of-Arrays binary trace format for DRAM
@@ -98,7 +98,10 @@
  * e.g. "rate\0" "nBL\0" "nCL\0" "nRCD\0" ...
  *
  * 7. Timing values
- * timing_count x int32
+ * timing_count x int32 in v1.1; timing_count x float64 in v1.2.
+ * v1.2 is emitted only for fractional-picosecond tick durations. Integer
+ * durations retain the byte-compatible v1.1 representation. Event arrays
+ * and integer scheduling timestamps are unchanged.
  * Concrete values matching timing_names order.
  * e.g. [2400, 4, 16, 16, 16, 39, 55, ...] for DDR4_2400R
  *
@@ -265,7 +268,7 @@ class BinTraceRecorder : public IControllerPlugin, public Implementation {
     Header h{};
     std::memcpy(h.magic, "RAM2BIN", 8);
     h.version[0]    = 1;
-    h.version[1]    = 1;
+    h.version[1]    = fractional_duration(spec) ? 2 : 1;
     h.level_count   = static_cast<uint16_t>(spec.level_count);
     h.command_count = static_cast<uint16_t>(spec.command_count);
     h.timing_count  = static_cast<uint16_t>(spec.timing_count);
@@ -289,6 +292,10 @@ class BinTraceRecorder : public IControllerPlugin, public Implementation {
   }
 
   // ── Spec section ──────────────────────────────────────────────────
+
+  static bool fractional_duration(const DRAMSpec& spec) {
+    return spec.tick_duration_ps != static_cast<int32_t>(spec.tick_duration_ps);
+  }
 
   void write_spec_section(const DRAMSpec& spec) {
     for (const auto& name : spec.level_names)
@@ -317,8 +324,14 @@ class BinTraceRecorder : public IControllerPlugin, public Implementation {
     for (const auto& name : spec.timing_names)
       write_cstr(name);
 
-    for (int val : spec.timing_vals)
-      write_val(static_cast<int32_t>(val));
+    for (size_t i = 0; i < spec.timing_vals.size(); ++i) {
+      const double val = spec.timing_names[i] == "tCK_ps"
+                             ? spec.tick_duration_ps : spec.timing_vals[i];
+      if (fractional_duration(spec))
+        write_val(val);
+      else
+        write_val(static_cast<int32_t>(val));
+    }
   }
 
   // ── Data arrays ───────────────────────────────────────────────────

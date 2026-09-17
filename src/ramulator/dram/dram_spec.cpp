@@ -59,7 +59,12 @@ void DRAMSpec::load_config(const ConfigNode& config) {
   const auto& timing = timing_node.seq();
   timing_vals.resize(timing.size());
   for (size_t i = 0; i < timing.size(); i++) {
-    timing_vals[i] = timing[i].as<int>();
+    if (timing_names.at(i) == "tCK_ps") {
+      tick_duration_ps = timing[i].as<double>();
+      timing_vals[i] = -1;  // Not an integer scheduling interval.
+    } else {
+      timing_vals[i] = timing[i].as<int>();
+    }
   }
 
   // Command bus cycle counts (pre-computed by Python)

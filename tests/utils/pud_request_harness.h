@@ -268,6 +268,8 @@ class LocatedSystemUnderTest {
     out["completion_retained"] = callback_had_locations;
     return out;
   }
+  float tick_duration_ns() const { return m_system->get_tCK(); }
+  void finalize() { m_system->finalize(); }
   nb::dict stats() const {
     m_system->update_stats_recursive();
     return nb::cast<nb::dict>(confignode_to_py(m_system->collect_stats()));
@@ -1116,6 +1118,8 @@ inline void bind_pud_request_harness(nb::module_& m) {
       .def("ordinary", &LocatedSystemUnderTest::ordinary, nb::arg("address"), nb::arg("type"), nb::arg("size") = 1,
            nb::arg("cells") = true, nb::arg("wrong_intra") = nb::none())
       .def("stats", &LocatedSystemUnderTest::stats)
+      .def("finalize", &LocatedSystemUnderTest::finalize)
+      .def_prop_ro("tick_duration_ns", &LocatedSystemUnderTest::tick_duration_ns)
       .def("forwarding", &LocatedSystemUnderTest::forwarding)
       .def_prop_ro("pending", &LocatedSystemUnderTest::pending);
 }

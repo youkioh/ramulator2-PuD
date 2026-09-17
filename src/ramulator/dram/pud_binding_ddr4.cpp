@@ -76,7 +76,8 @@ class DDR4PuDBinding final : public PuDBinding {
 const PuDBinding* find_pud_binding(const DRAMSpec& spec) {
   static const DDR4PuDBinding ddr4;
   if (spec.standard_name == "DDR4_PuD" || spec.standard_name == "DDR4_PuD_Movement") return &ddr4;
-  return find_gddr7_pud_binding(spec);
+  if (const auto* binding = find_gddr7_pud_binding(spec)) return binding;
+  return find_hbm3_pud_binding(spec);
 }
 const PuDBinding& pud_binding(const DRAMSpec& spec) {
   const auto* binding = find_pud_binding(spec);

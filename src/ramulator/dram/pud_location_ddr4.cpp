@@ -13,6 +13,7 @@ using namespace LocationDetail;
 namespace {
 constexpr auto kInitialProfileName = "MIMDRAM-DDR4_8Gb_x8 modeled placement profile v1";
 constexpr auto kGDDR7ProfileName = "MIMDRAM-GDDR7_16Gb_x8 modeled placement profile v1";
+constexpr auto kHBM3ProfileName = "MIMDRAM-HBM3_8Gb_8hi modeled placement profile v1";
 
 std::vector<int> initial_gb_successors(int chips, int mats_per_chip) {
   std::vector<int> successors(chips * mats_per_chip, -1);
@@ -79,15 +80,44 @@ PlacementProfile PlacementProfile::mimdram_gddr7_16gb_x8_v1() {
   return p;
 }
 
+PlacementProfile PlacementProfile::mimdram_hbm3_8gb_8hi_v1() {
+  // Accepted representative older-HBM geometry and logical transfer positions;
+  // chips=1 denotes one participating 32-bit slice, not a physical stack die.
+  PlacementProfile p{};
+  p.name = kHBM3ProfileName;
+  p.dq = 32;
+  p.prefetch = 8;
+  p.channel_width = 32;
+  p.organization_columns = 256;
+  p.pseudochannels = 2;
+  p.sids_per_pc = 2;
+  p.bank_groups = 4;
+  p.banks_per_group = 4;
+  p.rows_per_bank = 8192;
+  p.chips = 1;
+  p.mats_per_chip = 16;
+  p.cells_per_mat_row = 512;
+  p.hffs_per_mat = 16;
+  p.rows_per_subarray = 512;
+  p.burst_to_group = identity(32);
+  p.bit_to_slot = identity(256);
+  p.group_position_to_column = identity(512);
+  p.gb_successor = initial_gb_successors(1, 16);
+  return p;
+}
+
 LocationResolver::LocationResolver(PlacementProfile p, const DRAMSpec& spec, MappingContext context) {
   require(!p.name.empty() && !context.address_space.empty(), "profile/address-space association required");
   require(context.channels == 1 && context.channel_mapper == "CacheLineInterleave" &&
               context.address_mapper == "RoBaRaCoCh" && !context.row_remapping && context.reserved_rows_per_bank == 0,
           "unsupported PuD mapper/remapping context");
   const bool gddr7 = spec.standard_name == "GDDR7" || spec.standard_name == "GDDR7_PuD";
-  require(gddr7 || spec.standard_name == "DDR4" || spec.standard_name == "DDR4_PuD" || spec.standard_name == "DDR4_PuD_Movement",
+  const bool hbm3 = spec.standard_name == "HBM3" || spec.standard_name == "HBM3_PuD";
+  require(hbm3 || gddr7 || spec.standard_name == "DDR4" || spec.standard_name == "DDR4_PuD" || spec.standard_name == "DDR4_PuD_Movement",
           "unsupported DDR standard");
-  const std::vector<std::string> levels = gddr7
+  const std::vector<std::string> levels = hbm3
+      ? std::vector<std::string>{"Channel", "PseudoChannel", "Sid", "BankGroup", "Bank", "Row", "Column"}
+      : gddr7
       ? std::vector<std::string>{"Channel", "Bank", "Row", "Column"}
       : std::vector<std::string>{"Channel", "Rank", "BankGroup", "Bank", "Row", "Column"};
   const int bank_extent = levels.size() - 2;
@@ -98,7 +128,15 @@ LocationResolver::LocationResolver(PlacementProfile p, const DRAMSpec& spec, Map
         p.chips, p.mats_per_chip, p.cells_per_mat_row, p.hffs_per_mat, p.rows_per_subarray}) {
     require(dimension > 0, "dimensions must be positive");
   }
-  require(gddr7 || !p.rank_counts.empty(), "supported rank counts required");
+  require(hbm3 || gddr7 || !p.rank_counts.empty(), "supported rank counts required");
+  if (hbm3) {
+    require(p.rank_counts.empty() && p.banks_per_channel == 0, "HBM3 has no Rank");
+    require(p.pseudochannels > 0 && p.sids_per_pc > 0, "HBM3 PC/Sid dimensions must be positive");
+    for (int size : {p.pseudochannels, p.sids_per_pc})
+      require((size & (size - 1)) == 0, "external mapper requires power-of-two dimensions");
+  } else {
+    require(p.pseudochannels == 0 && p.sids_per_pc == 0, "non-HBM profile has no PC/Sid");
+  }
   if (gddr7) {
     require(p.banks_per_channel > 0, "dimensions must be positive");
     require(p.bank_groups == 0 && p.banks_per_group == 0 && p.rank_counts.empty(),
@@ -127,9 +165,11 @@ LocationResolver::LocationResolver(PlacementProfile p, const DRAMSpec& spec, Map
     require((dimension & (dimension - 1)) == 0, "external mapper requires power-of-two dimensions");
   }
   const auto& sizes = spec.organization.level_sizes;
-  require(gddr7 || std::find(p.rank_counts.begin(), p.rank_counts.end(), sizes[1]) != p.rank_counts.end(),
+  require(hbm3 || gddr7 || std::find(p.rank_counts.begin(), p.rank_counts.end(), sizes[1]) != p.rank_counts.end(),
           "unsupported rank replication");
-  const std::vector<int> expected_sizes = gddr7
+  const std::vector<int> expected_sizes = hbm3
+      ? std::vector<int>{1, p.pseudochannels, p.sids_per_pc, p.bank_groups, p.banks_per_group, p.rows_per_bank, p.organization_columns}
+      : gddr7
       ? std::vector<int>{1, p.banks_per_channel, p.rows_per_bank, p.organization_columns}
       : std::vector<int>{1, sizes[1], p.bank_groups, p.banks_per_group, p.rows_per_bank, p.organization_columns};
   require(sizes == expected_sizes &&
@@ -156,12 +196,12 @@ LocationResolver::LocationResolver(PlacementProfile p, const DRAMSpec& spec, Map
   }
   // Protect the named initial profile's accepted topology. Replacement software
   // profiles supply their own relation; numeric adjacency is not universal.
-  if (p.name == kInitialProfileName || p.name == kGDDR7ProfileName) {
+  if (p.name == kInitialProfileName || p.name == kGDDR7ProfileName || p.name == kHBM3ProfileName) {
     require(p.gb_successor == initial_gb_successors(p.chips, p.mats_per_chip),
             "initial profile requires same-chip forward GB topology without wrap");
   }
   m_association =
-      std::make_shared<const LocationAssociation>(LocationAssociation{std::move(p), std::move(context), gddr7 ? 0 : sizes[1],
+      std::make_shared<const LocationAssociation>(LocationAssociation{std::move(p), std::move(context), (hbm3 || gddr7) ? 0 : sizes[1],
           {levels.begin(), levels.begin() + bank_extent}, {sizes.begin(), sizes.begin() + bank_extent}});
 }
 

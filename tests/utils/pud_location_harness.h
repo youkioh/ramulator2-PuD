@@ -13,7 +13,9 @@ class LocationResolverUnderTest {
   LocationResolverUnderTest(nb::dict dram, nb::dict routing, nb::dict overrides) {
     ConfigNode cfg = py_to_confignode(dram);
     auto spec = DRAMSpec::create(cfg["impl"].as<std::string>(), ConfigNode(ConfigNode::Map{{"dram", cfg}}));
-    auto p = spec->standard_name == "GDDR7" || spec->standard_name == "GDDR7_PuD"
+    auto p = spec->standard_name == "HBM3" || spec->standard_name == "HBM3_PuD"
+        ? PuD::PlacementProfile::mimdram_hbm3_8gb_8hi_v1()
+        : spec->standard_name == "GDDR7" || spec->standard_name == "GDDR7_PuD"
         ? PuD::PlacementProfile::mimdram_gddr7_16gb_x8_v1()
         : PuD::PlacementProfile::mimdram_ddr4_8gb_x8_v1();
     std::map<std::string, int*> dimensions{{"dq", &p.dq},
@@ -21,6 +23,8 @@ class LocationResolverUnderTest {
                                            {"channel_width", &p.channel_width},
                                            {"organization_columns", &p.organization_columns},
                                            {"bank_groups", &p.bank_groups},
+                                           {"pseudochannels", &p.pseudochannels},
+                                           {"sids_per_pc", &p.sids_per_pc},
                                            {"banks_per_group", &p.banks_per_group},
                                            {"rows_per_bank", &p.rows_per_bank},
                                            {"chips", &p.chips},

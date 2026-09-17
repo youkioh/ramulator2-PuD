@@ -52,19 +52,20 @@
               {{ row.name }}
             </p>
             <p class="mt-0.5 text-xs text-neutral-500">
-              Original: {{ originalTimingValues[idx]?.toLocaleString() ?? 0 }} cycles
+              Original: {{ originalTimingValues[idx]?.toLocaleString() ?? 0 }} {{ row.name === 'tCK_ps' ? 'ps' : 'cycles' }}
             </p>
           </div>
           <UInput
             v-model.number="row.value"
             type="number"
+            :step="row.name === 'tCK_ps' ? 'any' : 1"
             size="sm"
             :min="0"
             :disabled="loading"
             :ui="{ trailing: 'pointer-events-none' }"
           >
             <template #trailing>
-              <span class="text-[10px] text-neutral-500">clk</span>
+              <span class="text-[10px] text-neutral-500">{{ row.name === 'tCK_ps' ? 'ps' : 'clk' }}</span>
             </template>
           </UInput>
         </div>
@@ -141,7 +142,9 @@ function applyOverrides() {
   const trace = pendingTrace.value;
   if (!trace) return null;
 
-  const values = new Int32Array(timingRows.map(row => toInt(row.value)));
+  const values = new Float64Array(timingRows.map(row => row.name === 'tCK_ps'
+    ? (Number.isFinite(row.value) ? Math.max(0, row.value) : 0)
+    : toInt(row.value)));
   trace.spec.timingValues = values;
   trace.header.readLatency = toInt(readLatency.value);
   return { trace, values: Array.from(values), readLatency: trace.header.readLatency };

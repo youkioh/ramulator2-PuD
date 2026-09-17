@@ -151,7 +151,7 @@ function _buildTrace(header: StreamHeader, spec: StreamSpec, copyArrays = false)
       commandMeta: spec.commandMeta,
       commandCycles: new Uint8Array(spec.commandCycles ?? Array(spec.commandNames.length).fill(1)),
       timingNames: spec.timingNames,
-      timingValues: new Int32Array(spec.timingValues),
+      timingValues: new Float64Array(spec.timingValues),
     };
   }
 

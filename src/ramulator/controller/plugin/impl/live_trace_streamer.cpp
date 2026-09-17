@@ -160,6 +160,17 @@ class LiveTraceStreamer : public IControllerPlugin, public Implementation {
 
   // ── Protocol messages ─────────────────────────────────────────────
 
+  static std::string json_timing_values(const DRAMSpec& spec) {
+    std::string values = "[";
+    for (size_t i = 0; i < spec.timing_vals.size(); ++i) {
+      if (i) values += ',';
+      values += spec.timing_names[i] == "tCK_ps"
+                    ? fmt::format("{}", spec.tick_duration_ps)
+                    : std::to_string(spec.timing_vals[i]);
+    }
+    return values + ']';
+  }
+
   void send_init(const DRAMSpec& spec) {
     auto body = fmt::format(
         R"({{"type":"init",)"
@@ -176,7 +187,7 @@ class LiveTraceStreamer : public IControllerPlugin, public Implementation {
         json_str_array(spec.level_names), json_int_array(spec.organization.level_sizes),
         json_str_array(spec.command_names), json_cmd_meta(spec.command_meta),
         json_int_array(spec.command_cycles),
-        json_str_array(spec.timing_names), json_int_array(spec.timing_vals));
+        json_str_array(spec.timing_names), json_timing_values(spec));
     http_post(body);
   }
 

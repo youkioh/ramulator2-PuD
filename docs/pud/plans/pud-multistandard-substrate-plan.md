@@ -2,13 +2,14 @@
 
 Status: Phase 1 and the common execution-model correction complete on 2026-09-16.
 Phase 2 GDDR7 primitive substrate binding and validation are complete.
+Phase 3 HBM3 primitive substrate binding and validation are complete on 2026-09-17.
 Phase 1's frozen DDR4 equivalence evidence remains unchanged.
 G0, the common no-finite-control-engine model and GDDR7/HBM3 G1/G2/G3/G4/G6
 are Accepted. G5/G7 remain Open for target trace/hierarchy and GEMV placement
 portability; neither blocks direct-Request primitive binding/validation.
 Phase 2 was explicitly authorized by the user's implementation request.
 HBM3 G1/G2/G3/G4/G6 investigation and modeling acceptance are complete.
-HBM3 implementation is not authorized; Phase 3 requires separate user approval.
+Phase 3 was separately authorized by the user's implementation request.
 Phase-1 baseline: `093af06009f0d3e403fc9e949682ce6722a8ec3a` on
 `feature/pud-multistandard-substrate`.
 
@@ -531,7 +532,7 @@ maintenance protection. No synthetic Rank and no loss of PC/Sid coordinates.
 
 Entry: Phase 1, the common execution-model correction and Phase 2 are complete.
 HBM3 G1/G2/G3/G4/G6 are Accepted. Separate implementation authorization
-remains required before any Phase-3 code; modeling acceptance does not grant it.
+was received for this Phase; modeling acceptance alone did not grant it.
 The 2026-09-17 investigation is complete at clean source HEAD
 `74b7a59210f7da85191e2066cbe95213a5a75730`; only documentation was changed.
 Recover the [HBM3 reference](../references/hbm3-pud-modeling-reference.md) and
@@ -584,6 +585,54 @@ priority backpressure; enqueue success is not refresh completion.
 Regression: DDR4 equivalence fixtures, completed GDDR7 binding cases, and
 HBM3/HBM34 Device/edge/refresh/smoke tests; HBM4 tests when shared HBM34 code changes.
 
+### Phase-3 completion evidence — 2026-09-17
+
+Started clean on `feature/pud-multistandard-substrate` at
+`29305b7d6f7b8bb9237da7625b3f14266cd85f0a`.
+HBM3 now executes all five compute primitives and LC/GB movement through
+direct Requests and the common occurrence/protection/completion substrate.
+The accepted profile preserves Channel/PC/Sid/BG/Bank identity and local GB
+topology. HBM34 handles ACT-like occupancy/pairing, Channel row/column buses
+and addressed-PC publication. G6 repairs are limited to the Accepted edges
+and nRREFD=13 CK. Open/AllBank evaluation produces zero RFM; injected RFM
+tests establish structural safety only. Automatic per-bank REF remains deferred.
+
+Exact 312.5-ps duration reaches configuration, runtime consumers, reporting,
+binary/live trace export and viewer load/edit paths. Integer scheduling is
+unchanged by duration transport. At fixed HBM3 ticks, reported elapsed time
+increases by 0.160256% and throughput decreases by 0.16% relative to the old
+312-ps truncation. RAM2BIN uses v1.2 float64 timing metadata only for fractional
+durations; integer-duration standards retain byte-compatible v1.1. This does
+not change PuDTrace or command-event timestamps. Selected HBM4/DDR4/GDDR7
+durations remain unchanged.
+
+Validation: **3,430 tests and 108 subtests passed** across Device/controller,
+unit/smoke, operation lowering/requirements and GEMV integration suites,
+including HBM3/HBM4 and completed DDR4/GDDR7 behavior. After the audit's
+clock-export correction, **1,052 focused HBM3/export/legacy-recorder tests
+passed**. Independent oracles cover primitive/LC/GB timelines, exact and
+one-tick-early boundaries, pairing, all ordered footprint classes, PC/Sid
+identity, no-SALP serialization, more than eight disjoint Requests, maintenance,
+retry/backpressure and reentrant exact-once completion. All **14** DDR4
+post-engine-removal GEMV baselines match exactly; **31** GDDR7 evidence files
+are byte-identical. Both microbenchmarks pass; generation/config checks match
+**19** standards and **61** generated Python files.
+
+The separately authorized fresh-context read-only audit independently passed
+1,138 HBM tests, found the clock-export gap, and closed it after reviewing the
+repair and passing 19 exporter/actual-viewer/legacy tests without skips.
+Full diff review, whitespace checks and prior-evidence hash verification pass.
+No finite engine, SALP, G5/G7, HBM3 GEMV, CHAIN, energy or payload work was added.
+
+Reproducible ignored evidence: `build/pud-phase3/validation-commands.json`,
+`source.patch`, `changed-files.json`, `audit.md`, `manifest.sha256.json`, and
+the drivers `capture.py`, `verify.py`, `closure.py`. Final captures are
+`evidence-final/` (HBM3) and `prior-baseline-regression-final/` (DDR4/GDDR7),
+with source/binary hashes and nested manifests. Run captures with fresh output
+paths; `verify.py --final` checks the recorded final paths. Earlier Phase-1,
+Phase-2 and no-engine evidence trees are unchanged; development attempts and
+pre-audit captures remain separately recorded within the new Phase-3 tree.
+
 ## Phase 4 — reusable operation/GEMV integration and characterization
 
 Invariant: the existing arithmetic/lowering, two GEMV schedules, PuDTrace
@@ -626,16 +675,14 @@ operation/lowering requirements, all six GEMV profiles, full diff review and
 
 ## Handoff
 
-Phase 1, the common execution-model correction and Phase 2 are complete with
-separate local evidence above. DDR4 and GDDR7 compute/movement have physical
-protection without finite engine accounting. GDDR7 primitive validation uses
-directly constructed Requests; G1/G2/G3/G4/G6 are Accepted. G5/G7 remain Open
+Phases 1–3 and the common execution-model correction are complete with
+separate local evidence above. DDR4, GDDR7 and HBM3 compute/movement have
+physical protection without finite engine accounting. Target primitive
+validation uses directly constructed Requests; G1/G2/G3/G4/G6 are Accepted. G5/G7 remain Open
 for target trace/hierarchy representation and GEMV placement portability in
-Phase 4. HBM3 remains conventional-only; its G1/G2/G3/G4/G6 modeling choices
-are Accepted, and Phase 3 can begin after separate implementation approval.
-Implementation is not authorized by this documentation update.
+Phase 4. HBM3 primitive implementation and validation are complete.
 Use the canonical decision for exact target status.
-Later target implementation requires separate approval.
+Phase-4 implementation requires separate approval.
 Trace/GEMV placement still
 awaits G5/G7; SALP, payload simulation, energy modeling and CACTI integration
 remain outside scope.

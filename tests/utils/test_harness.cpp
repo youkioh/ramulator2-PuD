@@ -75,12 +75,13 @@ class DeviceUnderTestCpp {
     return out;
   }
 
-  std::map<std::string, int> timings() const {
+  nb::dict timings() const {
     return timing_map(spec());
   }
 
-  int timing(const std::string& name) const {
-    return spec().get_timing_value(name);
+  nb::object timing(const std::string& name) const {
+    if (name == "tCK_ps") return nb::cast(spec().tick_duration_ps);
+    return nb::cast(spec().get_timing_value(name));
   }
 
   bool supports_controller_sequenced_request(int type_id) const {
@@ -517,7 +518,7 @@ class ControllerUnderTestCpp {
 
   std::vector<std::string> level_names() const { return spec().level_names; }
   std::vector<std::string> command_names() const { return spec().command_names; }
-  std::map<std::string, int> timings() const { return timing_map(spec()); }
+  nb::dict timings() const { return timing_map(spec()); }
 
   AddrVec_t map_address(Addr_t intra_channel_address) const {
     Request req(intra_channel_address, Request::Type::Read);
@@ -527,8 +528,9 @@ class ControllerUnderTestCpp {
     return req.addr_vec;
   }
 
-  int timing(const std::string& name) const {
-    return spec().get_timing_value(name);
+  nb::object timing(const std::string& name) const {
+    if (name == "tCK_ps") return nb::cast(spec().tick_duration_ps);
+    return nb::cast(spec().get_timing_value(name));
   }
 
   nb::dict probe_command_timing(

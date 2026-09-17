@@ -17,6 +17,8 @@ class HBM34(Component):
     read_buffer_size = Param(int, default=32)
     write_buffer_size = Param(int, default=32)
     priority_buffer_size = Param(int, default=1568)
+    pud_buffer_size = Param(int, default=32)
+    pud_placement_profile = Param(str, default='')
     scheduler = Child("scheduler")
     refresh_manager = Child("refresh_manager")
     row_policy = Child("row_policy")

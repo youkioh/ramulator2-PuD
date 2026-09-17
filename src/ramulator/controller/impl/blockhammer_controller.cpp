@@ -252,7 +252,7 @@ class BlockHammerController : public ControllerBase {
 
     int num_banks = m_device.m_bank_nodes.size();
 
-    float ns_per_clk = spec->get_timing_value("tCK_ps") / 1000.0f;
+    float ns_per_clk = static_cast<float>(spec->tick_duration_ps) / 1000.0f;
     m_bf_len_epoch_clk = (int)(m_bf_len_epoch / ns_per_clk);
 
     // Derive bf_hist_size from the RH-aware sizing knobs.

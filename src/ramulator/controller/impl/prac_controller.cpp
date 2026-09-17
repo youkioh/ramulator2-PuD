@@ -54,7 +54,7 @@ class PRACController : public ControllerBase {
       m_num_banks_per_bankgroup = spec->get_level_size("Bank");
     }
 
-    m_abo_act_cycles = m_abo_act_ns / (spec->get_timing_value("tCK_ps") / 1000.0f);
+    m_abo_act_cycles = m_abo_act_ns / (static_cast<float>(spec->tick_duration_ps) / 1000.0f);
 
     int num_banks = m_device.m_bank_nodes.size();
     m_num_ranks = spec->get_level_size("Rank");

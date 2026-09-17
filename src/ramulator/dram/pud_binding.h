@@ -49,6 +49,7 @@ class PuDBinding {
 
 const PuDBinding* find_pud_binding(const DRAMSpec&);
 const PuDBinding* find_gddr7_pud_binding(const DRAMSpec&);
+const PuDBinding* find_hbm3_pud_binding(const DRAMSpec&);
 const PuDBinding& pud_binding(const DRAMSpec&);
 }  // namespace Ramulator
 #endif
