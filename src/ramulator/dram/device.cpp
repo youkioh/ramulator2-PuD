@@ -27,6 +27,7 @@ void DRAMDevice::protect_pud(const std::shared_ptr<PuDExecutionContext>& context
 }
 
 bool DRAMDevice::conflicts_with_protected_pud(int command, const AddrVec_t& addr_vec) const {
+  if (m_pud_binding && !m_pud_binding->uses_bank_array(*m_spec, command)) return false;
   for (const auto& held : m_protected_pud) {
     const auto context = held.lock();
     if (!context) continue;

@@ -1,13 +1,13 @@
 # PuD multistandard substrate implementation plan
 
 Status: Phase 1 and the common execution-model correction complete on 2026-09-16.
+Phase 2 GDDR7 primitive substrate binding and validation are complete.
 Phase 1's frozen DDR4 equivalence evidence remains unchanged.
 G0, the common no-finite-control-engine model and GDDR7 G1/G2/G3/G4/G6 are
 Accepted. G5/G7 remain Open for target trace/hierarchy and GEMV placement
 portability; neither blocks direct-Request primitive binding/validation.
-The next work, after separate user approval, is Phase 2 GDDR7 primitive
-substrate binding. HBM3 target policy is unchanged. No target implementation
-is authorized by this documentation update.
+Phase 2 was explicitly authorized by the user's implementation request.
+HBM3 target policy is unchanged; later target work requires separate approval.
 Phase-1 baseline: `093af06009f0d3e403fc9e949682ce6722a8ec3a` on
 `feature/pud-multistandard-substrate`.
 
@@ -413,8 +413,8 @@ G1/G2/G3/G4/G6 evidence, calculations and alternatives. The
 [canonical decision](../decisions/pud-multistandard-substrate.md) owns policy:
 G1/G2/G3/G4/G6 are Accepted, and the common execution-model correction is
 complete. The [Accepted G6 policy](../decisions/pud-multistandard-substrate.md#accepted-g6--gddr7-evaluation-baseline-preab-repair-and-rfm-policy-b-2026-09-17)
-fixes the evaluation baseline, PREab repair and RFM Policy B. Implementation
-requires separate user approval; do not reopen Accepted choices. This plan
+fixes the evaluation baseline, PREab repair and RFM Policy B. Phase 2 was
+explicitly authorized and is complete; do not reopen Accepted choices. This plan
 selects no independent timing, resource, PREab-repair or RFM policy.
 
 Invariant: the fixed project GDDR7 evaluation baseline supports all five
@@ -425,8 +425,8 @@ Accepted timing repair. This establishes primitive behavior within the stated
 fidelity limits, not vendor-calibrated timing or JESD239 completeness.
 
 Entry: Phase 1 and the common execution-model correction complete;
-G1/G2/G3/G4/G6 resolved. The remaining entry requirement is explicit GDDR7
-implementation authorization. G5/G7 and GEMV integration are not prerequisites;
+G1/G2/G3/G4/G6 resolved, with explicit GDDR7 implementation authorization
+received. G5/G7 and GEMV integration are not prerequisites;
 use directly constructed Requests throughout this phase.
 Carry forward the Accepted G3 command-resource/RCK rules.
 A registerable but unsafe intermediate binding is not a phase exit.
@@ -471,6 +471,56 @@ primitive validation in Phase 4.
 Regression: approved DDR4 common-milestone baseline (Phase-1 fixtures for
 unchanged contracts) plus GDDR7 Device/controller/RCK/refresh/smoke; broaden
 when shared code changes.
+
+### Phase-2 completion evidence (2026-09-17)
+
+Started from clean `feature/pud-multistandard-substrate` at
+`c3e7511c98048105f85d7a8381fdf76e9728f2db`.
+`GDDR7_PuD` and `MIMDRAM_GDDR7_16Gb_x8_v1` use the actual Channel/Bank
+hierarchy, shared placement/ownership/occurrence machinery, and one common
+controller issue/completion path. All five compute primitives and LC/GB
+execute through direct Requests. The binding supplies reception-adjusted
+timing, row/column resources and local recovery; conventional RCK remains
+integrated. The Accepted G6 PREab repair applies to both GDDR7 registrations.
+
+Focused work-unit checks preceded integration. Final target coverage comprises
+**724 cases** across placement, compute, movement, PREab and controller tests:
+all ordered primitive pairs, disjoint/intersecting footprints, different Banks,
+no-SALP, more than eight invocations, buses/RCK, maintenance reservations and
+recovery, exact issue boundaries and exactly-once/reentrant completion.
+The broad regression run passed **2,384 tests plus 108 subtests** across
+Device, controller, unit/frontend, smoke, lowering/requirements and GEMV
+integration suites (`build/pud-phase2/regressions.xml`). After the audit's
+compatibility adjustment, all controller tests and focused target tests passed
+again: **1,492 tests** (`final-controller-and-target.xml` in the same directory).
+Builds and both DDR4 microbenchmarks passed. Generation/config checks matched
+all **18 standards and 61 Python files**; full diff review and `git diff --check`
+passed. A fresh-context audit and its focused follow-up closed without blockers.
+
+Audit limitation: ordinary GDDR7 `ClosedCAP(cap=1)` can strand an active Read
+through a WRA upgrade. Phase 2 preserves this existing behavior rather than
+importing DDR4's extra post-upgrade ordinary-close check. PuD ownership and
+actual-command timing checks remain unconditional; regression tests cover
+ordinary stream compatibility and PuD recovery protection. Repairing this
+conventional defect is separate work.
+
+Reproducible ignored evidence is under `build/pud-phase2/evidence-final/`:
+configs, command/completion/statistic traces, source/binary/import provenance,
+and SHA-256 manifests. All **14 DDR4 post-engine-removal workloads** match
+`build/pud-no-engine` results and generated artifacts exactly, including command
+and CHAIN CSV files. Frozen Phase-1 and no-engine manifests/artifacts were
+verified before and after capture; none were overwritten. Evaluation REF traces
+contain zero RFM; injected RFM safety evidence is separate and makes no physical
+latency claim. The final evidence manifest SHA-256 is
+`b9d381d38089a662e8b96733aa04d5db2e83fd8c7ae70899249ca0aaa3ddb65d`.
+
+With `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python:. LD_LIBRARY_PATH=.`, run
+`ramulator2-venv/bin/python3 build/pud-phase2/capture.py --output build/pud-phase2/replay`
+using a new output directory to reproduce capture; run
+`ramulator2-venv/bin/python3 build/pud-phase2/verify.py` to verify the recorded
+final evidence, generated files and regression results. `final-checks.json`
+records these checks. No G5/G7, trace/GEMV, CHAIN, HBM3, finite-engine or SALP
+semantics changed; decisions and references remain unchanged.
 
 ## Phase 3 — complete HBM3 primitive substrate binding
 
@@ -545,15 +595,15 @@ operation/lowering requirements, all six GEMV profiles, full diff review and
 
 ## Handoff
 
-Phase 1 and the common execution-model correction are complete with separate
-local evidence above. Current compute and movement execution has physical
-protection without finite engine accounting. GDDR7 and HBM3 remain
-conventional-only. After separate user approval, the next work is Phase 2:
-GDDR7 primitive substrate binding and validation using directly constructed
-Requests. GDDR7 G1/G2/G3/G4/G6 are Accepted. G5/G7 remain Open for target
-trace/hierarchy representation and GEMV target placement portability; neither
-blocks Phase 2. HBM3 target policy is unchanged.
+Phase 1, the common execution-model correction and Phase 2 are complete with
+separate local evidence above. DDR4 and GDDR7 compute/movement have physical
+protection without finite engine accounting. GDDR7 primitive validation uses
+directly constructed Requests; G1/G2/G3/G4/G6 are Accepted. G5/G7 remain Open
+for target trace/hierarchy representation and GEMV placement portability in
+Phase 4. HBM3 remains conventional-only; its Phase-3 target gates and separate
+implementation authorization remain prerequisites for that binding.
 Use the canonical decision for exact target status.
-No commit or target implementation is authorized. Trace/GEMV placement still
+Later target implementation requires separate approval.
+Trace/GEMV placement still
 awaits G5/G7; SALP, payload simulation, energy modeling and CACTI integration
 remain outside scope.

@@ -15,13 +15,13 @@ struct DRAMSpec;
 namespace PuD {
 
 /*
- * Common PuD substrate (currently bound only to DDR4):
+ * Common PuD substrate (DDR4 and GDDR7 primitive bindings):
  *
  * PlacementProfile / LocationResolver
  *     -> explicit resolved MatRange
  *     -> PairedOperand / Request
  *     -> GenericDRAM public ingress
- *     -> GenericDDR PuD buffer
+ *     -> controller PuD buffer
  *     -> first-fit complete-footprint protection
  *     -> resolved occurrence issue
  *     -> terminal PRE / recovery
@@ -123,6 +123,7 @@ struct PlacementProfile {
   int dq, prefetch, channel_width, organization_columns;
   // DDR4 external-map parameters, consumed only by the DDR4 placement binding.
   int bank_groups, banks_per_group, rows_per_bank;
+  int banks_per_channel = 0;  // GDDR7; DDR4 compatibility fields above are unused.
   int chips, mats_per_chip, cells_per_mat_row, hffs_per_mat, rows_per_subarray;
   std::vector<int> rank_counts;
   // External B -> internal G, common to all participating mats.
@@ -135,6 +136,7 @@ struct PlacementProfile {
   std::vector<int> gb_successor;
 
   static PlacementProfile mimdram_ddr4_8gb_x8_v1();
+  static PlacementProfile mimdram_gddr7_16gb_x8_v1();
 };
 
 struct LocationAssociation {
@@ -167,9 +169,9 @@ struct PairedOperand {
 };
 
 // Validates placement against an actual DRAMSpec and explicit mapping context.
-// GenericDDR installs this shared authority when the supported profile is selected.
-// The sole scalar-map construction/validation binding is currently DDR4
-// (pud_location_ddr4.cpp); target dispatch awaits an approved target profile.
+// Controllers install this shared authority when a supported profile is selected.
+// Scalar-map construction/validation shares one mechanism with explicit DDR4
+// and GDDR7 profile geometry (pud_location_ddr4.cpp).
 class LocationResolver {
  public:
   LocationResolver(PlacementProfile profile, const DRAMSpec& spec, MappingContext context);

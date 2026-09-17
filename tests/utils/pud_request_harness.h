@@ -98,7 +98,7 @@ inline Request located_request(const LocationResolverUnderTest& fixture, int typ
       column = PuD::BurstColumn{nb::cast<int>(d["column"])};
     }
     auto region = full_mat
-        ? fixture.resolver()->compute_footprint(LocationResolverUnderTest::row(row), PuD::FULL_MAT)
+        ? fixture.resolver()->compute_footprint(fixture.row(row), PuD::FULL_MAT)
         : fixture.region(kind, row, mats[0], mats[1], group);
     operands.push_back(fixture.resolver()->pair(std::move(region), column));
   }
@@ -192,6 +192,18 @@ class LocatedSystemUnderTest {
     Request req(addr, type);
     req.size_bytes = m_system->get_tx_bytes();
     return submit(std::move(req), source, nb::none());
+  }
+  bool priority(const std::string& name, const AddrVec_t& address) {
+    const int cmd = m_controller->m_device.m_spec->get_command_id(name);
+    Request req(address, Request::Cmd, cmd);
+    return m_controller->priority_send(req);
+  }
+  bool ready(const std::string& name, const AddrVec_t& address) {
+    auto& device = m_controller->m_device;
+    const int cmd = device.m_spec->get_command_id(name);
+    if (device.conflicts_with_protected_pud(cmd, address)) return false;
+    return device.get_preq_command(cmd, address, m_controller->m_clk) == cmd &&
+           device.check_timing(cmd, address, m_controller->m_clk);
   }
   void advance(Clk_t clk) {
     while (m_controller->m_clk < clk) m_system->tick();
@@ -352,7 +364,8 @@ class ComputeRangesUnderTest {
     const auto& record = records.at(id);
     const auto& context = *record.context;
     nb::dict out = located_snapshot(record.req, false);
-    static const char* phases[] = {"Closed", "PuDChargeSharing", "PuDSensed", "Recovering"};
+    static const char* phases[] = {"Closed", "PuDChargeSharing", "PuDSensed", "Recovering",
+                                   "MovementActive", "MovementDataValid"};
     out["phase"] = phases[static_cast<int>(context.phase())];
     // Observation only: active identities come from the authoritative issued
     // prefix. Terminal PRE closes that view without erasing Request history.
@@ -1094,6 +1107,8 @@ inline void bind_pud_request_harness(nb::module_& m) {
       .def("request", &LocatedSystemUnderTest::request)
       .def("submit", &LocatedSystemUnderTest::submit, nb::arg("request"), nb::arg("source"), nb::arg("callback") = nb::none())
       .def("submit_ordinary", &LocatedSystemUnderTest::submit_ordinary)
+      .def("priority", &LocatedSystemUnderTest::priority)
+      .def("ready", &LocatedSystemUnderTest::ready)
       .def("advance", &LocatedSystemUnderTest::advance)
       .def("issued", &LocatedSystemUnderTest::issued)
       .def("completions", &LocatedSystemUnderTest::completions)

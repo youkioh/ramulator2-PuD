@@ -4,7 +4,7 @@ target_sources(
   ramulator-dram PRIVATE
   node.h  node.cpp
   device.h  device.cpp
-  pud_binding.h  pud_binding_ddr4.cpp
+  pud_binding.h  pud_binding_ddr4.cpp  pud_binding_gddr7.cpp
   dram_spec.h  dram_spec.cpp
   pud_location.h  pud_location.cpp
   pud_location_internal.h  pud_location_ddr4.cpp
@@ -45,6 +45,7 @@ target_sources(
   impl/LPDDR6.cpp
   impl/GDDR6.cpp
   impl/GDDR7.cpp
+  impl/GDDR7_PuD.cpp
 )
 
 target_link_libraries(

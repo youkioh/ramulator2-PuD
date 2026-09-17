@@ -1,5 +1,5 @@
-// Sole populated placement binding. These organization checks, scalar mapping,
-// initial profile and topology are DDR4/MIMDRAM-DDR4 choices, not common policy.
+// Coordinated placement validation and provisional RoBaRaCoCh scalar mapping.
+// The DDR4 profile and its public compatibility projection remain unchanged.
 #include "ramulator/dram/pud_location.h"
 
 #include <algorithm>
@@ -12,6 +12,7 @@ namespace Ramulator::PuD {
 using namespace LocationDetail;
 namespace {
 constexpr auto kInitialProfileName = "MIMDRAM-DDR4_8Gb_x8 modeled placement profile v1";
+constexpr auto kGDDR7ProfileName = "MIMDRAM-GDDR7_16Gb_x8 modeled placement profile v1";
 
 std::vector<int> initial_gb_successors(int chips, int mats_per_chip) {
   std::vector<int> successors(chips * mats_per_chip, -1);
@@ -55,22 +56,56 @@ PlacementProfile PlacementProfile::mimdram_ddr4_8gb_x8_v1() {
   return p;
 }
 
+PlacementProfile PlacementProfile::mimdram_gddr7_16gb_x8_v1() {
+  // Accepted G1: one x8 channel slice; eight transfer positions are a
+  // derived HFF-equivalent model, not measured GDDR7 circuitry or GPU wiring.
+  PlacementProfile p{};
+  p.name = kGDDR7ProfileName;
+  p.dq = 8;
+  p.prefetch = 32;
+  p.channel_width = 8;
+  p.organization_columns = 2048;
+  p.banks_per_channel = 16;
+  p.rows_per_bank = 16384;
+  p.chips = 1;
+  p.mats_per_chip = 32;
+  p.cells_per_mat_row = 512;
+  p.hffs_per_mat = 8;
+  p.rows_per_subarray = 512;
+  p.burst_to_group = identity(64);
+  p.bit_to_slot = identity(256);
+  p.group_position_to_column = identity(512);
+  p.gb_successor = initial_gb_successors(1, 32);
+  return p;
+}
+
 LocationResolver::LocationResolver(PlacementProfile p, const DRAMSpec& spec, MappingContext context) {
   require(!p.name.empty() && !context.address_space.empty(), "profile/address-space association required");
   require(context.channels == 1 && context.channel_mapper == "CacheLineInterleave" &&
               context.address_mapper == "RoBaRaCoCh" && !context.row_remapping && context.reserved_rows_per_bank == 0,
           "unsupported PuD mapper/remapping context");
-  require(spec.standard_name == "DDR4" || spec.standard_name == "DDR4_PuD" || spec.standard_name == "DDR4_PuD_Movement",
+  const bool gddr7 = spec.standard_name == "GDDR7" || spec.standard_name == "GDDR7_PuD";
+  require(gddr7 || spec.standard_name == "DDR4" || spec.standard_name == "DDR4_PuD" || spec.standard_name == "DDR4_PuD_Movement",
           "unsupported DDR standard");
-  require(spec.level_names == std::vector<std::string>{"Channel", "Rank", "BankGroup", "Bank", "Row", "Column"} &&
-              spec.organization.level_sizes.size() == 6,
+  const std::vector<std::string> levels = gddr7
+      ? std::vector<std::string>{"Channel", "Bank", "Row", "Column"}
+      : std::vector<std::string>{"Channel", "Rank", "BankGroup", "Bank", "Row", "Column"};
+  const int bank_extent = levels.size() - 2;
+  require(spec.level_names == levels && spec.organization.level_sizes.size() == levels.size(),
           "unsupported external hierarchy");
   for (int dimension :
-       {p.dq, p.prefetch, p.channel_width, p.organization_columns, p.bank_groups, p.banks_per_group, p.rows_per_bank,
+       {p.dq, p.prefetch, p.channel_width, p.organization_columns, p.rows_per_bank,
         p.chips, p.mats_per_chip, p.cells_per_mat_row, p.hffs_per_mat, p.rows_per_subarray}) {
     require(dimension > 0, "dimensions must be positive");
   }
-  require(!p.rank_counts.empty(), "supported rank counts required");
+  require(gddr7 || !p.rank_counts.empty(), "supported rank counts required");
+  if (gddr7) {
+    require(p.banks_per_channel > 0, "dimensions must be positive");
+    require(p.bank_groups == 0 && p.banks_per_group == 0 && p.rank_counts.empty(),
+            "GDDR7 has no Rank or BankGroup");
+  } else {
+    require(p.bank_groups > 0 && p.banks_per_group > 0, "dimensions must be positive");
+  }
   // Existing external mappers slice bits: reject unrepresentable dimensions.
   for (int dimension : p.rank_counts) {
     require(dimension > 0 && (dimension & (dimension - 1)) == 0, "invalid supported rank count");
@@ -86,15 +121,18 @@ LocationResolver::LocationResolver(PlacementProfile p, const DRAMSpec& spec, Map
   int64_t burst_bits = product({p.prefetch, p.channel_width});
   require(burst_bits % 8 == 0 && burst_bits <= std::numeric_limits<int>::max(),
           "burst width must be byte-exact and indexable");
-  for (int dimension : {p.bank_groups, p.banks_per_group, p.rows_per_bank, p.organization_columns, p.prefetch,
+  for (int dimension : {gddr7 ? p.banks_per_channel : p.bank_groups,
+                        gddr7 ? p.banks_per_channel : p.banks_per_group, p.rows_per_bank, p.organization_columns, p.prefetch,
                         static_cast<int>(burst_bits / 8)}) {
     require((dimension & (dimension - 1)) == 0, "external mapper requires power-of-two dimensions");
   }
   const auto& sizes = spec.organization.level_sizes;
-  require(std::find(p.rank_counts.begin(), p.rank_counts.end(), sizes[1]) != p.rank_counts.end(),
+  require(gddr7 || std::find(p.rank_counts.begin(), p.rank_counts.end(), sizes[1]) != p.rank_counts.end(),
           "unsupported rank replication");
-  require(sizes == std::vector<int>{1, sizes[1], p.bank_groups, p.banks_per_group, p.rows_per_bank,
-                                    p.organization_columns} &&
+  const std::vector<int> expected_sizes = gddr7
+      ? std::vector<int>{1, p.banks_per_channel, p.rows_per_bank, p.organization_columns}
+      : std::vector<int>{1, sizes[1], p.bank_groups, p.banks_per_group, p.rows_per_bank, p.organization_columns};
+  require(sizes == expected_sizes &&
               spec.organization.dq == p.dq && spec.internal_prefetch_size == p.prefetch &&
               spec.channel_width == p.channel_width && spec.get_tx_bytes() == burst_bits / 8,
           "profile/DRAM organization mismatch");
@@ -102,8 +140,8 @@ LocationResolver::LocationResolver(PlacementProfile p, const DRAMSpec& spec, Map
           "profile/DRAM row subdivision mismatch");
   require(!spec.hffs_per_mat || *spec.hffs_per_mat == p.hffs_per_mat,
           "HFF-only override is inconsistent with the placement profile");
-  int64_t capacity_bits = product(
-      {sizes[1], p.bank_groups, p.banks_per_group, p.rows_per_bank, p.chips, p.mats_per_chip, p.cells_per_mat_row});
+  int64_t capacity_bits = product({p.rows_per_bank, p.chips, p.mats_per_chip, p.cells_per_mat_row});
+  for (int i = 0; i < bank_extent; ++i) capacity_bits = product({capacity_bits, sizes[i]});
   require(capacity_bits % 8 == 0, "capacity must be byte-exact");
   m_capacity_bytes = capacity_bits / 8;
   m_group_to_burst = inverse_permutation(p.burst_to_group, p.cells_per_mat_row / p.hffs_per_mat);
@@ -118,13 +156,13 @@ LocationResolver::LocationResolver(PlacementProfile p, const DRAMSpec& spec, Map
   }
   // Protect the named initial profile's accepted topology. Replacement software
   // profiles supply their own relation; numeric adjacency is not universal.
-  if (p.name == kInitialProfileName) {
+  if (p.name == kInitialProfileName || p.name == kGDDR7ProfileName) {
     require(p.gb_successor == initial_gb_successors(p.chips, p.mats_per_chip),
             "initial profile requires same-chip forward GB topology without wrap");
   }
   m_association =
-      std::make_shared<const LocationAssociation>(LocationAssociation{std::move(p), std::move(context), sizes[1],
-          {spec.level_names.begin(), spec.level_names.begin() + 4}, {sizes.begin(), sizes.begin() + 4}});
+      std::make_shared<const LocationAssociation>(LocationAssociation{std::move(p), std::move(context), gddr7 ? 0 : sizes[1],
+          {levels.begin(), levels.begin() + bank_extent}, {sizes.begin(), sizes.begin() + bank_extent}});
 }
 
 ResolvedBit LocationResolver::resolve(PhysicalBit origin) const {
@@ -137,23 +175,23 @@ ResolvedBit LocationResolver::resolve(PhysicalBit origin) const {
   int64_t address = origin.byte / burst_bytes();
   int burst = address % groups();
   address /= groups();
-  int rank = address % m_association->ranks;
-  address /= m_association->ranks;
-  int bg = address % p.bank_groups;
-  address /= p.bank_groups;
-  int bank = address % p.banks_per_group;
-  int row = address / p.banks_per_group;
+  BankIdentity bank(m_association->bank_sizes.size(), 0);
+  for (size_t i = 1; i < bank.size(); ++i) {
+    bank[i] = address % m_association->bank_sizes[i];
+    address /= m_association->bank_sizes[i];
+  }
+  int row = address;
   int slot = p.bit_to_slot[8 * offset + origin.bit];
   int h = slot % p.hffs_per_mat;
   int mat = slot / p.hffs_per_mat;
   int group = p.burst_to_group[burst];
-  CellID cell{{0, rank, bg, bank},
+  CellID cell{bank,
               row / p.rows_per_subarray,
               row % p.rows_per_subarray,
               mat / p.mats_per_chip,
               mat % p.mats_per_chip,
               p.group_position_to_column[group * p.hffs_per_mat + h]};
-  return {m_association, origin, {{{0, rank, bg, bank}, row}, BurstColumn{burst}}, cell, Group{group}, h};
+  return {m_association, origin, {{bank, row}, BurstColumn{burst}}, cell, Group{group}, h};
 }
 
 PhysicalBit LocationResolver::inverse(const CellID& cell) const {
@@ -164,8 +202,10 @@ PhysicalBit LocationResolver::inverse(const CellID& cell) const {
   int slot = (cell.chip * p.mats_per_chip + cell.mat) * p.hffs_per_mat + position % p.hffs_per_mat;
   int bit = m_slot_to_bit[slot];
   int64_t row = cell.subarray * p.rows_per_subarray + cell.local_row;
-  int64_t address =
-      cell.bank[1] + m_association->ranks * (cell.bank[2] + p.bank_groups * (cell.bank[3] + p.banks_per_group * row));
+  int64_t address = row;
+  for (size_t i = cell.bank.size(); i-- > 1;) {
+    address = cell.bank[i] + m_association->bank_sizes[i] * address;
+  }
   address = bit / 8 + burst_bytes() * (burst + groups() * address);
   return {address, bit % 8};
 }

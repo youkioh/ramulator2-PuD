@@ -74,66 +74,7 @@ void GenericDDRController::tick() {
   // stops new allocations in this tick while existing allocations can drain.
   protect_pending_pud_compute();
 
-  // Try to find a candidate request to schedule
-  // Gate 11 priority: active > priority > oldest-ready pending PuD/read-write
-  // 1. Try to schedule from active
-  auto pud_eligibility = [&](const Request& req) {
-    return is_pud_eligible_before_prerequisite(req);
-  };
-  auto movement_prerequisite_compatibility = [&](const Request& req) {
-    if (is_active_movement_sequence(req) && req.command != req.final_command) {
-      throw std::logic_error(fmt::format(
-          "Active {} occurrence {} resolved incompatible prerequisite {} instead of {}",
-          request_type_name(req.type_id), req.occurrence_index,
-          m_device.m_spec->command_names[req.command],
-          m_device.m_spec->command_names[req.final_command]));
-    }
-    return true;
-  };
-  Candidate cand = pick_best_ready_from(
-      m_active_buffer, movement_prerequisite_compatibility, pud_eligibility);
-  if (!cand.valid) {
-    // Promotion backpressure cannot turn an acquired movement into unowned
-    // pending work or let priority maintenance strand its continuation.
-    cand = pick_best_ready_from(m_pud_buffer, movement_prerequisite_compatibility,
-        [&](const Request& req) {
-          return is_active_movement_sequence(req) && pud_eligibility(req);
-        });
-  }
-  // Allocated compute has active-continuation precedence regardless of first
-  // ACT or active-buffer capacity. A blocked context leaves issue available.
-  auto compute_cand = pick_allocated_compute();
-  if (compute_cand.valid && (!cand.valid || compute_cand.it->arrive < cand.it->arrive)) {
-    cand = compute_cand;
-  }
-
-  // 2. If no candidate found, try to schedule from priority
-  if (!cand.valid) {
-    cand = pick_priority_if({}, pud_eligibility);
-  }
-
-  // 3. Arbitrate the independently selected PuD and Read/Write candidates by age.
-  if (!cand.valid && m_priority_buffer.size() == 0) {
-    Candidate pud_cand = pick_best_ready_from(m_pud_buffer, {}, [&](const Request& req) {
-      if (!pud_eligibility(req)) return false;
-      if (!is_inherited_pud_request_type(req.type_id)) return true;
-      if (!req.pud_locations) {
-        throw std::logic_error("Pending PuD compute is missing canonical resolved locations");
-      }
-      // Only conventional preparation reaches the generic prerequisite path.
-      // Allocated compute uses its explicit occurrence; it never repairs a Bank.
-      return req.pud_context.expired() &&
-             !m_device.conflicts_with_protected_pud(req.final_command, req.addr_vec);
-    });
-    Candidate rw_cand = pick_rw_if({}, pud_eligibility);
-    if (!pud_cand.valid) {
-      cand = rw_cand;
-    } else if (!rw_cand.valid || pud_cand.it->arrive <= rw_cand.it->arrive) {
-      cand = pud_cand;
-    } else {
-      cand = rw_cand;
-    }
-  }
+  Candidate cand = pick_pud_aware_candidate();
 
   // The controller chooses the slot/candidate; common integration owns issue,
   // notifications and PuD progression through delayed recovery.

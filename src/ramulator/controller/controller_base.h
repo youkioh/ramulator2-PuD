@@ -258,10 +258,12 @@ class ControllerBase : public IController, public Implementation {
     ReqBuffer* buffer = nullptr;
   };
 
-  Candidate pick_allocated_compute();
+  Candidate pick_allocated_compute(RequestFilterRef command_filter = {});
+  Candidate pick_pud_aware_candidate(RequestFilterRef command_filter = {}, bool include_ordinary_active = true);
   // After the controller grants a command slot. Preserves pre-issue views for
   // notifications, then retires/promotes the sole authoritative Request.
-  void issue_pud_aware_candidate(Candidate& candidate);
+  bool issue_pud_aware_candidate(Candidate& candidate, RequestFilterRef command_filter = {},
+                                 int* issued_command = nullptr, bool recheck_ordinary_active_close = true);
 
   Candidate pick_best_ready_from(
       ReqBuffer& buffer,

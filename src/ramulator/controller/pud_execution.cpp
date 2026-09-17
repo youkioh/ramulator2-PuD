@@ -52,7 +52,7 @@ void ControllerBase::protect_pending_pud_compute() {
   }
 }
 
-ControllerBase::Candidate ControllerBase::pick_allocated_compute() {
+ControllerBase::Candidate ControllerBase::pick_allocated_compute(RequestFilterRef command_filter) {
   Candidate candidate;
   for (auto it = m_pud_buffer.begin(); it != m_pud_buffer.end(); ++it) {
     if (!is_inherited_pud_request_type(it->type_id)) continue;
@@ -60,6 +60,10 @@ ControllerBase::Candidate ControllerBase::pick_allocated_compute() {
       throw std::logic_error("Allocated PuD compute is missing canonical resolved locations");
     }
     if (it->pud_context.expired() || !check_pud_compute_issue(*it)) continue;
+    // Allocated compute bypasses generic prerequisite selection. A slot filter
+    // must inspect the actual occurrence, not the previous command or -1.
+    if (command_filter) it->command = it->final_command;
+    if (command_filter && !command_filter(*it)) continue;
     if (!candidate.valid || it->arrive < candidate.it->arrive) {
       candidate = {true, it, &m_pud_buffer};
     }
@@ -127,7 +131,8 @@ bool ControllerBase::is_pud_candidate_eligible(
   return true;
 }
 
-void ControllerBase::issue_pud_aware_candidate(Candidate& cand) {
+bool ControllerBase::issue_pud_aware_candidate(Candidate& cand, RequestFilterRef command_filter,
+                                              int* issued_command, bool recheck_ordinary_active_close) {
   auto pud_eligibility = [&](const Request& req) {
     return is_pud_eligible_before_prerequisite(req);
   };
@@ -138,7 +143,9 @@ void ControllerBase::issue_pud_aware_candidate(Candidate& cand) {
   const bool allocated_compute = compute && !cand.it->pud_context.expired();
   if (allocated_compute) cand.it->command = cand.it->final_command;
   // Rowpolicy *may* upgrade the command to AutoPrecharge version
+  const int original_command = cand.it->command;
   m_rowpolicy->try_upgrade_command(*cand.it);
+  if (command_filter && !command_filter(*cand.it)) cand.it->command = original_command;
 
   // Candidate state may have changed after scheduler selection. Revalidate
   // ownership eligibility and any active-close protection used by its
@@ -148,7 +155,7 @@ void ControllerBase::issue_pud_aware_candidate(Candidate& cand) {
   const bool selected_with_active_close_protection =
       cand.buffer == &m_priority_buffer || cand.buffer == &m_read_buffer ||
       cand.buffer == &m_write_buffer;
-  if (still_eligible && selected_with_active_close_protection &&
+  if (still_eligible && recheck_ordinary_active_close && selected_with_active_close_protection &&
       would_close_active(*cand.it)) {
     still_eligible = false;
   }
@@ -178,11 +185,13 @@ void ControllerBase::issue_pud_aware_candidate(Candidate& cand) {
     }
   }
 
+  if (command_filter && !command_filter(*cand.it)) ready_to_issue = false;
   if (still_eligible && ready_to_issue && !cand.it->is_stat_updated) {
     update_request_stats(cand.it);
   }
 
   if (still_eligible && ready_to_issue) {
+    if (issued_command) *issued_command = cand.it->command;
     // Issue command to DRAM device
     // Range dispatch advances the sole Request internally. Preserve only a
     // transient pre-issue view for existing row-policy/plugin notifications.
@@ -234,6 +243,75 @@ void ControllerBase::issue_pud_aware_candidate(Candidate& cand) {
       promote_to_active(cand.it, *cand.buffer);
     }
   }
+  return still_eligible && ready_to_issue;
+}
+
+ControllerBase::Candidate ControllerBase::pick_pud_aware_candidate(
+    RequestFilterRef command_filter, bool include_ordinary_active) {
+  // Try to find a candidate request to schedule
+  // Gate 11 priority: active > priority > oldest-ready pending PuD/read-write
+  // 1. Try to schedule from active
+  auto pud_eligibility = [&](const Request& req) {
+    return is_pud_eligible_before_prerequisite(req);
+  };
+  auto movement_prerequisite_compatibility = [&](const Request& req) {
+    if (is_active_movement_sequence(req) && req.command != req.final_command) {
+      throw std::logic_error(fmt::format(
+          "Active {} occurrence {} resolved incompatible prerequisite {} instead of {}",
+          request_type_name(req.type_id), req.occurrence_index,
+          m_device.m_spec->command_names[req.command],
+          m_device.m_spec->command_names[req.final_command]));
+    }
+    return !command_filter || command_filter(req);
+  };
+  Candidate cand = pick_best_ready_from(
+      m_active_buffer, movement_prerequisite_compatibility, [&](const Request& req) {
+        return (include_ordinary_active || is_pud_request_type(req.type_id)) && pud_eligibility(req);
+      });
+  if (!cand.valid) {
+    // Promotion backpressure cannot turn an acquired movement into unowned
+    // pending work or let priority maintenance strand its continuation.
+    cand = pick_best_ready_from(m_pud_buffer, movement_prerequisite_compatibility,
+        [&](const Request& req) {
+          return is_active_movement_sequence(req) && pud_eligibility(req);
+        });
+  }
+  // Allocated compute has active-continuation precedence regardless of first
+  // ACT or active-buffer capacity. A blocked context leaves issue available.
+  auto compute_cand = pick_allocated_compute(command_filter);
+  if (compute_cand.valid && (!cand.valid || compute_cand.it->arrive < cand.it->arrive)) {
+    cand = compute_cand;
+  }
+
+  // 2. If no candidate found, try to schedule from priority
+  if (!cand.valid) {
+    cand = pick_priority_if(command_filter, pud_eligibility);
+  }
+
+  // 3. Arbitrate the independently selected PuD and Read/Write candidates by age.
+  if (!cand.valid && m_priority_buffer.size() == 0) {
+    Candidate pud_cand = pick_best_ready_from(m_pud_buffer, command_filter, [&](const Request& req) {
+      if (!pud_eligibility(req)) return false;
+      if (!is_inherited_pud_request_type(req.type_id)) return true;
+      if (!req.pud_locations) {
+        throw std::logic_error("Pending PuD compute is missing canonical resolved locations");
+      }
+      // Only conventional preparation reaches the generic prerequisite path.
+      // Allocated compute uses its explicit occurrence; it never repairs a Bank.
+      return req.pud_context.expired() &&
+             !m_device.conflicts_with_protected_pud(req.final_command, req.addr_vec);
+    });
+    Candidate rw_cand = pick_rw_if(command_filter, pud_eligibility);
+    if (!pud_cand.valid) {
+      cand = rw_cand;
+    } else if (!rw_cand.valid || pud_cand.it->arrive <= rw_cand.it->arrive) {
+      cand = pud_cand;
+    } else {
+      cand = rw_cand;
+    }
+  }
+
+  return cand;
 }
 
 }  // namespace Ramulator

@@ -37,6 +37,20 @@ class GDDR7Controller final : public HBMControllerBase {
  public:
   void init() override {
     HBMControllerBase::init();
+    RAMULATOR_PARSE_PARAM(m_pud_buffer_size, int, "pud_buffer_size").default_val(32);
+    m_pud_buffer.max_size = m_pud_buffer_size;
+    std::string placement_profile;
+    RAMULATOR_PARSE_PARAM(placement_profile, std::string, "pud_placement_profile").default_val("");
+    if (m_config.is_map() && m_config.map().contains("pud_compute_engines"))
+      throw std::runtime_error("pud_compute_engines has been removed: finite PuD control-engine capacity is not modeled");
+    if (m_device.m_spec->supports_compute_requests()) {
+      m_pud_placement_levels = get_pud_placement_levels(*m_device.m_spec);
+      m_movement_timing = make_movement_timing_constraints(*m_device.m_spec);
+    }
+    if (!placement_profile.empty()) {
+      set_location_resolver(pud_binding(*m_device.m_spec).placement(
+          placement_profile, *m_device.m_spec, m_addr_mapper->m_impl->get_name()));
+    }
 
     RAMULATOR_PARSE_PARAM(m_rck_mode_str, std::string, "rck_mode").default_val("always_on");
     RAMULATOR_PARSE_PARAM(m_rck_idle_threshold, int, "rck_idle_threshold").default_val(32);
@@ -94,6 +108,7 @@ class GDDR7Controller final : public HBMControllerBase {
 
   void tick() override {
     hbm_tick_prologue();
+    protect_pending_pud_compute();
     auto col = try_issue_internal_rck();
     if (!col) {
       col = try_issue_slot(SlotType::ColumnBus);
@@ -104,6 +119,20 @@ class GDDR7Controller final : public HBMControllerBase {
     hbm_tick_epilogue();
   }
 
+ protected:
+  std::optional<bool> try_send_special_request(Request& req) override {
+    return try_send_pud_request(req);
+  }
+  bool supports_range_aware_compute() const override {
+    return m_device.m_spec->supports_compute_requests();
+  }
+  bool is_pud_eligible_before_prerequisite(const Request& req) const override {
+    return is_pud_candidate_eligible(req);
+  }
+ public:
+  bool check_request_timing(const Request& req) override {
+    return check_pud_request_timing(req);
+  }
  protected:
   bool slot_matches(const Request& req, SlotType slot) const override {
     if (!HBMControllerBase::slot_matches(req, slot)) {
