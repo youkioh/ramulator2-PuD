@@ -13,10 +13,24 @@ milestone's work-unit restrictions below describe that completed milestone,
 not this subsequently authorized arithmetic-interface revision.
 
 UINT8 MUL follow-up: the same column-streaming loop now processes all columns
-0..15 while retaining the exact 16-bit public product. Exhaustive 65,536-pair
-symbolic/physical validation and allocation checks passed. Its 608 symbolic
-and 592 physical primitives are unchanged; temporary-row use fell from 52 to 10 rows
-and footprint from 85 to 43. INT8 and FP8 traces are unchanged by this follow-up.
+0..15 while retaining the exact 16-bit internal product. A subsequent
+fixed-width UINT8 follow-up exports only `R0..R7` for both ADD and MUL, matching
+the other GEMV-facing profiles while preserving full-result diagnostic taps.
+The current UINT8 symbolic/physical primitive counts are 49/41 for ADD and
+600/592 for MUL. Their respective additional temporary-row counts are 5 and
+18, and footprints remain 30 and 43.
+
+Fixed-width 4-bit integer follow-up: standalone UINT4 and INT4 ADD/MUL profiles
+now use the same full-internal-result, fixed-width-export contract. They export
+`R0..R3` and participate in symbolic generation, physical lowering, replay,
+and exhaustive 256-pair validation. GEMV integration and packed storage remain
+outside this follow-up. Their current baselines are included below.
+
+FP4 follow-up: standalone raw FP4-E2M1 ADD/MUL profiles now participate in
+symbolic generation, physical lowering, replay, and exhaustive 256-pair
+encoding validation. They retain the existing floating-point normal-domain,
+bounded-alignment, and truncation policy. Block scaling, packed storage, and
+GEMV integration remain outside this follow-up.
 
 ## Goal and completion state
 
@@ -31,7 +45,7 @@ path for one fixed symbolic arithmetic trace. The completed milestone will:
 - emit an explicit physical-lowered trace and allocation metadata;
 - replay the five existing functional primitives by local physical-row number;
   and
-- establish, for all eight current profiles and all 65,536 input pairs, that
+- establish, for the original eight 8-bit profiles and all 65,536 input pairs, that
   the arithmetic reference, existing symbolic replay, and physical replay
   agree.
 
@@ -230,18 +244,24 @@ logic consumes local-row capacity and eligibility only; it has no Ramulator
 timing, command-phase, recovery, request-scheduling, Bank, subarray, or
 `MatRange` dependency.
 
-### Revalidated baselines of the eight current traces
+### Revalidated baselines of the current traces
 
-A fresh calculation after the INT8 and UINT8 scheduling revisions confirmed
-that every profile has a
+A fresh calculation after the integer scheduling and fixed-width revisions
+confirmed that every profile has a
 valid terminal export suffix, pairwise-distinct nonprotected final producers,
 and the following interval-partitioning result. These values are regression
 baselines; the implementation recomputes rather than hard-codes them.
 
 | Profile | Retained physical primitives | `H` | `O` | Work colors `C` | Additional temporary rows | Designated rows | Footprint / accepted peak live |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `uint8-add` | 41 | 17 | 9 | 13 | 4 | 26 | 30 |
-| `uint8-mul` | 592 | 17 | 16 | 26 | 10 | 33 | 43 |
+| `uint4-add` | 21 | 9 | 4 | 9 | 5 | 13 | 18 |
+| `uint4-mul` | 136 | 9 | 4 | 14 | 10 | 13 | 23 |
+| `int4-add` | 26 | 9 | 4 | 10 | 6 | 13 | 19 |
+| `int4-mul` | 148 | 10 | 4 | 14 | 10 | 14 | 24 |
+| `fp4-e2m1-add` | 481 | 10 | 4 | 16 | 12 | 14 | 26 |
+| `fp4-e2m1-mul` | 122 | 10 | 4 | 11 | 7 | 14 | 21 |
+| `uint8-add` | 41 | 17 | 8 | 13 | 5 | 25 | 30 |
+| `uint8-mul` | 592 | 17 | 8 | 26 | 18 | 25 | 43 |
 | `int8-add` | 46 | 17 | 8 | 14 | 6 | 25 | 31 |
 | `int8-mul` | 612 | 18 | 8 | 26 | 18 | 26 | 44 |
 | `fp8-e5m2-add` | 1,045 | 18 | 8 | 25 | 17 | 26 | 43 |
@@ -253,8 +273,12 @@ The historical INT8 ADD baseline had 9 outputs, 5 scratch, 26 designated rows,
 and footprint 31. INT8 MUL had 16 outputs, 68 work colors, 52 scratch,
 34 designated rows, and footprint 86. Retained arithmetic primitive counts
 remain 46 and 612; only export counts and MUL generation order changed.
+The historical UINT8 ADD/MUL baselines had 9/16 outputs, 4/10 additional
+temporary rows, and 26/33 designated rows respectively. Their retained
+arithmetic primitive counts and total footprints are unchanged by selecting
+only the low eight public result bits.
 
-All eight fit within the accepted 1,024-local-row profile under any valid
+All fourteen fit within the accepted 1,024-local-row profile under any valid
 in-range choice of distinct designated rows that leaves the listed additional
 temporary-row capacity. This is a physical-local-row bound only, not a complete
 canonical Ramulator address or a claim about concurrent `MatRange` placement.

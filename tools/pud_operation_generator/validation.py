@@ -5,6 +5,7 @@ import csv
 
 from .core import execute, pack, read_program, signed_value, unpack, validate_structure
 from .fp8 import (
+    E2M1,
     E4M3,
     E5M2,
     fp8_add_reference,
@@ -22,7 +23,7 @@ from .lowering import (
 from .physical_replay import execute_physical, extract_physical_results
 
 
-FORMATS = {"e5m2": E5M2, "e4m3": E4M3}
+FORMATS = {"e2m1": E2M1, "e5m2": E5M2, "e4m3": E4M3}
 
 
 def _execute_and_replay(builder, path, info):
@@ -59,22 +60,23 @@ def _verify_integer(name, builder, left, right, lanes, rows, raw, library):
         for a, b in zip(left_values, right_values)
     ]
     report = {"reference_mismatches": 0}
-    actual = raw
-    full_raw = raw
-    if builder.signed:
-        full_width = width + 1 if name.endswith("add") else 2 * width
-        assert len(builder.taps["full_result"]) == full_width
-        full_raw = _unpack_tap(rows, builder, "full_result", lanes)
-        actual = [signed_value(value, full_width) for value in full_raw]
-        assert raw == [value & ((1 << width) - 1) for value in expected], "visible low bits"
-        report.update({
-            "internal_result_width": full_width,
-            "internal_reference_mismatches": 0,
-            "visible_low8_mismatches": 0,
-        })
+    full_width = width + 1 if name.endswith("add") else 2 * width
+    assert len(builder.taps["full_result"]) == full_width
+    full_raw = _unpack_tap(rows, builder, "full_result", lanes)
+    actual = (
+        [signed_value(value, full_width) for value in full_raw]
+        if builder.signed
+        else full_raw
+    )
+    assert raw == [value & ((1 << width) - 1) for value in expected], "visible low bits"
+    report.update({
+        "internal_result_width": full_width,
+        "internal_reference_mismatches": 0,
+        f"visible_low{width}_mismatches": 0,
+    })
     assert actual == expected, "full arithmetic result"
 
-    if name == "int8-mul":
+    if builder.signed and name.endswith("mul"):
         carry = unpack([rows[row] for row in builder.carry_beyond_output], lanes)
         assert all(
             result + (high << (2 * width))
@@ -189,7 +191,9 @@ def _verify_fp8_mul(builder, format_, left, right, raw):
         domain.append(allowed)
         if allowed:
             encoded = max(code for value, code in grid if value <= magnitude)
-            assert result == (encoded | (0x80 if exact < 0 else 0))
+            assert result == (
+                encoded | ((1 << format_.sign_bit) if exact < 0 else 0)
+            )
     return {
         "reference_mismatches": 0,
         "exact_rational_domain_mismatches": 0,
@@ -198,6 +202,9 @@ def _verify_fp8_mul(builder, format_, left, right, raw):
 
 
 def _add_library_comparison(name, format_, left, right, raw, domain, report):
+    if format_.name == "e2m1":
+        report["library_comparison"] = "unavailable for raw E2M1"
+        return
     import ml_dtypes
     import numpy as np
 
@@ -430,9 +437,9 @@ def _verify_physical(builder, lowered, initial, lanes, symbolic_raw):
 
 
 def verify(name, builder, path, info, library=False, lowered=None):
-    if name.startswith(("int8-", "fp8-")):
-        assert builder.outputs == {"R": [f"R{bit}" for bit in range(8)]}
-        assert info["output_width"] == 8
+    output_width = getattr(builder, "width", 8)
+    assert builder.outputs == {"R": [f"R{bit}" for bit in range(output_width)]}
+    assert info["output_width"] == output_width
     left, right, lanes, rows, raw = _execute_and_replay(builder, path, info)
     width = getattr(builder, "width", 8)
     initial = dict(zip(builder.inputs, pack(left, width) + pack(right, width)))
@@ -449,7 +456,7 @@ def verify(name, builder, path, info, library=False, lowered=None):
         "structure_check": "passed",
     }
 
-    if not name.startswith("fp8-"):
+    if not name.startswith("fp"):
         report.update(
             _verify_integer(name, builder, left, right, lanes, rows, raw, library)
         )

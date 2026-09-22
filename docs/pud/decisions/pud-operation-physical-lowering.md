@@ -47,16 +47,32 @@ or shares constant rows across separate operation invocations.
 
 ## Outputs
 
-The GEMV-facing INT8 and FP8 ADD/MUL profiles consume and expose 8-bit values;
-their only output names are `R0..R7`. INT8 ADD retains its full signed nine-bit
-internal computation. INT8 MUL retains its full signed 16-bit product,
-generating and reducing all columns 0..15 in LSB-to-MSB order with the existing
-signed corrections. Only the low eight result bits are exported. High bits
-are diagnostics, not designated outputs, and do not extend physical lifetimes.
-This is an accepted project interface choice, not a claim about PRADA's
-original output interface. UINT8 and FP8 arithmetic policies are unchanged.
-UINT8 MUL uses the same column-streaming schedule through columns 0..15 while
-retaining its exact full 16-bit output `R0..R15`.
+The GEMV-facing UINT8, INT8, and FP8 ADD/MUL profiles consume and expose 8-bit
+values; their only output names are `R0..R7`. UINT8 and INT8 ADD retain their
+full nine-bit internal computations. UINT8 and INT8 MUL retain their full
+16-bit products, generating and reducing all columns 0..15 in LSB-to-MSB order;
+INT8 MUL applies the existing signed corrections. Only the low eight result
+bits are exported. High bits are diagnostics, not designated outputs, and do
+not extend physical lifetimes. This is an accepted project interface choice,
+not a claim about PRADA's original output interface. FP8 arithmetic policy is
+unchanged.
+
+The standalone UINT4 and INT4 ADD/MUL profiles consume and expose 4-bit values;
+their only output names are `R0..R3`. Their arithmetic follows the same
+width-parameterized integer construction: ADD retains an exact five-bit
+internal sum and MUL retains an exact eight-bit internal product, while only
+the low four result bits are exported. High bits have the same diagnostic-only
+lifetime policy described above. These profiles are covered by physical
+lowering but are not yet GEMV macro profiles; 4-bit packing, placement, and
+GEMV integration remain separate decisions.
+
+The standalone FP4-E2M1 ADD/MUL profiles likewise expose only `R0..R3` and use
+the existing bounded-alignment and truncating floating-point construction at
+the E2M1 widths. E2M1 is finite-only; the generated operations execute all 16
+encodings, while their numerical comparison contract remains limited to normal
+inputs with a normal result or exact cancellation, matching the existing FP8
+validation boundary. These are raw element operations: MXFP4/NVFP4 block
+scales, packed storage, and GEMV integration are not part of this profile.
 
 Future GEMV composes the existing MUL and ADD PuD operations. No separate FMA
 PuD operation is introduced. GEMV implementation and placement remain deferred.

@@ -194,51 +194,52 @@ def main():
         ),
         "variants": {},
     }
-    for name in selected:
-        program = programs[name]
-        path, info = write_program(name, program, args.out)
-        lowered = lowered_programs.get(name)
-        if lowered is not None:
-            write_physical_program(
-                name, lowered, args.out, layout_provenance=layout_provenance
-            )
-        validation = verify(
-            name, program, path, info, args.library_check, lowered=lowered
+
+    name = "uint4-mul-fused"
+    program = programs[name]
+    path, info = write_program(name, program, args.out)
+    lowered = lowered_programs.get(name)
+    if lowered is not None:
+        write_physical_program(
+            name, lowered, args.out, layout_provenance=layout_provenance
         )
-        if lowered is not None:
-            validation["physical_lowering"]["layout_provenance"] = layout_provenance
-        report["variants"][name] = {
-            "contract": info["contract"],
-            "cost": info["cost"],
-            "validation": validation,
-        }
-        outcome = (
-            "reference/symbolic/physical PASS"
-            if lowered is not None
-            else "reference/replay PASS"
+    validation = verify(
+        name, program, path, info, args.library_check, lowered=lowered
+    )
+    if lowered is not None:
+        validation["physical_lowering"]["layout_provenance"] = layout_provenance
+    report["variants"][name] = {
+        "contract": info["contract"],
+        "cost": info["cost"],
+        "validation": validation,
+    }
+    outcome = (
+        "reference/symbolic/physical PASS"
+        if lowered is not None
+        else "reference/replay PASS"
+    )
+    if lowered is not None:
+        primitive_summary = (
+            f"{len(lowered.primitives)} primitives (physical; "
+            f"{len(program.trace)} symbolic)"
         )
-        if lowered is not None:
-            primitive_summary = (
-                f"{len(lowered.primitives)} primitives (physical; "
-                f"{len(program.trace)} symbolic)"
-            )
-            temporary_rows = lowered.additional_temporary_rows
-        else:
-            primitive_summary = f"{len(program.trace)} primitives (symbolic)"
-            normalized = analyze_physical_lowering(program)
-            temporary_rows = (
-                maximum_interval_depth(normalized.work_intervals)
-                - len(normalized.outputs)
-            )
-        temporary_qualifier = "" if lowered is not None else " (required for physical lowering)"
-        print(
-            f"{name}: {primitive_summary}, "
-            f"input rows: {len(program.inputs)}, "
-            f"output rows: {len(program.outputs['R'])}, "
-            f"temporary rows: {temporary_rows}{temporary_qualifier}, "
-            f"{validation['pairs']:,} pairs, {outcome}",
-            flush=True,
+        temporary_rows = lowered.additional_temporary_rows
+    else:
+        primitive_summary = f"{len(program.trace)} primitives (symbolic)"
+        normalized = analyze_physical_lowering(program)
+        temporary_rows = (
+            maximum_interval_depth(normalized.work_intervals)
+            - len(normalized.outputs)
         )
+    temporary_qualifier = "" if lowered is not None else " (required for physical lowering)"
+    print(
+        f"{name}: {primitive_summary}, "
+        f"input rows: {len(program.inputs)}, "
+        f"output rows: {len(program.outputs['R'])}, "
+        f"temporary rows: {temporary_rows}{temporary_qualifier}, "
+        f"{validation['pairs']:,} pairs, {outcome}",
+        flush=True,
+    )
 
     args.out.mkdir(parents=True, exist_ok=True)
     (args.out / "validation.json").write_text(

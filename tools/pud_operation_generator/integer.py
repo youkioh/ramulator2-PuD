@@ -1,15 +1,15 @@
-"""Widened UINT8 and full internal INT8 arithmetic with byte-wide INT8 exports."""
+"""Full-width integer arithmetic with fixed-width UINT and INT exports."""
 
 from collections import deque
 
 from .core import Builder
 
 
-def _build_multiply(*, signed: bool):
-    width = 8
+def _build_multiply(*, signed: bool, width: int):
     builder = Builder([f"{operand}{bit}" for operand in "AB" for bit in range(width)])
     builder.width = width
     builder.signed = signed
+    builder.format_name = f"{'int' if signed else 'uint'}{width}"
     builder.constants = {
         builder.zero: 0,
         **({builder.one: 1} if signed else {}),
@@ -80,28 +80,26 @@ def _build_multiply(*, signed: bool):
     if not signed and builder.carry_beyond_output:
         raise AssertionError("unexpected unsigned overflow structure")
 
-    if signed:
-        builder.taps["full_result"] = result
-    builder.stage = (
-        "output: copy low eight product bits to R rows"
-        if signed else "output: copy completed product bits to R rows"
-    )
-    builder.export("R", result[:width] if signed else result)
+    builder.taps["full_result"] = result
+    builder.stage = f"output: copy low {width} product bits to R rows"
+    builder.export("R", result[:width])
     return builder
 
 
-def _build_add(*, signed: bool):
-    width = 8
+def _build_add(*, signed: bool, width: int):
     builder = Builder([f"{operand}{bit}" for operand in "AB" for bit in range(width)])
     builder.width = width
     builder.signed = signed
+    builder.format_name = f"{'int' if signed else 'uint'}{width}"
     builder.constants = {builder.zero: 0}
     left, right = ([f"{operand}{bit}" for bit in range(width)] for operand in "AB")
 
     if signed:
         left.append(left[-1])
         right.append(right[-1])
-        builder.stage = "signed ripple ADD: sign-extend both operands to nine bits"
+        builder.stage = (
+            f"signed ripple ADD: sign-extend both operands to {width + 1} bits"
+        )
     else:
         builder.stage = "unsigned ripple ADD: retain the final carry"
 
@@ -109,33 +107,50 @@ def _build_add(*, signed: bool):
     if signed:
         builder.carry_beyond_output = [result[-1]]
         result = result[:-1]
-        builder.taps["full_result"] = result
     else:
         builder.carry_beyond_output = []
 
-    builder.stage = (
-        "output: copy low eight sum bits to R rows"
-        if signed else "output: copy exact nine-bit sum to R rows"
-    )
-    builder.export("R", result[:width] if signed else result)
+    builder.taps["full_result"] = result
+    builder.stage = f"output: copy low {width} sum bits to R rows"
+    builder.export("R", result[:width])
     return builder
 
 
+def build_uint4_add():
+    """Compute the exact unsigned 5-bit sum and expose only its low four bits."""
+    return _build_add(signed=False, width=4)
+
+
+def build_uint4_mul():
+    """Compute the exact unsigned 8-bit product and expose only its low four bits."""
+    return _build_multiply(signed=False, width=4)
+
+
+def build_int4_add():
+    """Compute the exact signed 5-bit sum and expose only its low four bits."""
+    return _build_add(signed=True, width=4)
+
+
+def build_int4_mul():
+    """Compute the exact signed 8-bit product and expose only its low four bits."""
+    return _build_multiply(signed=True, width=4)
+
+
 def build_uint8_add():
-    """Build an unsigned 8-bit add with an exact unsigned 9-bit result."""
-    return _build_add(signed=False)
+    """Compute the exact unsigned 9-bit sum and expose only its low eight bits."""
+    return _build_add(signed=False, width=8)
 
 
 def build_uint8_mul():
-    """Build an unsigned 8-bit multiply with an exact unsigned 16-bit result."""
-    return _build_multiply(signed=False)
+    """Compute the exact unsigned 16-bit product and expose only its low eight bits."""
+    return _build_multiply(signed=False, width=8)
 
 
 def build_int8_add():
     """Compute the exact signed 9-bit sum and expose only its low eight bits."""
-    return _build_add(signed=True)
+    return _build_add(signed=True, width=8)
 
 
 def build_int8_mul():
     """Compute all 16 signed product bits and expose only the low eight bits."""
-    return _build_multiply(signed=True)
+    return _build_multiply(signed=True, width=8)

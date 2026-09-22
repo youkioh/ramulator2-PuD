@@ -42,10 +42,16 @@ from pud_operation_generator.validation import validate_physical_lowering, verif
 
 
 BASELINES = {
-    "uint8-add": (41, 13, 4, 26, 30),
-    "uint8-mul": (592, 26, 10, 33, 43),
+    "uint4-add": (21, 9, 5, 13, 18),
+    "uint4-mul": (136, 14, 10, 13, 23),
+    "int4-add": (26, 10, 6, 13, 19),
+    "int4-mul": (148, 14, 10, 14, 24),
+    "uint8-add": (41, 13, 5, 25, 30),
+    "uint8-mul": (592, 26, 18, 25, 43),
     "int8-add": (46, 14, 6, 25, 31),
     "int8-mul": (612, 26, 18, 26, 44),
+    "fp4-e2m1-add": (481, 16, 12, 14, 26),
+    "fp4-e2m1-mul": (122, 11, 7, 14, 21),
     "fp8-e5m2-add": (1045, 25, 17, 26, 43),
     "fp8-e5m2-mul": (326, 15, 7, 26, 33),
     "fp8-e4m3-add": (1331, 30, 22, 26, 48),
@@ -225,27 +231,35 @@ class AnalysisTests(unittest.TestCase):
 
 
 class AllocationTests(unittest.TestCase):
-    def test_int8_discarded_bits_are_not_live_outs_and_rows_are_reused(self):
-        for name in ("int8-add", "int8-mul"):
+    def test_integer_discarded_bits_are_not_live_outs_and_rows_are_reused(self):
+        for name in (
+            "uint4-add", "uint4-mul", "int4-add", "int4-mul",
+            "uint8-add", "uint8-mul", "int8-add", "int8-mul",
+        ):
             with self.subTest(name=name):
                 builder = BUILDERS[name]()
                 normalized = analyze_physical_lowering(builder)
                 lowered = lower_to_physical(builder, make_default_physical_layout(builder))
                 intervals = {item.symbolic_name: item for item in normalized.work_intervals}
-                self.assertEqual(list(dict(lowered.designated_outputs)), [f"R{bit}" for bit in range(8)])
-                self.assertEqual(len(lowered.removed_exports), 8)
+                width = builder.width
+                self.assertEqual(
+                    list(dict(lowered.designated_outputs)),
+                    [f"R{bit}" for bit in range(width)],
+                )
+                self.assertEqual(len(lowered.removed_exports), width)
                 self.assertEqual(
                     [item.final_producer for item in lowered.result_bindings],
-                    builder.taps["full_result"][:8],
+                    builder.taps["full_result"][:width],
                 )
-                for bit, row in enumerate(builder.taps["full_result"][8:], 8):
+                for bit, row in enumerate(builder.taps["full_result"][width:], width):
                     interval = intervals[row]
                     self.assertEqual(interval.last_required, max(
                         index for index, primitive in enumerate(normalized.retained_primitives)
                         if row in primitive.rows
                     ))
                     self.assertLess(interval.last_required, normalized.completion_point)
-                    if name == "int8-mul" and bit < 15:
+                    reuse_limit = 2 * builder.width - (1 if builder.signed else 2)
+                    if name.endswith("mul") and bit < reuse_limit:
                         self.assertTrue(any(
                             later.first_required > interval.last_required
                             and lowered.bindings[later.symbolic_name] == lowered.bindings[row]
@@ -562,16 +576,25 @@ class PhysicalReplayTests(unittest.TestCase):
 
 
 class PhysicalValidationTests(unittest.TestCase):
-    def test_int8_full_results_exhaustively_observed_before_row_reuse(self):
-        left = [value for value in range(256) for _ in range(256)]
-        right = list(range(256)) * 256
-        lanes = len(left)
-        for name in ("int8-add", "int8-mul"):
+    def test_integer_full_results_exhaustively_observed_before_row_reuse(self):
+        for name in (
+            "uint4-add", "uint4-mul", "int4-add", "int4-mul",
+            "uint8-add", "uint8-mul", "int8-add", "int8-mul",
+        ):
             with self.subTest(name=name):
                 builder = BUILDERS[name]()
+                value_count = 1 << builder.width
+                left = [value for value in range(value_count) for _ in range(value_count)]
+                right = list(range(value_count)) * value_count
+                lanes = len(left)
                 normalized = analyze_physical_lowering(builder)
                 lowered = lower_to_physical(builder, make_default_physical_layout(builder))
-                initial = dict(zip(builder.inputs, pack(left, 8) + pack(right, 8)))
+                initial = dict(
+                    zip(
+                        builder.inputs,
+                        pack(left, builder.width) + pack(right, builder.width),
+                    )
+                )
                 initial.update({row: (1 << lanes) - 1 if value else 0
                                 for row, value in builder.constants.items()})
                 physical_initial = {lowered.bindings[row]: value for row, value in initial.items()}
@@ -587,15 +610,31 @@ class PhysicalValidationTests(unittest.TestCase):
                 width = len(builder.taps["full_result"])
                 full = unpack(snapshots[:width], lanes)
                 expected = [
-                    signed_value(a, 8) + signed_value(b, 8) if name.endswith("add")
-                    else signed_value(a, 8) * signed_value(b, 8)
+                    (
+                        signed_value(a, builder.width) + signed_value(b, builder.width)
+                        if name.endswith("add")
+                        else signed_value(a, builder.width) * signed_value(b, builder.width)
+                    )
+                    if builder.signed
+                    else a + b if name.endswith("add") else a * b
                     for a, b in zip(left, right)
                 ]
-                self.assertEqual([signed_value(value, width) for value in full], expected)
-                if name == "int8-mul":
+                actual = (
+                    [signed_value(value, width) for value in full]
+                    if builder.signed
+                    else full
+                )
+                self.assertEqual(actual, expected)
+                if builder.signed and name.endswith("mul"):
                     carry = unpack(snapshots[width:], lanes)
-                    self.assertEqual([value + (high << 16) for value, high in zip(full, carry)],
-                                     [value + (1 << 16) for value in expected])
+                    correction_width = 2 * builder.width
+                    self.assertEqual(
+                        [
+                            value + (high << correction_width)
+                            for value, high in zip(full, carry)
+                        ],
+                        [value + (1 << correction_width) for value in expected],
+                    )
 
     def test_all_profiles_exhaustively_establish_triple_equality(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -609,7 +648,8 @@ class PhysicalValidationTests(unittest.TestCase):
                     )
                     report = verify(name, builder, path, info, lowered=lowered)
                     physical = report["physical_lowering"]
-                    self.assertEqual(report["pairs"], 65_536)
+                    width = getattr(builder, "width", 8)
+                    self.assertEqual(report["pairs"], (1 << width) ** 2)
                     self.assertEqual(report["reference_mismatches"], 0)
                     self.assertEqual(
                         physical["reference_symbolic_physical_mismatches"], 0
@@ -839,7 +879,7 @@ class PhysicalSurfaceTests(unittest.TestCase):
                     document[name],
                     physical_layout_record(make_default_physical_layout(builder)),
                 )
-                if name.startswith("int8-"):
+                if name.startswith(("uint8-", "int8-")):
                     self.assertEqual(list(document[name]["outputs"]), [f"R{bit}" for bit in range(8)])
                 physical = json.loads(
                     (output / f"{name}.physical.json").read_text()
@@ -919,8 +959,8 @@ class PhysicalSurfaceTests(unittest.TestCase):
             self.assertEqual(completed.returncode, 0, completed.stderr)
             self.assertIn("reference/replay PASS", completed.stdout)
             self.assertIn(
-                "uint8-add: 50 primitives (symbolic), input rows: 16, "
-                "output rows: 9, temporary rows: 4 (required for physical lowering),",
+                "uint8-add: 49 primitives (symbolic), input rows: 16, "
+                "output rows: 8, temporary rows: 5 (required for physical lowering),",
                 completed.stdout,
             )
             self.assertNotIn("scratch", completed.stdout)
@@ -947,7 +987,7 @@ class PhysicalSurfaceTests(unittest.TestCase):
             self.assertEqual(artifact["kind"], "pud-physical-lowered-program")
             self.assertEqual(artifact["profile"], "uint8-add")
             self.assertEqual(len(artifact["lowered_primitives"]), 41)
-            self.assertEqual(len(artifact["removed_terminal_exports"]), 9)
+            self.assertEqual(len(artifact["removed_terminal_exports"]), 8)
             self.assertEqual(artifact["allocation_metrics"]["physical_footprint_rows"], 30)
             self.assertIn("not complete canonical Ramulator addresses", artifact["local_row_scope"])
             self.assertNotIn("request_fragment", artifact)

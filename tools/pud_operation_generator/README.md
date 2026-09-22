@@ -6,14 +6,20 @@ copied into another repository without any sibling experiment directories.
 Generation, lowering, and validation require only Python 3.10 or newer and the
 standard library.
 
-The package provides eight operation profiles:
+The package provides fourteen operation profiles:
 
 | CLI profile | Inputs | Output | Symbolic primitives |
 |---|---|---|---:|
-| `uint8-add` | two UINT8 values | exact unsigned 9-bit sum | 50 |
-| `uint8-mul` | two UINT8 values | exact UINT16 product | 608 |
+| `uint4-add` | two UINT4 values | low 4 bits of full unsigned 5-bit sum | 25 |
+| `uint4-mul` | two UINT4 values | low 4 bits of full unsigned 8-bit product | 140 |
+| `int4-add` | two INT4 values | low 4 bits of full signed 5-bit sum | 30 |
+| `int4-mul` | two INT4 values | low 4 bits of full signed 8-bit product | 152 |
+| `uint8-add` | two UINT8 values | low 8 bits of full unsigned 9-bit sum | 49 |
+| `uint8-mul` | two UINT8 values | low 8 bits of full UINT16 product | 600 |
 | `int8-add` | two INT8 values | low 8 bits of full signed 9-bit sum | 54 |
 | `int8-mul` | two INT8 values | low 8 bits of full INT16 product | 620 |
+| `fp4-e2m1-add` | two raw E2M1 values | approximate E2M1 candidate | 485 |
+| `fp4-e2m1-mul` | two raw E2M1 values | truncating E2M1 result | 126 |
 | `fp8-e5m2-add` | two E5M2 bytes | approximate E5M2 candidate | 1,053 |
 | `fp8-e5m2-mul` | two E5M2 bytes | truncating E5M2 result | 334 |
 | `fp8-e4m3-add` | two E4M3 bytes | approximate E4M3 candidate | 1,339 |
@@ -21,10 +27,15 @@ The package provides eight operation profiles:
 
 No round-to-nearest-even (RNE) extension is included.
 
-All INT8 and FP8 ADD/MUL profiles consume two 8-bit values and expose exactly
-`R0..R7`. UINT8 retains its existing widened interface. Future GEMV uses the
-existing MUL and ADD PuD operations; no separate FMA PuD operation is
-introduced. GEMV itself is not implemented here.
+All UINT8, INT8, and FP8 ADD/MUL profiles consume two 8-bit values and expose
+exactly `R0..R7`. Future GEMV uses the existing MUL and ADD PuD operations; no
+separate FMA PuD operation is introduced. GEMV itself is not implemented here.
+The standalone UINT4 and INT4 profiles consume two 4-bit values and expose
+exactly `R0..R3`. They support symbolic generation and physical lowering but
+are not yet GEMV profiles; packed storage and GEMV placement are outside this
+addition.
+The standalone FP4-E2M1 profiles also expose `R0..R3`. They operate on raw
+E2M1 elements without MXFP4/NVFP4 block scales and are not GEMV profiles.
 
 The symbolic `Builder` trace remains the golden arithmetic program. Physical
 lowering preserves its arithmetic-core order, removes only validated terminal
@@ -43,11 +54,12 @@ The UINT8 and FP8 arithmetic structures are based on PRADA:
 The relationship to PRADA is:
 
 - UINT8 addition uses the majority-based sum/carry structure described in
-  Section 5.2 and Table 2. The generator retains the final carry to produce an
-  exact 9-bit unsigned result.
+  Section 5.2 and Table 2. The generator retains the final carry in its exact
+  9-bit internal result and exports the low eight bits.
 - UINT8 multiplication extends the partial-product and column-compression
   structure in Section 5.4 and Table 3 from the illustrated width to eight-bit
   operands.
+- UINT4 ADD and MUL are width adaptations of those integer constructions.
 - E5M2 addition follows the bounded exponent alignment, signed significand
   addition, and normalization flow in Figure 6.
 - E5M2 multiplication follows the implicit-one significand product, exponent
@@ -55,15 +67,18 @@ The relationship to PRADA is:
 - E4M3 ADD and MUL are width adaptations made in this package. They apply the
   same PRADA dataflow to a three-bit fraction and four-bit exponent; they are
   not claimed to be E4M3 sequences printed by the paper.
+- E2M1 ADD and MUL apply the same bounded-alignment and truncating dataflow at
+  FP4 widths; they are not claimed to be FP4 sequences printed by PRADA.
 
 Figure identifiers are used here for provenance only. Python identifiers,
 trace stages, manifests, and generated filenames use operation-based names.
 
-## How INT8 is derived
+## How signed integer arithmetic is derived
 
 PRADA's unsigned arithmetic structure does not by itself specify the signed
-microprogram used here. The INT8 profiles are explicit two's-complement
-derivations built on the same Boolean primitives.
+microprogram used here. The INT4 and INT8 profiles are explicit two's-complement
+derivations built on the same Boolean primitives. The discussion below uses
+INT8 widths; INT4 applies the same construction at width four.
 
 ### INT8 addition
 
@@ -119,40 +134,46 @@ export block selects only bits 0..7. This is full internal product computation
 plus a fixed-width 8-bit visible result, not a low-half-only optimization.
 UINT8 MUL uses the same column-streaming loop through columns 0..15, without
 signed complements or correction terms. It retains the exact full UINT16
-output `R0..R15`; column 15 exports the carry arriving from column 14 without
-another addition. UINT8 ADD and the shared FP8 `Builder.multiply()` sequences
-are unchanged.
+internal product; column 15 is the carry arriving from column 14 and requires
+no additional arithmetic primitive. Like UINT8 ADD, it exports only the low
+eight bits. The shared FP8 `Builder.multiply()` sequences are unchanged.
 
-Both INT8 profiles expose their full arithmetic result through the LSB-first
-`diagnostic_taps.full_result` manifest field (9 bits for ADD, 16 for MUL).
-Exhaustive validation independently checks that signed full result and the
-visible low byte, including the MUL correction-carry identity. These taps do
-not keep discarded values live at operation exit. Physical tests observe the
-full result at lifetime endpoints, before rows are reused. Truncation is only
-the choice of exported bits: there is no `TRUNC_LO8` primitive or extra copy
+All integer profiles expose their full arithmetic result through the LSB-first
+`diagnostic_taps.full_result` manifest field (input width plus one for ADD and
+twice the input width for MUL). Exhaustive validation independently checks the
+full result and fixed-width visible result, including the signed MUL
+correction-carry identity. These taps do not
+keep discarded values live at operation exit. Physical tests observe the full
+result at lifetime endpoints, before rows are reused. Truncation is only the
+choice of exported bits: there is no `TRUNC_LO8` primitive or extra copy
 sequence.
 
-## FP8 formats and numerical scope
+## Floating-point formats and numerical scope
 
-The field encodings follow the
-[OCP 8-bit Floating Point Specification, revision 1.0](https://www.opencompute.org/documents/ocp-8-bit-floating-point-specification-ofp8-revision-1-0-2023-06-20-pdf):
+The FP8 field encodings follow the
+[OCP 8-bit Floating Point Specification, revision 1.0](https://www.opencompute.org/documents/ocp-8-bit-floating-point-specification-ofp8-revision-1-0-2023-06-20-pdf).
+E2M1 follows the element encoding in the
+[OCP Microscaling Formats specification](https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf),
+but the generator does not model its block scale:
 
 | Format | Encoding | Bias | Minimum normal | Maximum normal | Special values |
 |---|---|---:|---:|---:|---|
+| E2M1 | `SEEM` | 1 | 1 | 6 | finite-only; signed zero and subnormal 0.5 |
 | E5M2 | `SEEEEEMM` | 15 | `2^-14` | 57,344 | infinities and NaNs |
 | E4M3 | `SEEEEMMM` | 7 | `2^-6` | 448 | finite-only; `S.1111.111` is NaN |
 
 The generators reproduce or adapt PRADA's bounded-alignment and truncating
-arithmetic, not a complete OFP8 arithmetic unit:
+arithmetic, not complete IEEE-style or microscaling arithmetic units:
 
-- ADD aligns only as far as the stored fraction width: two positions for E5M2
-  and three for E4M3. Smaller operands are discarded outside that window. The
-  aligned signed significands are added and normalized without rounding.
+- ADD aligns only as far as the stored fraction width: one position for E2M1,
+  two for E5M2, and three for E4M3. Smaller operands are discarded outside
+  that window. The aligned signed significands are added and normalized
+  without rounding.
 - MUL multiplies the implicit-one significands, normalizes the product, adjusts
   the exponent, and truncates discarded fraction bits.
 - ADD validation compares normal inputs whose output is normal or exact
   cancellation. Its row manifest includes a widened signed exponent diagnostic
-  because an exported byte is only a candidate outside that domain.
+  because an exported value is only a candidate outside that domain.
 - MUL validation compares normal inputs whose exact product remains between the
   format's minimum and maximum normal magnitudes.
 - Subnormal arithmetic, complete infinity/NaN propagation, and every
@@ -242,25 +263,34 @@ For INT8 ADD the defaults designate `R0..R7` at rows 17..24; INT8 MUL uses
 rows 18..25 because it declares both constants. Old INT8 layouts containing
 `R8` or higher are rejected.
 
-The integer multiplication and fixed-width INT8 baselines are:
+The standalone 4-bit and fixed-width integer baselines are:
 
 | Profile | Retained physical primitives | Work peak | Designated rows | Additional temporary rows | Footprint / total peak |
 |---|---:|---:|---:|---:|---:|
-| `uint8-mul` | 592 | 26 | 33 | 10 | 43 |
+| `uint4-add` | 21 | 9 | 13 | 5 | 18 |
+| `uint4-mul` | 136 | 14 | 13 | 10 | 23 |
+| `int4-add` | 26 | 10 | 13 | 6 | 19 |
+| `int4-mul` | 148 | 14 | 14 | 10 | 24 |
+| `fp4-e2m1-add` | 481 | 16 | 14 | 12 | 26 |
+| `fp4-e2m1-mul` | 122 | 11 | 14 | 7 | 21 |
+| `uint8-add` | 41 | 13 | 25 | 5 | 30 |
+| `uint8-mul` | 592 | 26 | 25 | 18 | 43 |
 | `int8-add` | 46 | 14 | 25 | 6 | 31 |
 | `int8-mul` | 612 | 26 | 26 | 18 | 44 |
 
-UINT8 MUL still emits 608 symbolic primitives and removes 16 terminal exports
-during physical lowering. Column streaming reduces its PuD micro-operation-level
-temporary rows from 52 to 10 and footprint from 85 to 43, preserving its full
-product and output width.
+UINT8 ADD and MUL emit 49 and 600 symbolic primitives respectively, and
+physical lowering removes eight terminal exports from each. UINT8 MUL's
+column-streaming arithmetic remains unchanged and still computes the exact
+full product; selecting the byte-wide public result changes only its export
+suffix and the lifetime of diagnostic high bits.
 
-Physical lowering removes exactly eight terminal exports in each INT8 case. MUL
-bits 8..14 actually reuse rows during later columns; bit 15 and ADD bit 8
-finish at the final arithmetic command and are also not live-outs. ADD's
-footprint is unchanged: removing a designation moves one row into the PuD
-micro-operation-level temporary-row count. Counts are for the fixed emitted sequence,
-not a global optimum over different arithmetic schedules.
+Physical lowering removes exactly the input width's terminal exports in every
+integer case. Most discarded MUL high bits actually reuse rows during later columns;
+the final high bits and ADD bit 8 are likewise not live-outs even when no later
+identity reuses their row. Each ADD footprint is unchanged: removing a
+designation moves one row into the PuD micro-operation-level temporary-row
+count. Counts are for the fixed emitted sequence, not a global optimum over
+different arithmetic schedules.
 
 The generated `default-physical-layout.json` uses exactly the same reusable
 per-profile `local_row_count`, `inputs`, `constants`, and `outputs` structure
@@ -295,8 +325,9 @@ remains symbolic-only.
 The default output directory is `build/pud-operation-generator/`, following
 the repository convention for untracked generated artifacts.
 
-Every selected profile is checked over all 65,536 input pairs. A successful run
-reports `reference/replay PASS`.
+Every selected profile is checked exhaustively: 4-bit profiles cover all 256
+input pairs and 8-bit profiles cover all 65,536 pairs. A successful run reports
+`reference/replay PASS`.
 
 The CLI summary includes primitive count, input rows, output rows, and
 `temporary rows`. With physical lowering enabled, it reports the retained
@@ -476,8 +507,8 @@ Or, from inside `tools/pud_operation_generator/`:
 python3 -m unittest discover -s tests -v
 ```
 
-The tests cover the eight-profile public surface, primitive counts, selected
-UINT8 and INT8 values, exhaustive full-result and visible-result validation,
+The tests cover the fourteen-profile public surface, primitive counts, selected
+UINT4/INT4 and UINT8/INT8 values, exhaustive full-result and visible-result validation,
 column scheduling, discarded-bit corruption detection, serialized replay,
 physical lifetime reuse and optimality, both layout CLI paths, and execution
 after copying the directory into an isolated temporary repository. Existing
