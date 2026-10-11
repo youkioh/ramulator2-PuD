@@ -382,6 +382,49 @@ for the focused K=1 case. Cycles are performance evidence, not a fixed oracle.
 Historical same-bank characterization remains in its completed plan and is
 not an active evaluation policy.
 
+## DDR4-packed shared-K GEMM
+
+The separate `tools.pud_gemm_generator` interface supports the accepted fixed
+`Q[8,128] x K[128,2048] -> O[8,2048]` workload. K is shared; chip h uses query h.
+It reuses the existing six GEMV format/schedule profiles and physical lowering.
+The [canonical GEMM contract](decisions/pud-multistandard-substrate.md#accepted-gemm-placement-and-fusion--2026-10-11)
+defines placement and fusion; existing GEMV artifacts and instrumentation retain
+their meanings.
+
+With the same Python/native-module environment used for GEMV:
+
+```bash
+python -m tools.pud_gemm_generator --profile MIMDRAM-InterMatFirst-int8 --out /tmp/pud-gemm
+python -m experiments.pud_gemm --profile MIMDRAM-InterMatFirst-int8 --out /tmp/pud-gemm-run
+```
+
+The first command generates artifacts only. The second runs the full workload;
+full-size timing is optional after initial small-case validation. Artifacts use
+the current DDR4-packed/multistandard `PUD_TRACE 2` grammar and a separate
+`pud-gemm` layout schema v1. Each of 16 Bank CHAINs contains band 0 then band 1,
+ordered by existing full-completion callbacks. Different banks may overlap.
+The intermediate checkpoint records band-0 completion; final CHAIN completion
+records band 1. These are not MUL/reduction latency boundaries. Per-output
+query/key identity, residual positions and readout ownership are in the layout.
+
+The Python API exports `generate(profile)`, `write_gemm(profile, directory)`,
+`read_gemm(trace_path)`, `execute_trace(layout, trace, q, k)` and
+`scalar_graph(profile, q, k)`. Inputs to replay/oracle are raw 8-bit integers;
+FP8 uses encoded bytes. Replay snapshots four residuals per output and applies
+the existing untimed host fold, returning scalar O. It also checks protected
+inputs/constants and retention of both bands' residuals. Ramulator itself
+remains value-free.
+
+The runner saves resolved configuration, raw statistics and a result JSON with
+logical arithmetic, physical Request counts, issued command occurrences,
+band-completion timestamps, modeled PuD time and simulator wall time.
+Each `output_completion_observations[].complete_cycle` is the completion timestamp
+of the output's owning Bank/band. All outputs in that band share that timestamp;
+these are not independent output latency measurements.
+Measurement uses preplaced/replicated inputs and NoRefresh, includes terminal
+recovery, and excludes loading, readout and host folding. Approximately 1 ms
+remains an unverified full-workload expectation.
+
 ## Command traces and latency
 
 `CmdTraceRecorder` writes one file per channel by appending `.ch0`,

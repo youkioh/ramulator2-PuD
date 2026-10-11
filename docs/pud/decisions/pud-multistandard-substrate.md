@@ -581,7 +581,115 @@ alternative. G7 has no remaining packing/fusion gate. **Phase-4 implementation
 remains unauthorized until separate user approval.** No baseline regeneration
 or new target GEMV baseline is authorized.
 
+### Accepted GEMM placement and fusion — 2026-10-11
+
+The user accepted this GEMM extension based on DDR4-packed. Logical inputs,
+arithmetic, completion and measurement boundaries follow the 2026-10-11 GEMM
+[macro contract](pud-gemv-macro-contract.md). Use `DDR4_8Gb_x8` with
+`DDR4_2400R`: one 64-bit Channel/rank containing eight x8 chips, with chip h
+assigned to query h.
+
+Each of the 16 banks within a chip handles 128 outputs. Place four length-128
+dot products in a MAT's 512 positions, using two independent row bands in the
+same subarray. Each band holds the Q/K inputs for four distinct keys per MAT,
+its own workspace and residual storage. The two Q/K operands do not count as
+separate outputs. This gives `16 MATs * 2 bands * 4 slices = 128 outputs` per
+chip-bank and `8 * 16 * 128 = 16,384 outputs` overall. The two bands use the
+same MAT resources, so their operations do not execute simultaneously. No SALP
+is added.
+
+The user subsequently accepted this exact index-to-location enumeration, with
+the logical indices defined by the macro contract:
+
+```text
+Channel = 0; Rank = 0
+bank_index = j // 128
+BankGroup = bank_index // 4; Bank = bank_index % 4
+band = (j % 128) // 64
+local_mat = (j % 64) // 4; slice = j % 4
+chip = h; logical_mat = 16*h + local_mat
+subarray = 0
+position = 128*slice + r
+Group = position // 4; HFF position = position % 4
+```
+
+At that position, the matrix operand is `K[r,j]` and the vector operand is
+`Q[h,r]`. Replicate logical K across chips and Q across the output slices of
+its assigned chip before measurement. The inverse output mapping is
+`j = 128*bank_index + 64*band + 4*local_mat + slice`. Each output occupies a
+distinct slice; neither bands nor chips extend one output's reduction domain.
+
+Use row-band base `band*F`, where `F = 5*w + C + T`, `w=8`, C counts the union of
+declared constants and T is the generated maximum ADD/MUL temporary-row
+requirement. Relative row offsets are K at 0..7, Q at 8..15, primary at 16..23,
+reduction at 24..31, movement at 32..39, followed by protected constants and
+micro-operation temporaries. Current requirements give F=60/64/59 for
+INT8/E4M3/E5M2; derive these values from the operation generator rather than
+hardcoding an independent allocator. Both bands fit the existing subarray.
+After the five local ADD stages, each output's four residuals occupy reduction
+rows at positions `128*slice + {0,1,2,3}` in its own MAT and band. Preserve
+inputs/constants, existing intra-band temporary lifetimes and primary/reduction
+alternation. Do not share workspaces between bands or overwrite retained
+residuals during this workload.
+
+Use exactly 16 physical CHAINs, one per Bank. Each owns 1,024 outputs across
+eight chips and contains all band-0 Requests followed by all band-1 Requests.
+Each band retains its 512-output group and compatible compute/LC ranges over
+logical MATs 0..127. Existing PuDTrace within-chain ordering releases the next
+Request only after the preceding full callback, including terminal recovery.
+Thus band 1 cannot begin before band 0 fully completes. Different Bank CHAINs
+remain independent and may overlap; there is no global barrier. CHAIN IDs
+remain opaque labels, not an ordering rule.
+
+The intermediate checkpoint is the last Request of band 0; final CHAIN
+completion is band-1 completion. Retain per-output residual/readout ownership
+and band membership in GEMM layout metadata. These timestamps do not describe
+MUL/reduction phases. Existing GEMV phase instrumentation is unchanged;
+separate MUL/reduction latency for both GEMM bands is outside this milestone.
+Keep the current DDR4-packed/multistandard `PUD_TRACE 2` grammar and parser.
+No inter-chain predecessor configuration, general DAG scheduler or new frontend
+scheduling mechanism is required or authorized.
+
+**Superseded within this authority:** the earlier 32 Bank/band CHAIN contract
+and D1 optional frontend predecessor extension are replaced by the 16-CHAIN
+contract above. They are historical rationale only, with no compatibility path.
+
+Corresponding locations across chips hold different Q values and the same
+logical K, and execute the same operation sequence. For GEMM, compute with
+matching Bank/subarray, row bindings, dependency frontier and destructive
+semantics may fuse over compatible contiguous cross-chip MatRanges. LC may
+likewise fuse copies within each MAT for one common Group pair. Different
+slice-specific Group pairs remain separate Requests; complete all required
+movement before shared arithmetic. Preserve the existing packed group's
+single physical CHAIN ownership and exactly-once completion contract, with
+per-output query/key identity, residual locations and checkpoints.
+
+Cross-chip compute/LC fusion does not enlarge the connected reduction domain
+or GB topology. GB remains chip-local and directed with singleton endpoints.
+Bank-addressed Requests contend for the shared command bus while exploiting
+bank overlap. Simultaneous multi-bank broadcast is not required, and no new
+command or timing behavior is assumed.
+
+Apply the new policy only through the separate GEMM interface. Preserve
+existing DDR4-packed GEMV defaults and artifact meanings, frozen legacy DDR4
+GEMV, and GDDR7/HBM3 behavior. The existing G7 chip-local fusion policy above
+continues to apply to those GEMV workloads. This section records accepted
+design; the user has authorized its implementation without a commit.
+
 Rationale
+
+Two independent GEMM row bands allow all inputs to be preplaced while
+preserving the first band's residuals. Cross-chip fusion uses existing
+compute/LC range support to express the shared-K workload without adding GB
+connections or multi-bank commands.
+
+The superseded D1 chose optional predecessor configuration to retain separate
+band CHAINs without changing trace grammar. The final minimal-design audit
+established that one CHAIN per Bank enforces the same required ordering and
+bank concurrency using existing execution. Band-0 intermediate and band-1 final
+timestamps also fit the current checkpoint interface. The replacement removes
+unnecessary shared frontend changes and bundle-only dependency semantics;
+the trade-off is excluding separate MUL/reduction timing for both bands.
 
 The existing ownership/completion machinery already resides mostly in shared
 Request, ControllerBase and Device code. The remaining coupling is concrete:
@@ -633,6 +741,28 @@ evaluated under the baseline's stated fidelity limits.
 
 Evidence
 
+- The user's explicit acceptance on 2026-10-11: one query per chip, two input
+  sets of four dot products per MAT in independent row bands, bank-addressed
+  cross-chip execution, a separate GEMM interface, and preserved GEMV behavior.
+- The user's final 2026-10-11 acceptance preserves the explicit enumeration
+  and replaces the earlier 32-CHAIN/D1 choices with 16 Bank CHAINs, existing
+  within-chain completion ordering, and band-completion checkpoints. It
+  authorizes implementation and small execution/target-size coverage tests.
+- In the [current placement/fusion code](../../../tools/pud_gemv_generator/generator.py),
+  `_group_placement` selects chip-local groups and `_fuse_group` merges
+  compatible adjacent ranges at the same frontier.
+  [Resolver validation](../../../src/ramulator/controller/pud_request_validation.cpp)
+  permits cross-chip compute/LC ranges while enforcing common Bank/subarray
+  context and GB singleton topology. These are reuse mechanisms for the
+  extension, not evidence of a GEMM implementation.
+- At inspected source HEAD `30f15a1`, [PuDTrace](../../../src/ramulator/frontend/impl/memory_trace/pud_trace.cpp)
+  initially readies every nonempty CHAIN and advances only within-chain
+  successors on callback. It has no inter-chain dependency configuration or
+  directive. Repeated CHAIN selection appends to the same chain; numeric IDs
+  and first-appearance order do not establish predecessor completion ordering.
+  [Controller completion](../../../src/ramulator/controller/controller_base.cpp)
+  releases terminal-recovery protection before invoking the callback, providing
+  the existing completion boundary for consecutive bands in one CHAIN.
 - The user's Phase-4 selections on 2026-09-17 accepted G5/G7, including
   evaluation scopes, per-controller frontend admission, HBM3 placement order
   and runner refresh policy. After the narrow packing/fusion investigation,
@@ -683,3 +813,11 @@ the [Phase-4 plan](../plans/pud-multistandard-substrate-plan.md#phase-4--reusabl
 Exact realistic GPU PA hashing remains deferred outside the provisional G1
 mapping; physical-fidelity limitations remain as recorded in the references.
 No energy, SALP or functional payload simulation is selected by G5/G7.
+
+GEMM enumeration, 16 physical Bank CHAINs, per-bank band completion ordering,
+band-completion checkpoints and layout schema v1 are accepted.
+The [GEMM plan](../plans/pud-gemm-plan.md#completion-evidence--2026-10-11)
+records implementation and initial mapping, functional and lifecycle validation.
+Full target-size latency remains unmeasured and approximately 1 ms remains an
+unverified expectation; that timing run is not required for initial validation.
+No runtime dependency extension is part of this milestone.

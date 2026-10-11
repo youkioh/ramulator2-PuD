@@ -73,16 +73,23 @@ def execute_trace(metadata, trace, matrix, vector, poison=0xA5):
     No payload state enters Ramulator.
     """
     geometry = layout_geometry(metadata)
+    if len(matrix) != metadata["M"] or len(vector) != metadata["N"] or any(len(r) != len(vector) for r in matrix):
+        raise ValueError("input shape differs from GEMV layout")
+    return _execute_trace(metadata, trace, matrix, lambda _: vector, geometry, poison)
+
+
+def _execute_trace(metadata, trace, matrix, vector_for_output, geometry, poison=0xA5,
+                   *, retain_residuals=False):
+    """Shared physical replay; callers validate their own logical/layout contract."""
     width, h = geometry["cells_per_mat_row"], geometry["hffs_per_mat"]
     columns = geometry["group_position_to_column"]
     column = lambda lane: columns[lane]
     mask = (1 << width)-1
-    if len(matrix) != metadata["M"] or len(vector) != metadata["N"] or any(len(r) != len(vector) for r in matrix):
-        raise ValueError("input shape differs from GEMV layout")
     memory, events = {}, {}
     program = BUILDERS[PROFILES[metadata["macro_profile"]][0]]()
     bits = next(iter(metadata["micro_operation_requirements"].values()))["output_rows"]
     for output, record in enumerate(metadata["outputs"]):
+        vector = vector_for_output(output)
         context = tuple(record["context"])
         start = 0
         for domain_index, domain in enumerate(record["domains"]):
@@ -121,6 +128,7 @@ def execute_trace(metadata, trace, matrix, vector, poison=0xA5):
                        local_row_count=geometry["rows_per_bank"])
     add, _ = scalar_operations(metadata["macro_profile"])
     results = [0] * metadata["M"]
+    retained = {}
     for index, line in enumerate(trace, 1):
         opcode, *values = line.split()
         values = list(map(int, values))
@@ -150,10 +158,15 @@ def execute_trace(metadata, trace, matrix, vector, poison=0xA5):
             for lane in domain.get("residual_positions", range(domain["residual_count"])):
                 value = sum(((rows[row] >> column(lane)) & 1) << bit
                             for bit, row in enumerate(domain["result_rows"]))
+                if retain_residuals:
+                    for row in domain["result_rows"]:
+                        retained[(*context, domain["sink_mat"]), row, column(lane)] = (rows[row] >> column(lane)) & 1
                 domain_sum = add(domain_sum, value)
             results[output] = add(results[output], domain_sum)
     if any(memory[key].get(row) != value for (key, row), value in protected.items()):
         raise AssertionError("GEMV replay changed protected A/x/constant rows")
+    if any(((memory[key][row] >> col) & 1) != value for (key, row, col), value in retained.items()):
+        raise AssertionError("physical replay overwrote retained residuals")
     return results
 
 

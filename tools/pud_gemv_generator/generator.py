@@ -50,7 +50,9 @@ def _fuse_group(trace, records, depth):
     Includes every member move before the next shared arithmetic primitive.
     Prefold suffix restoration retains its original position after ADD. GB
     edges stay singleton; compute and identical LC pairs union only adjacent
-    or identical ranges. All members were allocated within one connected path.
+    or identical ranges. Callers own placement and connectivity: GEMV supplies
+    one chip-local path; GEMM may replicate an already synchronized, GB-free
+    local graph across chips without extending its reduction domain.
     """
     start = records[0]["first_request_index"] - 1
     streams = [trace[r["first_request_index"]-1:r["domains"][-1]["completion_index"]] for r in records]

@@ -3,7 +3,8 @@ Status: Accepted
 Question
 
 What are the final MIMDRAM GEMV evaluation schedules, common static placement,
-and input-length contract for INT8, FP8-E4M3 and FP8-E5M2?
+and input-length contract for INT8, FP8-E4M3 and FP8-E5M2, and how does the
+accepted shared-K GEMM workload reuse their arithmetic and completion boundary?
 
 Decision
 
@@ -107,7 +108,60 @@ Physical Requests, traces, placement, scheduling and controller timing stay
 unchanged. The [user guide](../ddr4-pud-user-guide.md#gemv-trace-generation-and-execution)
 defines the timestamp and output conventions.
 
+**Accepted GEMM contract — 2026-10-11.**
+
+The user accepted the initial shared-K GQA workload
+`Q[8,128] × K[128,2048] -> O[8,2048]`. Distinguish query index `h=0..7`,
+reduction index `r=0..127`, and output/key index `j=0..2047`. Each query maps
+to GEMV with `M=2048`, `N=128`, `A[j,r]=K[r,j]`, `x[r]=Q[h,r]`, and
+`y[j]=O[h,j]`. All queries share K; there is no distinct K tensor per head.
+
+Reuse the existing INT8, FP8-E4M3 and FP8-E5M2 GEMV MUL/ADD operations and
+reduction graphs unchanged. Every MUL/ADD visible result and the final output
+use the input format. Preserve INT8 low-eight-bit wrap and FP8's existing
+bounded numerical domain and approximation/truncation behavior. Wider
+accumulation, FMA, new rounding policies, and E2M1 or UINT integration are
+outside this scope. At `N=128`, `H=4`, each output reduces within one MAT slice
+through `128 -> 64 -> 32 -> 16 -> 8 -> 4`; both existing schedules therefore
+have the same graph and no GB stage.
+
+PuD completion leaves four chip-local residuals per output. The host completes
+scalar O using the existing residual/domain fold order. No new operation to
+store final scalar O in PuD is required. Measure the PuD in-memory phase
+starting after all input placement and replication have completed, including
+terminal recovery. Use `NoRefresh` and exclude input loading/replication,
+readout and host folding time. Approximately 1 ms remains an unverified
+expectation, not a correctness oracle or a reason to alter timing. Measure
+actual latency after implementation; performance lower-bound calculations and
+their reproduction are not GEMM deliverables.
+
+Provide a separate GEMM API/CLI and reuse the required common lowering,
+packing/fusion and trace/replay mechanisms. Preserve GEMV's single-vector and
+M/N semantics. The [G7 GEMM extension](pud-multistandard-substrate.md#accepted-gemm-placement-and-fusion--2026-10-11)
+defines physical placement and the GEMM-only cross-chip fusion boundary.
+The user's subsequent 16-CHAIN acceptance authorizes GEMM implementation.
+
+Use a separate GEMM layout schema v1 and preserve existing GEMV layout schemas
+and artifact meanings. The GEMM artifact contract records Q/K/O shapes and
+arithmetic profile, the placement profile and hierarchy, each output's query/key
+identity and physical input/result locations, and physical group/CHAIN and
+checkpoint ownership. Encode the per-bank band ordering defined by the
+[G7 GEMM extension](pud-multistandard-substrate.md#accepted-gemm-placement-and-fusion--2026-10-11)
+as consecutive band-0 and band-1 Request sequences in one CHAIN per Bank.
+Use existing full-completion ordering within each CHAIN. The intermediate
+GEMM checkpoint means band-0 completion; final CHAIN completion means band-1
+completion. Per-output residual/readout ownership remains in the layout.
+These are not MUL/reduction boundaries; preserve GEMV phase instrumentation.
+Separate MUL/reduction latency for both GEMM bands is outside this milestone.
+Keep the current DDR4-packed/multistandard `PUD_TRACE 2` grammar and parser.
+The previous 32-CHAIN contract and D1 predecessor extension are Superseded by
+this 16-CHAIN contract; do not implement a compatibility path for them.
+
 Rationale
+
+GEMM adds per-query input identity without requiring changes to the accepted
+arithmetic graphs. A separate interface makes shapes and result identities
+explicit while reusing the operation lowerer and physical execution contract.
 
 Bank striping exposes BLP before additional same-bank mat placement. Comparing
 the Figure-6-style inter-mat-first order with local-first reduction isolates
@@ -134,6 +188,22 @@ The broader arbitrary-tail alternative is not accepted.
 
 Evidence
 
+- The user's explicit acceptance on 2026-10-11: shared K, the three existing
+  GEMV formats/graphs, residual completion, PuD-only measurement with preplaced
+  inputs and NoRefresh, and a separate GEMM interface reusing common mechanisms.
+- The user's subsequent 2026-10-11 acceptance selects GEMM layout schema v1
+  and explicit per-bank band completion ordering, authorizes the English
+  [GEMM implementation plan](../plans/pud-gemm-plan.md), and excludes performance
+  lower-bound deliverables while retaining the unverified 1 ms expectation.
+- The user's final 2026-10-11 acceptance replaces 32 CHAINs and D1 with one
+  CHAIN per Bank, band-completion checkpoints and unchanged frontend execution,
+  and authorizes implementation and small-case validation without a commit.
+- The current [generator](../../../tools/pud_gemv_generator/generator.py),
+  [arithmetic requirements](../../../tools/pud_operation_generator/requirements.py),
+  and [functional replay](../../../tools/pud_gemv_generator/validation.py)
+  establish the existing graph and visible-width implementation contracts.
+  The [GEMM implementation and validation evidence](../plans/pud-gemm-plan.md#completion-evidence--2026-10-11)
+  records reuse of those mechanisms and the limits of the initial validation.
 - User acceptance of both named baseline policies and WU1-WU4 on 2026-09-14.
 - [Accepted addressing/payload](mimdram-addressing-geometry-and-payload.md):
   LC's common nonempty range, common rows/selectors and per-mat local copies.
@@ -161,3 +231,9 @@ Open issues
 
 None blocks this baseline. Arbitrary tails and other movement capabilities
 remain outside this milestone and require separate future authority.
+
+GEMM layout schema v1 and the separate API/CLI boundary are accepted. Field
+names and API/CLI spellings remain implementation details within that contract.
+Existing within-chain ordering closes the band dependency requirement; see the
+[handoff plan](../plans/pud-gemm-plan.md).
+This acceptance does not decide generalization beyond the initial shape.
