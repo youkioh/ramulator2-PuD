@@ -64,12 +64,16 @@ inline void validate_pud_pairs(const Request& req, const PuD::LocationResolver* 
   if (locations.operands.size() != req.operands.size()) {
     throw std::runtime_error("PuD paired operand count mismatch");
   }
+  // Same per-operand check order as before; only the immutable resolver
+  // validation is skipped once it has succeeded for this bundle.
+  const bool validated = locations.m_pairs_validated;
   for (size_t i = 0; i < locations.operands.size(); ++i) {
-    locations.resolver->validate(locations.operands[i]);
+    if (!validated) locations.resolver->validate(locations.operands[i]);
     if (req.operands[i] != locations.operands[i].external) {
       throw std::runtime_error("PuD external projection was changed independently");
     }
   }
+  locations.m_pairs_validated = true;
 }
 
 inline int validate_pud_routing(const Request& req, int num_channels) {

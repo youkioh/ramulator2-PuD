@@ -529,7 +529,7 @@ void ControllerBase::release_completed_resources(Request& req) {
       [&](const auto& held) { return held.context.get() == context; });
   // Release conflict-registry references at recovery too, including the final
   // invocation when no later allocation will prune expired entries.
-  std::erase_if(m_device.m_protected_pud, [](const auto& held) { return held.expired(); });
+  std::erase_if(m_device.m_protected_pud, [](const auto& held) { return held.context.expired(); });
   req.pud_context.reset();
 }
 

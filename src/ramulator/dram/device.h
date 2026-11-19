@@ -176,7 +176,14 @@ class DRAMDevice {
                         const PuDExecutionContext* context, Clk_t clk);
   void issue_pud_command(Request& req, const PuDOccurrence& occurrence,
                          PuDExecutionContext* context, Clk_t clk);
-  std::vector<std::weak_ptr<PuDExecutionContext>> m_protected_pud;
+  // Protected invocations with their immutable flat Bank and identity, cached
+  // at protection so per-cycle scans compare integers before locking.
+  struct ProtectedPuD {
+    std::weak_ptr<PuDExecutionContext> context;
+    const PuDExecutionContext* raw;
+    int bank;
+  };
+  std::vector<ProtectedPuD> m_protected_pud;
   void validate_pud_command(const Request& req, const PuDOccurrence& occurrence,
                             const PuDExecutionContext* context) const;
   // Run any command-specific defensive validation across the complete target

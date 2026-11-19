@@ -1,5 +1,7 @@
 #include "ramulator/dram/device.h"
 
+#include <algorithm>
+
 #include "ramulator/controller/pud_request_validation.h"
 #include "ramulator/controller/pud_sequence.h"
 
@@ -22,18 +24,20 @@ void DRAMDevice::protect_pud(const std::shared_ptr<PuDExecutionContext>& context
   if (!context || context->m_device != this) {
     throw std::logic_error("Cannot protect foreign PuD invocation context");
   }
-  std::erase_if(m_protected_pud, [](const auto& held) { return held.expired(); });
-  m_protected_pud.push_back(context);
+  std::erase_if(m_protected_pud, [](const auto& held) { return held.context.expired(); });
+  m_protected_pud.push_back({context, context.get(),
+                             get_flat_bank_id(context->locations()->operands.front().external)});
 }
 
 bool DRAMDevice::conflicts_with_protected_pud(int command, const AddrVec_t& addr_vec) const {
   if (m_pud_binding && !m_pud_binding->uses_bank_array(*m_spec, command)) return false;
+  if (m_protected_pud.empty()) return false;
+  // Same predicate as before: any live protected context in a target Bank.
+  std::vector<int> targets;
+  for_each_target_bank_while(command, addr_vec, [&](int target) { targets.push_back(target); return true; });
   for (const auto& held : m_protected_pud) {
-    const auto context = held.lock();
-    if (!context) continue;
-    const int bank = get_flat_bank_id(context->locations()->operands.front().external);
-    if (!for_each_target_bank_while(command, addr_vec,
-          [&](int target) { return target != bank; })) return true;
+    if (std::find(targets.begin(), targets.end(), held.bank) == targets.end()) continue;
+    if (!held.context.expired()) return true;
   }
   return false;
 }
@@ -53,9 +57,15 @@ std::unique_ptr<PuDExecutionContext> DRAMDevice::make_pud_context(const Request&
 }
 
 bool DRAMDevice::conflicts_with_protected_pud(const Request& req) const {
+  if (m_protected_pud.empty()) return false;
+  // RequestLocations::conflicts() requires the same Bank; filter on the cached
+  // flat Bank first, then apply the unchanged footprint predicate.
+  const int bank = get_flat_bank_id(req.pud_locations->operands.front().external);
+  const auto own = req.pud_context.lock();
   for (const auto& held : m_protected_pud) {
-    const auto context = held.lock();
-    if (!context || context == req.pud_context.lock()) continue;
+    if (held.bank != bank) continue;
+    const auto context = held.context.lock();
+    if (!context || context == own) continue;
     if (req.pud_locations->conflicts(*context->locations())) return true;
   }
   return false;
@@ -188,7 +198,7 @@ void DRAMDevice::validate_pud_reservation(const Request& req, const PuDExecution
     throw std::logic_error("PuD issue requires an associated invocation context");
   }
   for (const auto& held : m_protected_pud) {
-    if (held.lock().get() == context) return;
+    if (held.raw == context && !held.context.expired()) return;
   }
   throw std::logic_error("PuD issue requires protected PuD invocation context");
 }
