@@ -61,15 +61,25 @@ def _fuse_group(trace, records, depth):
     boundaries = {r["initial_mul_final_request_index"]-r["first_request_index"]+1 for r in records}
     boundaries.update(d["completion_index"]-r["first_request_index"]+1 for r in records for d in r["domains"])
     fused, ends = [], {}
+    # generate() passes request tuples; other callers may pass serialized lines.
+    # Output keeps the input representation.
+    textual = bool(streams[0]) and isinstance(streams[0][0], str)
+    if textual:
+        streams = [[(opcode, *map(int, fields)) for opcode, *fields in map(str.split, stream)]
+                   for stream in streams]
+    lo, hi = depth + 1, depth + 3
     for index, frontier in enumerate(zip(*streams), 1):
         compatible = {}
         for member, line in enumerate(frontier):
-            opcode, *fields = line.split()
-            values = list(map(int, fields))
-            context, first, last, operands = values[:depth], values[depth], values[depth+1], values[depth+2:]
-            key = (opcode, tuple(context), tuple(operands), member if opcode == "GB-MOV" else None)
-            compatible.setdefault(key, []).append((first, last))
-        for (opcode, context, operands, _), ranges in compatible.items():
+            # Key: opcode, context and operands; the mat range varies per member.
+            key = (line[:lo], line[hi:], member if line[0] == "GB-MOV" else None)
+            ranges = compatible.get(key)
+            if ranges is None:
+                compatible[key] = [line[lo:hi]]
+            else:
+                ranges.append(line[lo:hi])
+        for (head, operands, _), ranges in compatible.items():
+            opcode, context = head[0], head[1:]
             merged = []
             for first, last in sorted(set(ranges)):
                 if opcode != "GB-MOV" and merged and first <= merged[-1][1]+1:
@@ -77,7 +87,8 @@ def _fuse_group(trace, records, depth):
                 else:
                     merged.append((first, last))
             for first, last in merged:
-                fused.append(" ".join(map(str, (opcode, *context, first, last, *operands))))
+                request = (opcode, *context, first, last, *operands)
+                fused.append(" ".join(map(str, request)) if textual else request)
         if index in boundaries:
             ends[index] = start + len(fused)
     for record in records:
@@ -158,9 +169,11 @@ def generate(profile, m, n, *, target="DDR4"):
     # Programs are fixed for this generate() call. Cache only local-row lowering;
     # each invocation still emits its own context, mat range and external rows.
     lowering_cache = {}
+    shifted_cache = {}
 
     def emit(opcode, context, first, last, *operands):
-        trace.append(" ".join(map(str, (opcode, *context, first, last, *operands))))
+        # Requests stay tuples until all fusion is done; serialized once below.
+        trace.append((opcode, *context, first, last, *operands))
 
     for output in range(m):
         origin = 0
@@ -216,9 +229,17 @@ def generate(profile, m, n, *, target="DDR4"):
             if lowered.additional_temporary_rows != count or len(lowered.primitives) != requirements[name]["primitive_count"]:
                 raise AssertionError("operation requirements differ from physical instantiation")
             micro_operation_counts[name] += 1
-            for primitive in lowered.primitives:
-                emit(OPCODES.get(primitive.opcode, primitive.opcode), context, first, last,
-                     *(external_base + row for row in primitive.physical_rows))
+            # The lowered primitive list is fixed per (lowering, external base);
+            # cache its opcode/external-row form instead of rebuilding per call.
+            shifted_key = (key, external_base)
+            shifted = shifted_cache.get(shifted_key)
+            if shifted is None:
+                shifted = shifted_cache[shifted_key] = [
+                    (OPCODES.get(primitive.opcode, primitive.opcode),
+                     tuple(external_base + row for row in primitive.physical_rows))
+                    for primitive in lowered.primitives]
+            prefix = tuple(context)
+            trace.extend([(opcode, *prefix, first, last, *rows) for opcode, rows in shifted])
 
         def move(src, dst, src_mat, dst_mat, src_offset, dst_offset, count, *, local_last=None):
             if any(v % h for v in (src_offset, dst_offset, count)):
@@ -311,6 +332,7 @@ def generate(profile, m, n, *, target="DDR4"):
         if packed and (output+1 == m or (output+1) % members_per_group == 0):
             members = outputs[group_id*members_per_group:output+1]
             groups.append(_fuse_group(trace, members, len(geometry["bank_levels"])))
+    trace = [" ".join(map(str, request)) for request in trace]
     metadata = {
         "schema_version": 4, "macro_profile": profile, "M": m, "N": n,
         "baseline": "MIMDRAM-" + baseline, "arithmetic_format": format_,

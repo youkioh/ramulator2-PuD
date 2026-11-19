@@ -43,7 +43,7 @@ std::unique_ptr<PuDExecutionContext> DRAMDevice::make_pud_context(const Request&
       !is_pud_request_type(req.type_id)) {
     throw std::logic_error("PuD invocation context requires a located PuD request on a compute-capable Device");
   }
-  validate_pud_placement(req, *m_spec, m_root->m_node_id, get_pud_placement_levels(*m_spec));
+  // Placement was validated at controller ingress and is immutable afterwards.
   if (req.occurrence_index != 0 || req.occurrence_issue_history.size() != get_pud_sequence_length(req)) {
     throw std::logic_error("PuD invocation context requires an initialized, unissued Request sequence");
   }

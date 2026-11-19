@@ -275,8 +275,10 @@ bool ControllerBase::send(Request& req) {
   }
   if (req.pud_locations || (m_location_resolver && is_movement_request_type(req.type_id))) {
     validate_pud_routing(req, m_location_resolver ? m_location_resolver->association().routing.channels : 1);
+    // set_location_resolver() validated this resolver against m_device.m_spec.
     validate_pud_placement(req, *m_device.m_spec, m_channel_id,
-                           get_pud_placement_levels(*m_device.m_spec), m_location_resolver.get());
+                           get_pud_placement_levels(*m_device.m_spec), m_location_resolver.get(),
+                           /*spec_validated_with_resolver=*/true);
     if (!m_location_resolver ||
         (is_inherited_pud_request_type(req.type_id) && !supports_range_aware_compute()) ||
         (is_movement_request_type(req.type_id) && !supports_movement_requests())) {
@@ -405,8 +407,7 @@ bool ControllerBase::pud_compute_resources_available(const Request& req) const {
   if (!req.pud_locations || !is_inherited_pud_request_type(req.type_id)) {
     throw std::logic_error("Compute reservation requires a located compute request");
   }
-  validate_pud_placement(req, *m_device.m_spec, m_channel_id,
-                         get_pud_placement_levels(*m_device.m_spec), m_location_resolver.get());
+  // Placement was validated at send(); this per-cycle allocation probe does not repeat it.
   for (const auto& record : m_protected_pud) {
     if (req.pud_locations->conflicts(*record.context->locations())) return false;
   }

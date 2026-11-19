@@ -73,12 +73,16 @@ void validate_movement_placement(const Request& req) {
 }
 
 void validate_resolved_placement(const Request& req, const DRAMSpec& spec, int channel,
-                                 const PuD::LocationResolver* expected) {
+                                 const PuD::LocationResolver* expected,
+                                 bool spec_validated_with_resolver = false) {
   validate_pud_operand_count(req);
   validate_pud_pairs(req, expected);
   validate_movement_metadata(req);
   const auto& resolver = *req.pud_locations->resolver;
-  resolver.validate_spec(spec);
+  // A controller passing its own resolver and spec states that this pair was
+  // already validated at resolver installation; validate_pud_pairs() has
+  // proven the request uses that resolver. Otherwise validate the spec here.
+  if (!(expected && spec_validated_with_resolver)) resolver.validate_spec(spec);
   if (!is_valid_external_request_size(req.type_id, req.size_bytes, spec.get_tx_bytes())) {
     throw std::runtime_error("PuD invalid size_bytes (movement requires N/A)");
   }
@@ -128,12 +132,14 @@ PuDPlacementLevels get_pud_placement_levels(const DRAMSpec& spec) {
 
 void validate_pud_placement(
     const Request& req, const DRAMSpec& spec, int controller_channel_id,
-    const PuDPlacementLevels& levels, const PuD::LocationResolver* resolver) {
+    const PuDPlacementLevels& levels, const PuD::LocationResolver* resolver,
+    bool spec_validated_with_resolver) {
   if (is_inherited_pud_request_type(req.type_id) && !req.pud_locations) {
     throw std::runtime_error("PuD compute requires canonical resolved locations");
   }
   if (req.pud_locations || resolver) {
-    validate_resolved_placement(req, spec, controller_channel_id, resolver);
+    validate_resolved_placement(req, spec, controller_channel_id, resolver,
+                                spec_validated_with_resolver);
     return;
   }
   if (!spec.geometry.has_subarrays()) {
@@ -201,7 +207,7 @@ std::uint64_t get_movement_moved_bits(const Request& req, const DRAMSpec& spec) 
     if (!is_movement_request_type(req.type_id)) {
       throw std::runtime_error("Cannot derive movement bits for a compute request");
     }
-    validate_resolved_placement(req, spec, req.operands.at(0).at(0), nullptr);
+    // The completed Request was validated at ingress; its locations are immutable.
     return static_cast<std::uint64_t>(req.pud_locations->operands.front().location.cell_count);
   }
   if (!spec.hffs_per_mat.has_value() || *spec.hffs_per_mat <= 0) {

@@ -64,7 +64,6 @@ PuDMovementState describe_pud_movement_state(const Request& req) {
       throw std::logic_error("Inconsistent retained movement history");
     }
   }
-  if (req.pud_locations) validate_pud_pairs(req);
   const bool lc = req.type_id == Request::Type::LCMOV;
   return {
       .sequence_active = cursor > 0 && cursor < length,
@@ -156,9 +155,8 @@ PuDOccurrence describe_pud_occurrence(const Request& req, size_t occurrence_inde
   if (is_inherited_pud_request_type(req.type_id) && !req.pud_locations) {
     throw std::logic_error("PuD compute sequence requires canonical resolved locations");
   }
-  if (req.pud_locations) {
-    validate_pud_pairs(req);
-  }
+  // Paired locations are validated once at controller ingress; they are
+  // immutable afterwards, so the per-cycle occurrence path does not repeat it.
   auto occurrence = describe_occurrence(req, occurrence_index, spec);
   occurrence.locations = req.pud_locations;
   return occurrence;

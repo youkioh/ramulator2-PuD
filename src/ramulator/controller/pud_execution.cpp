@@ -82,7 +82,9 @@ std::optional<bool> ControllerBase::try_send_pud_request(Request& req) {
   }
 
   validate_pud_placement(
-      req, *m_device.m_spec, m_channel_id, m_pud_placement_levels);
+      req, *m_device.m_spec, m_channel_id, m_pud_placement_levels,
+      req.pud_locations ? m_location_resolver.get() : nullptr,
+      /*spec_validated_with_resolver=*/true);
   initialize_pud_sequence(req, *m_device.m_spec);
   req.arrive = m_clk;
   if (!m_pud_buffer.enqueue(req)) {
