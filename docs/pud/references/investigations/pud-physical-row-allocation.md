@@ -171,7 +171,7 @@ The labels used below have these meanings:
 
 Relevant current authorities are the
 [unified substrate decision](../../decisions/ddr4-pud-unified-substrate.md), the
-[addressing, geometry, and payload decision](../../decisions/mimdram-addressing-geometry-and-payload.md),
+[addressing, geometry, and payload decision](../../decisions/superseded/mimdram-addressing-geometry-and-payload.md),
 and the current implementation in
 [`core.py`](../../../../tools/pud_operation_generator/core.py),
 [`artifacts.py`](../../../../tools/pud_operation_generator/artifacts.py), and

@@ -2,29 +2,18 @@ Status: Accepted
 
 Question
 
-What common address, geometry, affected-location, and payload contract should
-ordinary DRAM access and MIMDRAM-v2 PuD use, and which initial modeled
-placement profile makes that contract concrete?
+What common address, geometry, affected-location, and payload contract do
+ordinary DRAM access and MIMDRAM-based PuD use, and which modeled placement
+profile makes that contract concrete for the canonical DDR4 PuD substrate?
 
 Decision
 
-**Current status (2026-09-10).** W1-W9 implemented this geometry and placement
-authority for the canonical
-[unified DDR4 PuD substrate](ddr4-pud-unified-substrate.md). Development-era
-`v2` and `legacy` labels below record the transition from opaque/bare
-operands to paired resolved locations; they do not name runtime models.
-Gate A, Gate C, concrete C++ retention, and public execution are now resolved.
-The corresponding acceptance-time open statements below are historical; the
-additional-profile, mapping, and physical-evidence limits remain live.
-
-Accept Gate B on 2026-09-08 with the initial
-**MIMDRAM-DDR4_8Gb_x8 modeled placement profile v1** below. This is the
-canonical addressing/geometry authority for MIMDRAM-v2 and the successor to
-[movement addressing, geometry, and payload](superseded/mimdram-movement-addressing-geometry-and-payload.md).
-It carries forward the shared placement and movement-payload contracts while
-replacing the legacy opaque-selector model for v2. The old file remains
-historical provenance. Existing DDR4, DDR4_PuD, and DDR4_PuD_Movement
-executable behavior is unchanged by this documentation decision.
+This is the canonical geometry, placement, footprint, and payload authority
+for the [unified DDR4 PuD substrate](ddr4-pud-unified-substrate.md).
+Execution, timing, and lifecycle semantics are in the
+[MIMDRAM execution and timing decision](mimdram-execution-and-timing.md).
+GDDR7 and HBM3 placement profiles are in the
+[multistandard decision](pud-multistandard-substrate.md).
 
 **Generic, replaceable geometry and placement contract**
 
@@ -68,22 +57,26 @@ Internal group G is a distinct coordinate type. No `G = B` or other
 arithmetic decode is part of the generic contract, and no Chip/Subarray/Mat
 external hierarchy level or movement-only duplicate Column is required.
 
-The v2 core submission contract uses paired, resolver-produced external and
-internal operands with an origin/profile association. A shared resolver
-accepts source descriptors and explicit operation scope before routing and
-placement validation; direct callers and later frontends use this same
-authority. Synthetic internal layouts must have profile-backed physical
-correspondence. Reject regions requiring unsupported per-mat selectors or
-multiple routing contexts rather than silently expanding an invocation.
+PuD submission uses paired, resolver-produced external and internal operands
+with an origin/profile association. A shared resolver accepts source
+descriptors and explicit operation scope before routing and placement
+validation; direct callers and later frontends use this same authority.
+Synthetic internal layouts must have profile-backed physical correspondence.
+Reject regions requiring unsupported per-mat selectors or multiple routing
+contexts rather than silently expanding an invocation.
 
 Resolved internal-location information, operand identity, explicit ranges,
 and origin/profile association must survive queueing, copies, retries,
 occurrence switches, command dispatch, and functional use. External vectors
 are checked projections, not an independently writable location authority.
-Concrete C++ storage, handles, bundles, envelopes, and Device transport remain
-undecided. Remapping cannot silently change only one view; the initial
-profile excludes it, and any later support requires coherent context and
-validation.
+Remapping cannot silently change only one view; the initial profile excludes
+it, and any later support requires coherent context and validation.
+
+Bare AddrVec operands do not become valid PuD placements automatically, even
+when Column is below 128. Require profile-resolved paired operands and origin
+association. Do not use modulo, invented bit offsets, or an assumed G/B
+identity to migrate streams. Changing HFF count alone cannot establish a new
+coordinated placement profile.
 
 For every profile validate positive integer dimensions, coordinate bounds,
 exact divisions where required, and these relationships where applicable:
@@ -95,7 +88,7 @@ organization_columns * DQ
 DQ * prefetch
   == participating_mats_per_ordinary_burst * HFFs_per_mat
 
-# For exhaustive disjoint HFF-width grouping:
+For exhaustive disjoint HFF-width grouping:
 organization_columns / prefetch
   == cells_per_mat_row / HFFs_per_mat
 ```
@@ -109,7 +102,7 @@ applicability and replacement coverage relationships, not silently bypass a
 failed invariant. Reconcile chip count times DQ with rank/channel payload
 width and validate total Bank/Rank/Channel capacity as well.
 
-**Initial MIMDRAM-DDR4_8Gb_x8 modeled placement profile v1**
+**MIMDRAM-DDR4_8Gb_x8 modeled placement profile v1**
 
 The following values and decode are specific to this initial instance.
 
@@ -185,14 +178,13 @@ individual bit also selects h. A mat-row/layout origin may describe a union
 of the corresponding physical bit locations without a single scalar address.
 An arbitrary bit anchor must not be silently widened to a movement group.
 
-**Affected locations and retained placement/payload semantics**
+**Affected locations**
 
 All PuD operands share Channel, Rank, BankGroup, Bank, and derived subarray.
-Route using operand 0's Channel. Preserve the existing split: memory-system
-validation covers request shape, operand count, and same-Channel routing;
-controller validation covers hierarchy bounds and shared placement, with
-operation-specific range/topology validation. This does not prescribe C++
-factoring.
+Route using operand 0's Channel. Memory-system validation covers request
+shape, operand count, and same-Channel routing; controller validation covers
+hierarchy bounds and shared placement, with operation-specific range/topology
+validation. This does not prescribe C++ factoring.
 
 | Access | Canonically resolved footprint |
 | --- | --- |
@@ -202,11 +194,16 @@ factoring.
 | LC-MOV | Exactly two ordered operands, source then destination; one common non-empty inclusive mat range and common source/destination row and internal selector for all selected mats. Each endpoint resolves its ordered HFF-width group through the canonical map. |
 | GB-MOV | Exactly two ordered singleton endpoints in the same chip and derived subarray, using the directed local-mat neighbor `i-1 -> i`. Source/destination rows and groups may differ. No reverse, wraparound, cross-chip, wider-range, or automatic multihop movement. |
 
+An affected-cell footprint is not by itself a resource/conflict domain; the
+physical mat-footprint conflict rule is in the
+[execution decision](mimdram-execution-and-timing.md).
+
 The singleton GB footprint is the project's conservative supported low-level
 subset, not a claim that MIMDRAM's published GB-MOV interface is singleton-only.
 Its range/lowering distinction and direct-reduction use are recorded in the
 [reduction placement and movement-lowering decision](mimdram-reduction-placement-and-movement-lowering.md).
-This clarification preserves the accepted topology and executable behavior.
+
+**Movement payload**
 
 LC's selected range may cross chips because each mat copies locally; this
 does not imply chip-to-chip payload transfer. The range denotes one invocation.
@@ -214,7 +211,6 @@ LC moves `range_length * HFFs_per_mat` bits; singleton GB moves
 `HFFs_per_mat` bits counted once. Retain movement `size_bytes = -1` as the
 explicit N/A sentinel and reject supplied movement byte sizes; no rounded
 byte accounting or contribution to ordinary read/write byte throughput.
-These payload contracts are independent of concrete location storage.
 
 For movement, source position h copies to destination position h. Capture
 the ordered source payload before destination writes. Preserve every cell
@@ -225,9 +221,12 @@ disjoint; different mats/rows never alias. Any later profile permitting
 partial overlap must preserve source-capture semantics and may change source
 cells only where those cells are destinations.
 
-The following logical compute effects are conditional on Gate A selecting
-the PRADA/MIMDRAM hybrid. They apply pointwise by canonical cell identity
-over the explicit selected mat-rows, using pre-operation operand values:
+**Compute effects**
+
+Under the accepted PRADA/MIMDRAM hybrid (see the
+[execution decision](mimdram-execution-and-timing.md)), logical compute
+effects apply pointwise by canonical cell identity over the explicit selected
+mat-rows, using pre-operation operand values:
 
 | Primitive | Final cell effects |
 | --- | --- |
@@ -240,10 +239,9 @@ Unselected mats, nonoperand rows, and other contexts retain their data.
 Temporary rows/constants must be managed over the whole selected region; there is
 no implicit active-lane mask. This effect contract does not establish
 electrical intermediate visibility or repeated-row charge-sharing behavior.
-Fixed ordered groups provide no cross-position shuffle or scalar reduction;
-Gate A must resolve any required additional capability.
+Fixed ordered groups provide no cross-position shuffle or scalar reduction.
 
-**Validation and compatibility boundary**
+**Validation**
 
 Validate the map's forward/inverse correspondence, bounds, full capacity,
 disjoint/exhaustive group coverage, and ordered positions. For v1:
@@ -258,8 +256,6 @@ disjoint/exhaustive group coverage, and ordered positions. For v1:
 
 With 65,536 rows and 16 banks this covers 8 Gibit/chip and 8 GiB/rank.
 The inverse establishes uniqueness across all bank/rank/row contexts.
-Arithmetic enumeration of all 65,536 rank-row bits verified unique coverage,
-four bits per mat per burst, and matching inverses during Gate B review.
 
 A bijective physical-bit <-> CellID map proves non-aliasing/completeness of
 the selected placement profile. Ordinary/PuD same-cell behavior follows by
@@ -269,33 +265,14 @@ ACT/RD/WR and compute/LC-MOV/GB-MOV, footprint intersections, payload order,
 low offsets and mat/chip/group/row boundaries. Include a valid non-identity
 test mapping and profile replacement checks to expose duplicated x8 or
 `G = B` formulas. Synthetic test geometry is not physical x4/x16 evidence.
-The arithmetic review is not an implementation-test result.
-
-The legacy combined-standard baseline used movement-only opaque Column
-selectors bounded by the organization (0..1023), request-owned external
-operands and logical-mat metadata, configurable HFF width for accounting,
-and no internal CellID interpretation. These remain descriptions of existing
-behavior, not the v2 submission contract. Its old Bank-state and timing
-abstractions remain governed by the existing
-[execution](mimdram-movement-execution-ownership-and-device.md) and
-[timing](mimdram-movement-timing-and-resource-model.md) decisions for that
-baseline; they do not decide v2 Gate C. Legacy DDR4_PuD placement remains
-described by [compute placement](superseded/pud-operand-placement-and-routing.md).
-
-Bare legacy AddrVec operands do not become valid v2 placements automatically,
-even when Column is below 128. Require profile-resolved paired operands and
-origin association. Do not use modulo, invented bit offsets, or an assumed
-G/B identity to migrate streams. Changing HFF count alone cannot establish a
-new coordinated placement profile. This decision neither changes executable
-baselines nor authorizes implementation or an implementation plan.
 
 Rationale
 
-Updating the actively evolving addressing boundary into one common canonical
-authority avoids reconstructing v2 storage semantics from legacy movement
-selectors and separate functional lane maps. It preserves the established
-external hierarchy, row placement assumptions, routing, movement shape, and
-exact-bit payload rules while making every addressed cell explicit.
+One common canonical location authority avoids reconstructing storage
+semantics from movement selectors and separate functional lane maps. It
+preserves the established external hierarchy, row placement assumptions,
+routing, movement shape, and exact-bit payload rules while making every
+addressed cell explicit.
 
 Chip-major striping follows ascending logical mat IDs with simple formulas
 and matches the source's contribution counts and endpoint nibbles.
@@ -309,49 +286,43 @@ the same generic contract; only chip-major is selected for v1.
 The coordinated equations reject geometrically inconsistent combinations
 without hard-coding x8 into operation effects. Canonical resolver consumption
 makes ordinary/PuD location equality structural, while implementation tests
-are still needed to detect paths that bypass that authority. Retained results
-satisfy execution lifetime without prematurely selecting C++ storage.
+are still needed to detect paths that bypass that authority.
 
 Evidence
 
+- Accepted by the user on 2026-09-08 as "Gate B"; implemented by W1-W9
+  ([plan](../plans/completed/mimdram-pud-substrate-v2-implementation-plan.md)).
+  Consolidated on 2026-11-19 from the now-Superseded
+  [addressing, geometry, and payload decision](superseded/mimdram-addressing-geometry-and-payload.md),
+  which retains the acceptance-time legacy-selector boundary and history.
 - [MIMDRAM geometry](../references/mimdram-geometry.md) and
   [movement reference](../references/mimdram-inter-column-data-movement.md),
   especially §§1.1, 1.3–1.5, 3, and 4: evaluated geometry, logical encoding,
   movement datapaths, payload width, and source limits.
 - [MIMDRAM paper](https://ghose.web.illinois.edu/papers/24hpca_mimdram.pdf),
-  §§4.1–4.2 and 6.3 footnote 13, Table 2: checked during Gate B review.
-  Four bits per mat and the first/last cache-line nibbles are source facts;
-  the complete chip-major order, group numbering, and HFF/cell numbering
-  are explicit simulator assumptions. The paper does not supply complete
-  vendor DQ/beat/bitline wiring.
+  §§4.1–4.2 and 6.3 footnote 13, Table 2. Four bits per mat and the
+  first/last cache-line nibbles are source facts; the complete chip-major
+  order, group numbering, and HFF/cell numbering are explicit simulator
+  assumptions. The paper does not supply complete vendor DQ/beat/bitline wiring.
 - [DDR4 organization](../../../python/ramulator/dram/ddr4.py),
   [transaction dimensions and geometry](../../../src/ramulator/dram/dram_spec.h),
   [PuD row configuration](../../../python/ramulator/dram/ddr4_pud.py),
   [mapper compaction](../../../src/ramulator/controller/addr_mapper/addr_mapper_base.cpp),
   [CacheLineInterleave](../../../src/ramulator/memory_system/channel_mapper/impl/cache_line_interleave.cpp),
   and [RoBaRaCoCh](../../../src/ramulator/controller/addr_mapper/impl/ro_ba_ra_co_ch.cpp):
-  current source basis for the external formulas and dimensions.
+  source basis for the external formulas and dimensions.
 - [PuD primitives](../references/pud-primitives.md): PRADA effect evidence.
-  Applying those effects to MIMDRAM-shaped regions remains conditional on A;
-  neither this reference nor the placement profile establishes hybrid
+  Neither this reference nor the placement profile establishes hybrid
   physical compatibility.
-- The predecessor movement decision and existing compute placement decision
-  established contiguous 1024-row grouping, same-subarray placement, movement
-  ranges, the directed singleton GB subset, and exact-bit/N/A payload rules
-  as project choices. Their source facts and assumptions remain distinguished
-  above; the predecessor's rationale is preserved at its stable path.
+- Arithmetic enumeration of all 65,536 rank-row bits verified unique
+  coverage, four bits per mat per burst, and matching inverses during the
+  original review; that review is not an implementation-test result.
 
 Open issues
 
-- Gate A: hybrid primitive scope, physical/fidelity claims, and any required
-  cross-position/reduction capability. Repeated physical-row majority
-  interpretation beyond the distinct-row effects above is not established
-  by placement and must be resolved before supporting such invocations.
-- Gate C: mat-local temporal state, SA/HFF state and lifetime, ownership,
-  concurrency, command transport, maintenance interaction, and timing.
-  An affected-cell footprint is not a resource/conflict domain.
-- Concrete C++ retention/transport representation and shared-resolver
-  implementation/verification; none is selected or implemented here.
+- Repeated physical-row majority interpretation beyond the distinct-row
+  effects above is not established by placement and must be resolved before
+  supporting such invocations.
 - Additional coordinated organizations, physical x4/x16 evidence, and other
   mapping/remap contexts require their own explicit supported profiles.
   The generic contract permits them without rewriting PuD operation semantics.

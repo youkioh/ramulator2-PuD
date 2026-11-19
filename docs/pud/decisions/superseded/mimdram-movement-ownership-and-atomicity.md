@@ -1,7 +1,7 @@
 Status: Superseded
 
 Superseded by
-`docs/pud/decisions/mimdram-movement-execution-ownership-and-device.md`.
+`docs/pud/decisions/superseded/mimdram-movement-execution-ownership-and-device.md`.
 
 Question
 
@@ -144,7 +144,7 @@ MIMDRAM source facts:
 
 Accepted project decisions:
 
-- `docs/pud/decisions/mimdram-substrate-and-movement-request-boundary.md`
+- `docs/pud/decisions/superseded/mimdram-substrate-and-movement-request-boundary.md`
   defines one request as one architectural LC-MOV or GB-MOV invocation and
   places movement request lifecycle and sequencing in the controller.
 - `docs/pud/decisions/superseded/mimdram-movement-range-and-placement.md` accepts

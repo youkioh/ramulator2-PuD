@@ -1,7 +1,7 @@
 Status: Superseded
 
 Superseded by
-`docs/pud/decisions/mimdram-movement-timing-and-resource-model.md`.
+`docs/pud/decisions/superseded/mimdram-movement-timing-and-resource-model.md`.
 
 Question
 
@@ -128,7 +128,7 @@ MIMDRAM source facts:
 
 Accepted project decisions:
 
-- `docs/pud/decisions/mimdram-substrate-and-movement-request-boundary.md`
+- `docs/pud/decisions/superseded/mimdram-substrate-and-movement-request-boundary.md`
   defines one request as one architectural LC-MOV or GB-MOV invocation and
   preserves the inherited DDR4_PuD baseline.
 - `docs/pud/decisions/superseded/mimdram-movement-range-and-placement.md` accepts one

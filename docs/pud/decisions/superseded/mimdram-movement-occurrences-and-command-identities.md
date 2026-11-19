@@ -1,7 +1,7 @@
 Status: Superseded
 
 Superseded by
-`docs/pud/decisions/mimdram-movement-execution-ownership-and-device.md`.
+`docs/pud/decisions/superseded/mimdram-movement-execution-ownership-and-device.md`.
 
 Question
 

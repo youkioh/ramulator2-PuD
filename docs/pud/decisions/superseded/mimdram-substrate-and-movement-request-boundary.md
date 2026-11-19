@@ -1,4 +1,8 @@
-Status: Accepted
+Status: Superseded
+
+Superseded on 2026-11-19 by the [MIMDRAM execution and timing decision](../mimdram-execution-and-timing.md), which consolidates this document's current authority. The text below is
+historical provenance; its links and status notes describe the acceptance-time
+document set.
 
 Question
 
@@ -10,7 +14,7 @@ reduction boundary should MIMDRAM-based PuD substrate v2 support?
 Decision
 
 **Current status (2026-09-10).** The
-[unified-substrate decision](ddr4-pud-unified-substrate.md) is now the
+[unified-substrate decision](../ddr4-pud-unified-substrate.md) is now the
 top-level public execution-model authority, and W1-W9 implemented this
 document's retained hybrid, concurrency, movement, and fidelity boundaries.
 `v2`, `legacy`, and the distinct-combined-standard wording below record
@@ -276,26 +280,26 @@ explicitly requiring substrate-specific physical and policy decisions.
 
 For v2 Gate A:
 
-- **Source facts and limits:** [PRADA primitives](../references/pud-primitives.md),
-  [compute timing evidence](../references/ddr4-pud-timing-reference.md), and
-  [MIMDRAM movement reference](../references/mimdram-inter-column-data-movement.md),
+- **Source facts and limits:** [PRADA primitives](../../references/pud-primitives.md),
+  [compute timing evidence](../../references/ddr4-pud-timing-reference.md), and
+  [MIMDRAM movement reference](../../references/mimdram-inter-column-data-movement.md),
   especially §§1.2, 1.4–1.6, 3, and 4. These distinguish reported mechanisms
   from timing derivations, architectural inferences, and absent conflict or
   scalar-reduction evidence.
 - **Accepted existing authority:** [Gate B](mimdram-addressing-geometry-and-payload.md),
-  [compute timing/resources](pud-timing-resource-and-command-bus-rules.md),
-  [historical compute lifecycle](superseded/pud-request-lifecycle-queueing-and-statistics.md), and
+  [compute timing/resources](../pud-timing-resource-and-command-bus-rules.md),
+  [historical compute lifecycle](pud-request-lifecycle-queueing-and-statistics.md), and
   the legacy movement execution/timing decisions linked above. Legacy
   ownership release and recovery/callback separation do not resolve v2 state,
   conflict, or data-visibility semantics.
-- **Current implementation facts:** [GenericDDR ownership](../../../src/ramulator/controller/impl/generic_ddr_controller.cpp),
-  [compute timing configuration](../../../python/ramulator/dram/ddr4_pud.py),
-  [occurrence sequencing](../../../src/ramulator/controller/pud_sequence.cpp),
-  and [movement read/write actions](../../../src/ramulator/dram/commands/RD_MOV.h)
+- **Current implementation facts:** [GenericDDR ownership](../../../../src/ramulator/controller/impl/generic_ddr_controller.cpp),
+  [compute timing configuration](../../../../python/ramulator/dram/ddr4_pud.py),
+  [occurrence sequencing](../../../../src/ramulator/controller/pud_sequence.cpp),
+  and [movement read/write actions](../../../../src/ramulator/dram/commands/RD_MOV.h)
   retain Bank-level exclusion, timing, and phase markers rather than
-  mat-scoped functional execution. [Compute timing tests](../../../tests/device_timings/test_ddr4_pud.py),
-  [movement timing tests](../../../tests/controller_scheduling/GenericDDRController/test_movement_local_timing.py),
-  and [ownership tests](../../../tests/controller_scheduling/GenericDDRController/test_movement_ownership.py)
+  mat-scoped functional execution. [Compute timing tests](../../../../tests/device_timings/test_ddr4_pud.py),
+  [movement timing tests](../../../../tests/controller_scheduling/GenericDDRController/test_movement_local_timing.py),
+  and [ownership tests](../../../../tests/controller_scheduling/GenericDDRController/test_movement_ownership.py)
   assert the legacy model, not v2 mat independence or physical correctness.
   Source/tests were inspected for Gate A; runtime suites were not rerun.
 - **Newly accepted project assumptions:** the v2 hybrid, fixed local compute

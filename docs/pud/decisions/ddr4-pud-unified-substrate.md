@@ -113,7 +113,7 @@ longer a modeled option under the common amendment. Absence of an
 explicitly selected supported placement profile makes canonical PuD execution
 unavailable; it must never select Bank-wide compute. Movement uses the same
 protected invocation machinery with the
-[Accepted physical-mat footprint scope](mimdram-movement-execution-ownership-and-device.md).
+[Accepted physical-mat footprint scope](mimdram-execution-and-timing.md).
 It acquires at first ACT and protects only its footprint through recovery.
 Neither compute nor movement has a finite control-engine charge. There is
 no Bank-wide movement fallback.
@@ -162,13 +162,13 @@ Evidence
   Device state/timing, protected recovery lifetime, conflict rules, resolved
   target consumption, engine allocation, public ingress, benchmarks, and final
   integration validation.
-- [Addressing, geometry, and payload](mimdram-addressing-geometry-and-payload.md)
+- [Addressing, geometry, and payload](mimdram-geometry-and-placement.md)
   defines the replaceable placement profile, canonical CellID authority,
   explicit compute ranges, and movement endpoint footprints.
-- [Substrate and movement boundary](mimdram-substrate-and-movement-request-boundary.md),
-  [execution/lifecycle](mimdram-movement-execution-ownership-and-device.md),
-  [timing/resources](mimdram-movement-timing-and-resource-model.md), and
-  [target transport](mimdram-mat-target-transport-abstraction.md) define the
+- [Substrate and movement boundary](mimdram-execution-and-timing.md),
+  [execution/lifecycle](mimdram-execution-and-timing.md),
+  [timing/resources](mimdram-execution-and-timing.md), and
+  [target transport](mimdram-execution-and-timing.md) define the
   accepted hybrid, range concurrency, footprint-local movement, local/shared
   timing, recovery, and resolved-target abstraction retained here.
 - [PRADA primitives](../references/pud-primitives.md),

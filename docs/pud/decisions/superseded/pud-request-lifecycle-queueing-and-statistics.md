@@ -1,7 +1,7 @@
 Status: Superseded
 
 Superseded by the
-[range-local execution/lifecycle authority](../mimdram-movement-execution-ownership-and-device.md)
+[range-local execution/lifecycle authority](mimdram-movement-execution-ownership-and-device.md)
 and [unified public model](../ddr4-pud-unified-substrate.md). The admission,
 completion, callback, and statistic rationale below remains provenance, but
 current compute retains engine/range protection through recovery and includes

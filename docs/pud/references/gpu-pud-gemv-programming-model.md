@@ -157,7 +157,7 @@ Alternating the primary/reduction roles preserves that constraint.
 The specification sets 512 element positions per mat, 16 mats per chip-local
 reduction domain, and four HFF positions per mat. A domain holds up to 8192
 elements. These are the selected project baseline; the
-[Accepted placement profile](../decisions/mimdram-addressing-geometry-and-payload.md)
+[Accepted placement profile](../decisions/mimdram-geometry-and-placement.md)
 supplies their modeled physical correspondence.
 
 `pud_mov(src, src_offset, dst, dst_offset, element_count, element_size)`
@@ -270,7 +270,7 @@ physical trace through the
 [unified substrate](../decisions/ddr4-pud-unified-substrate.md);
 Ramulator does not interpret GEMV or hold functional payload values.
 
-The [Accepted completion boundary](../decisions/mimdram-substrate-and-movement-request-boundary.md)
+The [Accepted completion boundary](../decisions/mimdram-execution-and-timing.md)
 places GPU/host readout, conversion, and final arithmetic outside PuD substrate
 timing. The programming model does not assign these costs. FP8 addition is
 non-associative, so the baselines can return different results. Functional

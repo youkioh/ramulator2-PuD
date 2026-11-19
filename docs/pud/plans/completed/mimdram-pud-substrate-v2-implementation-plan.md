@@ -42,7 +42,7 @@ evidence below remain implementation provenance.
   compute progress; transport, allocation/arbitration and public v2 execution
   remain W6+ work.
 - **W6: Completed — baseline aligned.** The
-  [Accepted transport abstraction](../../decisions/mimdram-mat-target-transport-abstraction.md)
+  [Accepted transport abstraction](../../decisions/superseded/mimdram-mat-target-transport-abstraction.md)
   is implemented: each ACT_PUD* consumes its current resolved occurrence
   association at issue. Target queues, descriptors, setup/PRE
   pairing and successor transport are removed. W3-W5 fixtures share the single
@@ -331,11 +331,11 @@ conventions, not v2 semantics.
 
 | Key | Current authority and use |
 | --- | --- |
-| A | [Substrate and movement request boundary](../../decisions/mimdram-substrate-and-movement-request-boundary.md): accepted hybrid, five primitives, same-subarray MIMD, conservative movement, substrate/macro boundary. |
-| B | [Addressing, geometry, and payload](../../decisions/mimdram-addressing-geometry-and-payload.md): replaceable profile, paired operands, canonical CellID, initial v1 placement, compute ranges, movement topology/payload. |
-| C-E | [Execution, ownership, and Device](../../decisions/mimdram-movement-execution-ownership-and-device.md): v2 range contexts, engines, allocation, lifecycle, maintenance and functional split; retained movement provisions. |
-| C-T | [Timing and resource model](../../decisions/mimdram-movement-timing-and-resource-model.md): v2 local/shared scopes, ACT-overhead rounding and retained movement timing graph. |
-| T-A | [Mat-target transport abstraction](../../decisions/mimdram-mat-target-transport-abstraction.md): current baseline resolved-target consumption; supersedes Alternative-A/Q=8 transport requirements. |
+| A | [Substrate and movement request boundary](../../decisions/superseded/mimdram-substrate-and-movement-request-boundary.md): accepted hybrid, five primitives, same-subarray MIMD, conservative movement, substrate/macro boundary. |
+| B | [Addressing, geometry, and payload](../../decisions/superseded/mimdram-addressing-geometry-and-payload.md): replaceable profile, paired operands, canonical CellID, initial v1 placement, compute ranges, movement topology/payload. |
+| C-E | [Execution, ownership, and Device](../../decisions/superseded/mimdram-movement-execution-ownership-and-device.md): v2 range contexts, engines, allocation, lifecycle, maintenance and functional split; retained movement provisions. |
+| C-T | [Timing and resource model](../../decisions/superseded/mimdram-movement-timing-and-resource-model.md): v2 local/shared scopes, ACT-overhead rounding and retained movement timing graph. |
+| T-A | [Mat-target transport abstraction](../../decisions/superseded/mimdram-mat-target-transport-abstraction.md): current baseline resolved-target consumption; supersedes Alternative-A/Q=8 transport requirements. |
 
 All three Gates A/B/C are **Accepted and closed**. T-A supersedes the earlier
 physical target-transport requirements, including A's transport-overhead and

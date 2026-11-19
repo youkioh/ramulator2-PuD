@@ -1,4 +1,8 @@
-Status: Accepted
+Status: Superseded
+
+Superseded on 2026-11-19 by the [MIMDRAM execution and timing decision](../mimdram-execution-and-timing.md), which consolidates this document's current authority. The text below is
+historical provenance; its links and status notes describe the acceptance-time
+document set.
 
 Question
 
@@ -8,7 +12,7 @@ resolved mat range to each PuD activation?
 Decision
 
 **Finite-engine amendment (Accepted 2026-09-16).** The
-[common execution-model decision](pud-multistandard-substrate.md#accepted-common-execution-model--no-finite-control-engine-capacity-2026-09-16)
+[common execution-model decision](../pud-multistandard-substrate.md#accepted-common-execution-model--no-finite-control-engine-capacity-2026-09-16)
 supersedes only this document's finite primitive-engine-accounting clauses.
 Finite SIMDRAM/MIMDRAM control-unit capacity is outside the performance model:
 compute primitives and LC-MOV/GB-MOV all have no finite control-engine charge.
@@ -74,7 +78,7 @@ do not claim physically complete MIMDRAM target-transport performance.
 
 The separately authorized W6 baseline alignment implements this contract.
 Implementation progress, validation and regression limitations are recorded in
-the [implementation plan](../plans/completed/mimdram-pud-substrate-v2-implementation-plan.md).
+the [implementation plan](../../plans/completed/mimdram-pud-substrate-v2-implementation-plan.md).
 
 Rationale
 
@@ -89,7 +93,7 @@ compute, recovery and MIMD mechanisms, with omitted costs stated explicitly.
 Evidence
 
 - **MIMDRAM source fact:** the unchanged
-  [technical reference, §1.2](../references/mimdram-inter-column-data-movement.md#12-fine-grained-mat-access-structures)
+  [technical reference, §1.2](../../references/mimdram-inter-column-data-movement.md#12-fine-grained-mat-access-structures)
   records physical mat-selection communication using per-chip mat-information
   queues and ACT-enqueue, PRE-enqueue and ACT-dequeue. The ordinary DDR C/A
   interface cannot simply carry all fine-grained mat-selection information
@@ -103,10 +107,10 @@ Evidence
 - **Implementation evidence:** the prior `dram/pud_target_queue.*` and
   Device/controller setup, PRE pairing and successor mechanics are retained
   at Git revision `0ce6922`. Current
-  [Device dispatch](../../../src/ramulator/dram/device.cpp) and
-  [controller issue](../../../src/ramulator/controller/controller_base.cpp)
+  [Device dispatch](../../../../src/ramulator/dram/device.cpp) and
+  [controller issue](../../../../src/ramulator/controller/controller_base.cpp)
   consume the validated resolved occurrence association without that machinery.
-- [W6 progress and baseline verification](../plans/completed/mimdram-pud-substrate-v2-implementation-plan.md)
+- [W6 progress and baseline verification](../../plans/completed/mimdram-pud-substrate-v2-implementation-plan.md)
   record the separately authorized implementation's runtime checks and limits.
   Historical detailed-transport verification is identified separately.
 

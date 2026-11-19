@@ -2,7 +2,7 @@ Status: Superseded
 
 Superseded by
 [`../ddr4-pud-unified-substrate.md`](../ddr4-pud-unified-substrate.md) and the
-[range-local execution/lifecycle authority](../mimdram-movement-execution-ownership-and-device.md).
+[range-local execution/lifecycle authority](mimdram-movement-execution-ownership-and-device.md).
 The Bank-owned active-buffer model below is retained as historical compute
 implementation provenance; current compute uses explicit ranges and protected
 engine/range lifetime through recovery.

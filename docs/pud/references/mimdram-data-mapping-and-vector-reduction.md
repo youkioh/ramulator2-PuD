@@ -131,7 +131,7 @@ may occupy disjoint ranges.
 
 The general disjoint-range support does not explicitly establish all six
 compute/LC/GB pairwise concurrency cases. The
-[Accepted footprint resource model](../decisions/mimdram-movement-execution-ownership-and-device.md)
+[Accepted footprint resource model](../decisions/mimdram-execution-and-timing.md)
 extends that support as a project inference, including independent progress
 through the global movement path for disjoint GB source/destination footprints.
 This changes neither the mapping nor the reduction schedules below.

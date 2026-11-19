@@ -8,7 +8,7 @@ Column-selector model should the initial LC-MOV and GB-MOV substrate use?
 Decision
 
 Superseded on 2026-09-08 by
-[common MIMDRAM addressing, geometry, and payload](../mimdram-addressing-geometry-and-payload.md).
+[common MIMDRAM addressing, geometry, and payload](mimdram-addressing-geometry-and-payload.md).
 The successor preserves the legacy placement/payload boundary and records
 the accepted v2 canonical CellID contract and chip-major profile. The
 original decision and rationale below remain historical provenance; they

@@ -11,10 +11,10 @@ Decision
 
 The user accepted this project direction on 2026-09-09. This is a
 reduction-orchestration and movement-lowering boundary, not a new substrate
-Gate. It preserves Accepted [Gate A](mimdram-substrate-and-movement-request-boundary.md),
-[Gate B](mimdram-addressing-geometry-and-payload.md), and Gate C's
-[execution](mimdram-movement-execution-ownership-and-device.md) and
-[timing/transport](mimdram-movement-timing-and-resource-model.md) behavior.
+Gate. It preserves Accepted [Gate A](mimdram-execution-and-timing.md),
+[Gate B](mimdram-geometry-and-placement.md), and Gate C's
+[execution](mimdram-execution-and-timing.md) and
+[timing/transport](mimdram-execution-and-timing.md) behavior.
 
 **A. Scope**
 

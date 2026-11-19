@@ -205,20 +205,20 @@ Evidence
   The [GEMM implementation and validation evidence](../plans/completed/pud-gemm-plan.md#completion-evidence--2026-10-11)
   records reuse of those mechanisms and the limits of the initial validation.
 - User acceptance of both named baseline policies and WU1-WU4 on 2026-09-14.
-- [Accepted addressing/payload](mimdram-addressing-geometry-and-payload.md):
+- [Accepted addressing/payload](mimdram-geometry-and-placement.md):
   LC's common nonempty range, common rows/selectors and per-mat local copies.
-  [Substrate boundary](mimdram-substrate-and-movement-request-boundary.md)
+  [Substrate boundary](mimdram-execution-and-timing.md)
   explicitly calls this a lockstep range. Current request validation accepts it.
 - [Baseline implementation plan](../plans/completed/pud-gemv-baselines-plan.md):
   characterization audit, functional/Request validation and timing evidence.
 
 - [CUDA programming-model specification](../references/gpu-pud-gemv-programming-model.cu):
   the three reduction helpers and partial-final-mat suffix copies.
-- [Accepted placement/payload](mimdram-addressing-geometry-and-payload.md):
+- [Accepted placement/payload](mimdram-geometry-and-placement.md):
   whole-row compute, ordered HFF positions, fixed groups and no active-lane mask.
 - [Accepted reduction policy](mimdram-reduction-placement-and-movement-lowering.md):
   forward topology and the macro layer's responsibility for partial fragments.
-- [Accepted substrate boundary](mimdram-substrate-and-movement-request-boundary.md):
+- [Accepted substrate boundary](mimdram-execution-and-timing.md):
   GPU/host final residual combination outside substrate timing.
 - [MIMDRAM mapping/reduction reference](../references/mimdram-data-mapping-and-vector-reduction.md):
   physical movement granularity and source limits.

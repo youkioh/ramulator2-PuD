@@ -16,9 +16,9 @@ Source takes precedence over older implementation-status statements.
 Current authority: the [GEMM macro contract](../../decisions/pud-gemv-macro-contract.md)
 and [G7 GEMM contract](../../decisions/pud-multistandard-substrate.md#accepted-gemm-placement-and-fusion--2026-10-11).
 Preserve [physical lowering](../../decisions/pud-operation-physical-lowering.md),
-[addressing](../../decisions/mimdram-addressing-geometry-and-payload.md),
-[execution/completion](../../decisions/mimdram-movement-execution-ownership-and-device.md)
-and [timing/resources](../../decisions/mimdram-movement-timing-and-resource-model.md).
+[addressing](../../decisions/superseded/mimdram-addressing-geometry-and-payload.md),
+[execution/completion](../../decisions/superseded/mimdram-movement-execution-ownership-and-device.md)
+and [timing/resources](../../decisions/superseded/mimdram-movement-timing-and-resource-model.md).
 
 The accepted 16-CHAIN replacement supersedes 32 CHAINs and D1's predecessor
 extension. The former frontend-extension Phase is removed: existing per-chain

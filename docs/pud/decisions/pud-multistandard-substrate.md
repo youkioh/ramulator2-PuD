@@ -88,15 +88,15 @@ portability. Neither depends on finite-engine modeling.
 
 **Narrow DDR4 amendment.** Supersede only these finite-engine clauses:
 
-- [Execution/ownership](mimdram-movement-execution-ownership-and-device.md):
+- [Execution/ownership](mimdram-execution-and-timing.md):
   Resources and admission's E/default/pool and atomic engine-plus-range charge;
   Recovery, maintenance, and completion's engine retention/release; the
   compute-versus-movement engine distinction and associated rationale.
 - [Unified DDR4 substrate](ddr4-pud-unified-substrate.md): selectable
   compute-engine capacity and inherited first-fit finite-engine allocation.
-- [Timing/resources](mimdram-movement-timing-and-resource-model.md): retained
+- [Timing/resources](mimdram-execution-and-timing.md): retained
   compute-engine constraint, E=8/recovery cross-reference and engine waiting.
-- [Mat-target transport](mimdram-mat-target-transport-abstraction.md): retained
+- [Mat-target transport](mimdram-execution-and-timing.md): retained
   independent E=8 default and inherited engine ownership.
 
 Those documents contain reciprocal amendments; their other clauses remain
@@ -795,9 +795,9 @@ Evidence
   [G6 evidence](../references/gddr7-pud-modeling-reference.md#6-g6--conventional-baseline-evidence-and-uncertainty)
   distinguishes existing-model gaps and placeholder timings from calibration.
 - [Unified DDR4 substrate](ddr4-pud-unified-substrate.md),
-  [placement](mimdram-addressing-geometry-and-payload.md),
-  [execution](mimdram-movement-execution-ownership-and-device.md), and
-  [timing/resources](mimdram-movement-timing-and-resource-model.md) establish
+  [placement](mimdram-geometry-and-placement.md),
+  [execution](mimdram-execution-and-timing.md), and
+  [timing/resources](mimdram-execution-and-timing.md) establish
   the existing contracts being preserved, including disjoint movement progress.
 - [PRADA portability methodology](../references/ddr4-pud-timing-reference.md#11-portability-of-the-timing-methodology)
   explicitly requires phase revalidation instead of copying DDR4 numbers.

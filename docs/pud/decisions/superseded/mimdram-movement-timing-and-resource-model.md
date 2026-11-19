@@ -1,4 +1,8 @@
-Status: Accepted
+Status: Superseded
+
+Superseded on 2026-11-19 by the [MIMDRAM execution and timing decision](../mimdram-execution-and-timing.md), which consolidates this document's current authority. The text below is
+historical provenance; its links and status notes describe the acceptance-time
+document set.
 
 Question
 
@@ -9,7 +13,7 @@ timing graph, numeric baseline, and recovery boundary?
 Decision
 
 **Finite-engine amendment (Accepted 2026-09-16).** The
-[common execution-model decision](pud-multistandard-substrate.md#accepted-common-execution-model--no-finite-control-engine-capacity-2026-09-16)
+[common execution-model decision](../pud-multistandard-substrate.md#accepted-common-execution-model--no-finite-control-engine-capacity-2026-09-16)
 supersedes only this document's finite primitive-engine-accounting clauses.
 Finite SIMDRAM/MIMDRAM control-unit capacity is outside the performance model:
 compute primitives and LC-MOV/GB-MOV all have no finite control-engine charge.
@@ -20,7 +24,7 @@ its results are historical implementation evidence, not the amended model.
 
 **Current status (2026-09-10).** W1-W9 implemented the range-local timing and
 resource rules in the canonical
-[unified DDR4 PuD substrate](ddr4-pud-unified-substrate.md). T-A resolved-target
+[unified DDR4 PuD substrate](../ddr4-pud-unified-substrate.md). T-A resolved-target
 consumption is the current transport baseline. Alternative A, Q=8, target
 queues, and their verification remain historical provenance only. The
 `v2`/`legacy` labels below describe development layers, not runtime models;
@@ -72,7 +76,7 @@ target queue or physical enqueue/dequeue schedule is invented.
 **History scopes and local timing**
 
 Compute phase history and terminal PRE recovery are range-local. Retain the
-[accepted PRADA intervals](pud-timing-resource-and-command-bus-rules.md) and
+[accepted PRADA intervals](../pud-timing-resource-and-command-bus-rules.md) and
 the current NOT_COPY N-to-ACT_PUD interval; do not duplicate these histories
 per mat or impose them through latest-Bank compute history. A range PRE must
 not update a Bank-wide deadline that blocks disjoint compute. Bank/rank-wide
@@ -193,7 +197,7 @@ accounting updated for the accepted transport abstraction.
 
 MIMDRAM reports less than 0.5% additional ACT latency from mat isolation
 transistors and row-decoder latches; the source and limits are recorded in
-the [technical reference](../references/mimdram-inter-column-data-movement.md).
+the [technical reference](../../references/mimdram-inter-column-data-movement.md).
 For this hybrid discretization check, apply the 0.5% upper envelope once to
 each continuous PRADA ACT-phase interval, then independently ceil by
 tCK=0.833 ns. This is a project application of the relative bound, not a
@@ -501,14 +505,14 @@ The PRADA mapping, cold-start event and exact FIFO/atomic synchronization were
 accepted project assumptions, now superseded as baseline requirements by the
 linked abstraction. The relative-bound application remains Accepted.
 
-Current implementation facts: [Python timing generation](../../../python/ramulator/dram/spec.py)
+Current implementation facts: [Python timing generation](../../../../python/ramulator/dram/spec.py)
 adjusts edge anchors for multi-cycle commands. Generated compute/movement Bank
 edges retain numeric authority, but canonical
-[associated Device dispatch](../../../src/ramulator/dram/device.cpp) checks them
-against [Request-local history](../../../src/ramulator/controller/pud_sequence.cpp).
+[associated Device dispatch](../../../../src/ramulator/dram/device.cpp) checks them
+against [Request-local history](../../../../src/ramulator/controller/pud_sequence.cpp).
 The same seam also enforces the six occurrence-specific LC/GB edges; incoming
 conventional recovery and shared Channel timing still use the hierarchy.
-The [milestone plan](../plans/completed/pud-movement-footprint-plan.md) records isolated
+The [milestone plan](../../plans/completed/pud-movement-footprint-plan.md) records isolated
 anchors, pairwise concurrency tests, regression validation and bounded GEMV
 evidence. Decimal arithmetic verified the four upper-envelope ceiling results
 above during the original acceptance.
@@ -527,10 +531,10 @@ one-command-per-tick controller behavior, scheduler readiness path, and
 existing general PRE/refresh recovery edges.
 
 This document consolidates the current accepted authority formerly carried by
-`superseded/mimdram-movement-timing-resource-scope.md`,
-`superseded/mimdram-movement-timing-responsibility.md`,
-`superseded/mimdram-movement-numeric-timing-and-directed-edges.md`, and the T3 transport
-portion of `superseded/mimdram-mat-targeting-and-transport-abstraction.md`. Those files
+`mimdram-movement-timing-resource-scope.md`,
+`mimdram-movement-timing-responsibility.md`,
+`mimdram-movement-numeric-timing-and-directed-edges.md`, and the T3 transport
+portion of `mimdram-mat-targeting-and-transport-abstraction.md`. Those files
 remain as historical provenance.
 
 Open issues
@@ -547,4 +551,4 @@ Open issues
 - Portability of the numeric assumptions to another timing preset,
   organization, or DRAM standard.
 - Current implementation progress is recorded in the
-  [implementation plan](../plans/completed/mimdram-pud-substrate-v2-implementation-plan.md).
+  [implementation plan](../../plans/completed/mimdram-pud-substrate-v2-implementation-plan.md).

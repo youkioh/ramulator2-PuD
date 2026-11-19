@@ -380,7 +380,7 @@ or GB-link owner is inferred.
 
 ## 6. G4 movement candidate and independent calculations
 
-The [common movement authority](../decisions/mimdram-movement-timing-and-resource-model.md)
+The [common movement authority](../decisions/mimdram-execution-and-timing.md)
 and [technical evidence](mimdram-inter-column-data-movement.md) provide the
 logical LC/GB graphs and guarded FIGARO-derived tRELOC=1 ns assumption.
 No HBM3-specific evidence found here requires replacing that assumption.

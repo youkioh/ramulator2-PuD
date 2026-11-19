@@ -31,18 +31,15 @@ These are current project authority. Historical decisions are in
 - [pud-timing-resource-and-command-bus-rules](decisions/pud-timing-resource-and-command-bus-rules.md) —
   DDR4 PuD timing, resource occupancy, command bus, and activation windows.
 
-### MIMDRAM geometry and movement
+### MIMDRAM geometry, execution, and timing
 
-- [mimdram-substrate-and-movement-request-boundary](decisions/mimdram-substrate-and-movement-request-boundary.md) —
-  where movement lives and what one movement request represents.
-- [mimdram-addressing-geometry-and-payload](decisions/mimdram-addressing-geometry-and-payload.md) —
-  common address, geometry, affected-location, and payload contract.
-- [mimdram-mat-target-transport-abstraction](decisions/mimdram-mat-target-transport-abstraction.md) —
-  delivery of the resolved mat range to each activation.
-- [mimdram-movement-execution-ownership-and-device](decisions/mimdram-movement-execution-ownership-and-device.md) —
-  execution state, ownership, admission, recovery, and completion.
-- [mimdram-movement-timing-and-resource-model](decisions/mimdram-movement-timing-and-resource-model.md) —
-  movement timing histories, shared resources, and ACT overhead.
+- [mimdram-geometry-and-placement](decisions/mimdram-geometry-and-placement.md) —
+  address/CellID contract, DDR4 x8 placement profile, footprints, movement
+  payload, and compute effects.
+- [mimdram-execution-and-timing](decisions/mimdram-execution-and-timing.md) —
+  experiment boundary, request boundary, footprint conflicts, lifecycle and
+  maintenance, LC/GB sequences, target transport, timing graphs, and
+  movement statistics.
 
 ### Operation lowering and workloads
 

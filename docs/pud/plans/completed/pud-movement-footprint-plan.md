@@ -8,9 +8,9 @@ complete. No commit made.
 
 Recover the [movement reference](../../references/mimdram-inter-column-data-movement.md),
 [mapping/reduction reference](../../references/mimdram-data-mapping-and-vector-reduction.md),
-[execution authority](../../decisions/mimdram-movement-execution-ownership-and-device.md),
-[timing authority](../../decisions/mimdram-movement-timing-and-resource-model.md),
-[locations](../../decisions/mimdram-addressing-geometry-and-payload.md), and
+[execution authority](../../decisions/superseded/mimdram-movement-execution-ownership-and-device.md),
+[timing authority](../../decisions/superseded/mimdram-movement-timing-and-resource-model.md),
+[locations](../../decisions/superseded/mimdram-addressing-geometry-and-payload.md), and
 [unified substrate](../../decisions/ddr4-pud-unified-substrate.md).
 
 One implementation Phase: independent compute/LC/GB invocations protect only

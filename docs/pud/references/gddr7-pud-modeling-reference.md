@@ -63,9 +63,9 @@ These documents supply the existing circuit/mechanism evidence.
 OC means **Offset Cancellation**.
 
 The [multistandard decision](../decisions/pud-multistandard-substrate.md)
-records project policy separately from this reference. Existing [placement](../decisions/mimdram-addressing-geometry-and-payload.md),
-[execution](../decisions/mimdram-movement-execution-ownership-and-device.md),
-and [timing/resources](../decisions/mimdram-movement-timing-and-resource-model.md)
+records project policy separately from this reference. Existing [placement](../decisions/mimdram-geometry-and-placement.md),
+[execution](../decisions/mimdram-execution-and-timing.md),
+and [timing/resources](../decisions/mimdram-execution-and-timing.md)
 separate source mechanisms from the accepted DDR4 hybrid and common footprint
 policy. Their DDR4 numbers are not GDDR7 calibration.
 

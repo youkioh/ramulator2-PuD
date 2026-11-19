@@ -1,4 +1,8 @@
-Status: Accepted
+Status: Superseded
+
+Superseded on 2026-11-19 by the [MIMDRAM execution and timing decision](../mimdram-execution-and-timing.md), which consolidates this document's current authority. The text below is
+historical provenance; its links and status notes describe the acceptance-time
+document set.
 
 Question
 
@@ -9,7 +13,7 @@ states/actions, maintenance, and accounting govern the retained LC/GB model?
 Decision
 
 **Finite-engine amendment (Accepted 2026-09-16).** The
-[common execution-model decision](pud-multistandard-substrate.md#accepted-common-execution-model--no-finite-control-engine-capacity-2026-09-16)
+[common execution-model decision](../pud-multistandard-substrate.md#accepted-common-execution-model--no-finite-control-engine-capacity-2026-09-16)
 supersedes only this document's finite primitive-engine-accounting clauses.
 Finite SIMDRAM/MIMDRAM control-unit capacity is outside the performance model:
 compute primitives and LC-MOV/GB-MOV all have no finite control-engine charge.
@@ -20,7 +24,7 @@ its results are historical implementation evidence, not the amended model.
 
 **Current status (2026-09-10).** W1-W9 implemented this range-local execution,
 protected recovery, conflict, maintenance, and completion authority inside the
-canonical [unified DDR4 PuD substrate](ddr4-pud-unified-substrate.md).
+canonical [unified DDR4 PuD substrate](../ddr4-pud-unified-substrate.md).
 `v2` and `legacy` below are development/provenance labels, not selectable
 execution branches. The movement footprint refinement accepted on 2026-09-16
 below replaces the former Bank-aggregate movement scope in this unified model.
@@ -422,7 +426,7 @@ could not select both required PRE actions through the existing Device API.
 
 Evidence
 
-For Gate C, [the curated MIMDRAM reference](../references/mimdram-inter-column-data-movement.md)
+For Gate C, [the curated MIMDRAM reference](../../references/mimdram-inter-column-data-movement.md)
 records source facts: shared range state, oldest-to-newest first fit, eight
 evaluated engines, a 2 kB bbop buffer, per-chip mat queues, and LC/GB temporal
 conditions. The user accepted the v2 simulator choices on 2026-09-09, including
@@ -430,12 +434,12 @@ E=8, the timing/functional split, same-subarray MIMD, and recovery-time release.
 Only the finite primitive-engine choice is now superseded; the reported
 prior-work eight engines operate at bbop/microProgram granularity.
 
-Current implementation: [RequestLocations](../../../src/ramulator/base/request.cpp)
-derives one normalized physical footprint union; [GenericDDR](../../../src/ramulator/controller/impl/generic_ddr_controller.cpp)
-and [Device](../../../src/ramulator/dram/device.cpp) use protected invocation
-contexts. [Controller completion](../../../src/ramulator/controller/controller_base.cpp)
+Current implementation: [RequestLocations](../../../../src/ramulator/base/request.cpp)
+derives one normalized physical footprint union; [GenericDDR](../../../../src/ramulator/controller/impl/generic_ddr_controller.cpp)
+and [Device](../../../../src/ramulator/dram/device.cpp) use protected invocation
+contexts. [Controller completion](../../../../src/ramulator/controller/controller_base.cpp)
 retains protection through recovery and extracts completions before callbacks.
-The [milestone plan](../plans/completed/pud-movement-footprint-plan.md) records verification.
+The [milestone plan](../../plans/completed/pud-movement-footprint-plan.md) records verification.
 
 MIMDRAM supports physical mat selection, independent work on disjoint ranges,
 mat-local LC row-buffer/HFF/column resources, and explicit GB endpoints using
@@ -474,9 +478,9 @@ and typed `hffs_per_mat`; ordinary throughput uses only served Read/Write
 counts and the DRAM transaction byte width.
 
 This document consolidates the current accepted authority formerly carried by
-`superseded/mimdram-movement-occurrences-and-command-identities.md`,
-`superseded/mimdram-movement-ownership-and-atomicity.md`, and
-`superseded/mimdram-movement-minimum-device-state-and-actions.md`. Those files remain as
+`mimdram-movement-occurrences-and-command-identities.md`,
+`mimdram-movement-ownership-and-atomicity.md`, and
+`mimdram-movement-minimum-device-state-and-actions.md`. Those files remain as
 historical provenance.
 
 Open issues
@@ -491,7 +495,7 @@ Open issues
 - Future movement-aware mapping semantics that could make AQUA or RRS
   compatible with movement operands.
 - Implementation and v2 verification progress are recorded in the
-  [implementation plan](../plans/completed/mimdram-pud-substrate-v2-implementation-plan.md).
+  [implementation plan](../../plans/completed/mimdram-pud-substrate-v2-implementation-plan.md).
 - SALP-style cross-subarray execution, finite control-engine modeling,
   host/cache coherence, and mixed ordinary/PuD functional coherence are outside
   the accepted profile.

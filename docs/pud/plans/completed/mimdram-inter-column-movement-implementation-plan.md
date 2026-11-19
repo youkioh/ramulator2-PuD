@@ -48,10 +48,10 @@ Before implementing a work unit, read these sources in order:
 2. `docs/pud/references/mimdram-inter-column-data-movement.md`.
 3. `docs/pud/adding-pud-primitives.md`.
 4. The four current canonical Accepted movement decisions:
-   - `docs/pud/decisions/mimdram-substrate-and-movement-request-boundary.md`;
+   - `docs/pud/decisions/superseded/mimdram-substrate-and-movement-request-boundary.md`;
    - `docs/pud/decisions/superseded/mimdram-movement-addressing-geometry-and-payload.md`;
-   - `docs/pud/decisions/mimdram-movement-execution-ownership-and-device.md`;
-   - `docs/pud/decisions/mimdram-movement-timing-and-resource-model.md`.
+   - `docs/pud/decisions/superseded/mimdram-movement-execution-ownership-and-device.md`;
+   - `docs/pud/decisions/superseded/mimdram-movement-timing-and-resource-model.md`.
 5. This plan and the current source/tests named by the active work unit.
 
 The four canonical decisions are the complete current movement-design

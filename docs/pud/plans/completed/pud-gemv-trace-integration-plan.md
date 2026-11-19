@@ -17,10 +17,10 @@ and its [Markdown summary](../../references/gpu-pud-gemv-programming-model.md), 
 [physical-row reference](../../references/investigations/pud-physical-row-allocation.md), and
 [MIMDRAM mapping/reduction reference](../../references/mimdram-data-mapping-and-vector-reduction.md),
 then the Accepted [physical lowering](../../decisions/pud-operation-physical-lowering.md),
-[placement/payload](../../decisions/mimdram-addressing-geometry-and-payload.md),
+[placement/payload](../../decisions/superseded/mimdram-addressing-geometry-and-payload.md),
 [reduction](../../decisions/mimdram-reduction-placement-and-movement-lowering.md),
-[execution/completion](../../decisions/mimdram-movement-execution-ownership-and-device.md),
-[timing](../../decisions/mimdram-movement-timing-and-resource-model.md), and
+[execution/completion](../../decisions/superseded/mimdram-movement-execution-ownership-and-device.md),
+[timing](../../decisions/superseded/mimdram-movement-timing-and-resource-model.md), and
 [unified substrate](../../decisions/ddr4-pud-unified-substrate.md) decisions.
 The [completed lowering plan](pud-operation-physical-lowering-plan.md) records
 prior validation; current source/tests remain the implementation evidence.

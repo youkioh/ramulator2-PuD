@@ -25,7 +25,7 @@ are not unresolved versions of the implementation gaps that W1-W9 closed.
 Investigation snapshot: 2026-09-08. Sections 1–8 preserve the original gap
 analysis. Section 9 records Gate B's accepted resolution and links its current
 canonical decision. Gate A is now Accepted in the
-[substrate and experiment boundary](../../decisions/mimdram-substrate-and-movement-request-boundary.md);
+[substrate and experiment boundary](../../decisions/superseded/mimdram-substrate-and-movement-request-boundary.md);
 §9.5 records Gate A and §9.6 links Gate C's acceptance on 2026-09-09.
 Earlier alternatives and open A/B/C questions are investigation provenance,
 not current decision gates.
@@ -101,10 +101,10 @@ Principal evidence used throughout:
 | R1 | [MIMDRAM movement technical reference](../../references/mimdram-inter-column-data-movement.md), especially §§1.1–1.6, 2.4, 3, and 4 |
 | R2 | [MIMDRAM geometry](../../references/mimdram-geometry.md) |
 | R3 | [PuD primitives](../../references/pud-primitives.md) and [DDR4 PuD timing reference](../../references/ddr4-pud-timing-reference.md) |
-| D1 | [Substrate and movement request boundary](../../decisions/mimdram-substrate-and-movement-request-boundary.md) |
+| D1 | [Substrate and movement request boundary](../../decisions/superseded/mimdram-substrate-and-movement-request-boundary.md) |
 | D2 | [Movement addressing, geometry, and payload](../../decisions/superseded/mimdram-movement-addressing-geometry-and-payload.md) |
-| D3 | [Movement execution, ownership, and Device](../../decisions/mimdram-movement-execution-ownership-and-device.md) |
-| D4 | [Movement timing and resources](../../decisions/mimdram-movement-timing-and-resource-model.md) |
+| D3 | [Movement execution, ownership, and Device](../../decisions/superseded/mimdram-movement-execution-ownership-and-device.md) |
+| D4 | [Movement timing and resources](../../decisions/superseded/mimdram-movement-timing-and-resource-model.md) |
 | D5 | [Compute placement](../../decisions/superseded/pud-operand-placement-and-routing.md), [intermediate state](../../decisions/superseded/pud-intermediate-state-representation.md), [precharge/legality](../../decisions/superseded/pud-precharge-and-legality-semantics.md), and [sequencing/atomicity](../../decisions/superseded/pud-controller-sequencing-and-atomicity.md) |
 | D6 | [PuD timing/resources](../../decisions/pud-timing-resource-and-command-bus-rules.md), [lifecycle](../../decisions/superseded/pud-request-lifecycle-queueing-and-statistics.md), and [maintenance](../../decisions/superseded/pud-refresh-row-policy-and-maintenance-interaction.md) |
 | I1 | [Request](../../../../src/ramulator/base/request.h), [placement/payload validation](../../../../src/ramulator/controller/pud_request_validation.cpp), and [ingress](../../../../src/ramulator/memory_system/pud_request_routing.h) |
@@ -650,7 +650,7 @@ steps are selected by this document.
 ## 9. Gate B: common internal geometry and address mapping
 
 **Accepted, 2026-09-08. Gate B is closed.** The
-[canonical addressing/geometry decision](../../decisions/mimdram-addressing-geometry-and-payload.md)
+[canonical addressing/geometry decision](../../decisions/superseded/mimdram-addressing-geometry-and-payload.md)
 records the replaceable generic contract and the selected
 **MIMDRAM-DDR4_8Gb_x8 modeled placement profile v1**. Chip-major striping is an
 explicit simulator convention; byte-lane is a considered, unselected
@@ -846,7 +846,7 @@ not contradictory ordinary and PuD copies of the data.
 ### 9.4 Accepted Gate B authority
 
 Gate B is closed by the Accepted
-[common addressing, geometry, and payload decision](../../decisions/mimdram-addressing-geometry-and-payload.md).
+[common addressing, geometry, and payload decision](../../decisions/superseded/mimdram-addressing-geometry-and-payload.md).
 That canonical document contains the complete generic contract, selected
 profile formulas and inverse, affected-location semantics, evidence classes,
 validation requirements, compatibility boundary, and live open issues.
@@ -868,7 +868,7 @@ an additional approval gate.
 ### 9.5 Accepted Gate A authority
 
 **Gate A is Accepted, 2026-09-08**, in the canonical
-[substrate and experiment boundary](../../decisions/mimdram-substrate-and-movement-request-boundary.md).
+[substrate and experiment boundary](../../decisions/superseded/mimdram-substrate-and-movement-request-boundary.md).
 That authority records the PRADA-compute/MIMDRAM-execution hybrid, required
 disjoint compute overlap and conservative movement policy, width-independent
 local compute costs distinct from Gate C overhead, substrate/macro separation,
@@ -884,8 +884,8 @@ is serialized, without implicit SALP.
 ### 9.6 Accepted Gate C authority
 
 **Gate C is Accepted, 2026-09-09**, in the existing canonical
-[execution/state/lifecycle decision](../../decisions/mimdram-movement-execution-ownership-and-device.md)
-and [timing/resource/transport decision](../../decisions/mimdram-movement-timing-and-resource-model.md).
+[execution/state/lifecycle decision](../../decisions/superseded/mimdram-movement-execution-ownership-and-device.md)
+and [timing/resource/transport decision](../../decisions/superseded/mimdram-movement-timing-and-resource-model.md).
 Their v2 sections are the current authority; retained legacy sections describe
 the executable baseline and unchanged movement contracts.
 

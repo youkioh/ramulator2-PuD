@@ -18,7 +18,7 @@ placement**, with the no-SALP boundary below. Alternative A is not the final
 GEMV baseline placement policy. This authority covers the characterization
 placement and its static capacity fallback, separately from the Accepted
 [numeric/macro contract](../pud-gemv-macro-contract.md) and the substrate's
-[location authority](../mimdram-addressing-geometry-and-payload.md). It selects
+[location authority](mimdram-addressing-geometry-and-payload.md). It selects
 allocation order, not new topology, timing, scheduling, or arithmetic.
 
 The actual GEMV baseline evaluation policy will be defined separately and is
@@ -150,8 +150,8 @@ Evidence
   mat-range execution and operand colocation; it does not prescribe this
   application's static traversal order.
 - Accepted [forward reduction](../mimdram-reduction-placement-and-movement-lowering.md),
-  [placement profile](../mimdram-addressing-geometry-and-payload.md), and
-  [execution/resources](../mimdram-movement-execution-ownership-and-device.md)
+  [placement profile](mimdram-addressing-geometry-and-payload.md), and
+  [execution/resources](mimdram-movement-execution-ownership-and-device.md)
   permit shifted chip-local ranges but preserve no SALP and bank-exclusive
   movement. [Physical lowering](../pud-operation-physical-lowering.md) explicitly
   leaves bank/subarray/mat selection to its caller.

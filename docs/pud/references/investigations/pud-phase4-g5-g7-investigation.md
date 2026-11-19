@@ -142,7 +142,7 @@ the existing reference's third-party transcription is the provenance boundary.
 Neither source establishes modeled mat wiring.
 
 The DDR4 eight-chip construction is the Accepted
-[placement model](../../decisions/mimdram-addressing-geometry-and-payload.md)
+[placement model](../../decisions/superseded/mimdram-addressing-geometry-and-payload.md)
 and current factory: 8*8=64 data bits, 8*16=128 mats per external Bank/subarray.
 The eight chips form one externally addressed Bank context; they do not create
 eight command buses or eight additional external Bank indices.

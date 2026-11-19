@@ -3,7 +3,7 @@ Status: Superseded
 Its addressing and logical-mat-targeting authority is superseded by
 `docs/pud/decisions/superseded/mimdram-movement-addressing-geometry-and-payload.md`.
 Its T3 mat-information-transport authority is superseded by
-`docs/pud/decisions/mimdram-movement-timing-and-resource-model.md`.
+`docs/pud/decisions/superseded/mimdram-movement-timing-and-resource-model.md`.
 
 Question
 
@@ -114,7 +114,7 @@ MIMDRAM source facts:
 
 Accepted project decisions:
 
-- `docs/pud/decisions/mimdram-substrate-and-movement-request-boundary.md`
+- `docs/pud/decisions/superseded/mimdram-substrate-and-movement-request-boundary.md`
   keeps movement in a distinct combined substrate and places request lifecycle
   and sequencing in the controller.
 - `docs/pud/decisions/superseded/mimdram-movement-range-and-placement.md` keeps the

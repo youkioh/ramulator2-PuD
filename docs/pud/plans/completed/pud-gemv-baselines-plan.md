@@ -1,7 +1,7 @@
 # Final GEMV evaluation baselines
 
 Authority: [Accepted GEMV contract](../../decisions/pud-gemv-macro-contract.md),
-[addressing/payload](../../decisions/mimdram-addressing-geometry-and-payload.md),
+[addressing/payload](../../decisions/superseded/mimdram-addressing-geometry-and-payload.md),
 [reduction topology](../../decisions/mimdram-reduction-placement-and-movement-lowering.md),
 and [programming-model specification](../../references/gpu-pud-gemv-programming-model.cu).
 

@@ -9,7 +9,7 @@ Decision
 
 **Current status (2026-09-10).** The numeric DDR4 timing, command-bus, and
 activation-current rules below remain current. The later Accepted
-[range-local timing/resource decision](mimdram-movement-timing-and-resource-model.md)
+[range-local timing/resource decision](mimdram-execution-and-timing.md)
 refines “target-bank-local” for canonical compute: these intervals are enforced
 from each protected resolved range's history rather than a Bank-global compute
 history. Conventional Bank/rank timing retains its ordinary scope.

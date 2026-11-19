@@ -16,11 +16,11 @@ Read `AGENTS.md`, the
 and [programming-model reference](../../references/gpu-pud-gemv-programming-model.md),
 [mapping/reduction reference](../../references/mimdram-data-mapping-and-vector-reduction.md),
 then the Accepted [macro contract](../../decisions/pud-gemv-macro-contract.md),
-[placement/resolver contract](../../decisions/mimdram-addressing-geometry-and-payload.md),
+[placement/resolver contract](../../decisions/superseded/mimdram-addressing-geometry-and-payload.md),
 [forward reduction](../../decisions/mimdram-reduction-placement-and-movement-lowering.md),
 [operation lowering](../../decisions/pud-operation-physical-lowering.md),
-[execution/resources](../../decisions/mimdram-movement-execution-ownership-and-device.md),
-and [timing](../../decisions/mimdram-movement-timing-and-resource-model.md).
+[execution/resources](../../decisions/superseded/mimdram-movement-execution-ownership-and-device.md),
+and [timing](../../decisions/superseded/mimdram-movement-timing-and-resource-model.md).
 The completed [trace integration](pud-gemv-trace-integration-plan.md) and
 [chain execution](pud-gemv-chain-execution-plan.md) plans describe prior work.
 The Accepted characterization placement decision supplies the enumeration,

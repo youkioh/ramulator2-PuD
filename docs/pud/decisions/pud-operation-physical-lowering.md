@@ -240,7 +240,7 @@ Evidence
   canonical range-aware public execution path and requires every compute
   invocation to carry one explicit resolved `MatRange` in its placement
   context.
-- [Addressing, geometry, and payload](mimdram-addressing-geometry-and-payload.md)
+- [Addressing, geometry, and payload](mimdram-geometry-and-placement.md)
   defines the canonical Bank/subarray/local-row placement authority, the
   current profile's 1,024 local rows per subarray, common compute `MatRange`,
   and the pointwise destructive effects of the five compute request types.

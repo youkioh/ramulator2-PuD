@@ -44,10 +44,10 @@ Evidence labels used below:
 - **Proposal / gate:** not yet accepted or implemented.
 
 Read authority: [unified substrate](../../decisions/ddr4-pud-unified-substrate.md),
-[placement](../../decisions/mimdram-addressing-geometry-and-payload.md),
-[execution](../../decisions/mimdram-movement-execution-ownership-and-device.md),
-[timing/resources](../../decisions/mimdram-movement-timing-and-resource-model.md),
-[target transport](../../decisions/mimdram-mat-target-transport-abstraction.md),
+[placement](../../decisions/superseded/mimdram-addressing-geometry-and-payload.md),
+[execution](../../decisions/superseded/mimdram-movement-execution-ownership-and-device.md),
+[timing/resources](../../decisions/superseded/mimdram-movement-timing-and-resource-model.md),
+[target transport](../../decisions/superseded/mimdram-mat-target-transport-abstraction.md),
 [reduction lowering](../../decisions/mimdram-reduction-placement-and-movement-lowering.md),
 [operation lowering](../../decisions/pud-operation-physical-lowering.md), and
 [GEMV contract](../../decisions/pud-gemv-macro-contract.md), plus the
