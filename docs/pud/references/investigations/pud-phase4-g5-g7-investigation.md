@@ -36,7 +36,7 @@ Primary consumers inspected completely:
 [physical lowerer](../../../../tools/pud_operation_generator/lowering.py),
 [requirements](../../../../tools/pud_operation_generator/requirements.py), and
 [artifact writer](../../../../tools/pud_operation_generator/artifacts.py).
-The [GEMV contract](../../decisions/pud-gemv-macro-contract.md) fixes arithmetic,
+The [GEMV contract](../../decisions/superseded/pud-gemv-macro-contract.md) fixes arithmetic,
 x duplication, both schedules and host completion semantics.
 
 The actual executable path is:

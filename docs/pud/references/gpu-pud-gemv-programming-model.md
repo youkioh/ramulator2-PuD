@@ -23,7 +23,7 @@ existing unified substrate. The GPU interfaces remain specification declarations
 The
 [baseline plan](../plans/completed/pud-gemv-baselines-plan.md) tracks that work.
 
-The [Accepted macro contract](../decisions/pud-gemv-macro-contract.md) requires
+The [Accepted macro contract](../decisions/pud-gemv-gemm-workload.md) requires
 N > 0 and N divisible by HFFS_PER_MAT (four). N need not be divisible by
 MAT_SIZE: partial final mats such as N=516 remain supported. Arbitrary
 one-to-three-element tails are rejected. There is no partial-group movement,
@@ -191,7 +191,7 @@ domain, preserving the previous physical reduction order:
 5. Perform the GPU scalar residual/domain combine below.
 
 Mat numbers above denote domain-local positions mapped to consecutive,
-reachable mats. The [Accepted forward-fold policy](../decisions/mimdram-reduction-placement-and-movement-lowering.md)
+reachable mats. The [Accepted forward-fold policy](../decisions/pud-gemv-gemm-workload.md)
 governs low-to-high GB-MOV and the highest reachable sink. Domains remain
 separate across unsupported chip/connectivity boundaries; no reverse,
 wraparound, or cross-chip GB path is implied.
@@ -284,7 +284,7 @@ Build, generation, and execution instructions are in the
 [DDR4 PuD user guide](../ddr4-pud-user-guide.md#gemv-trace-generation-and-execution).
 
 Both baselines use the same deterministic one-rank
-[Accepted BLP-first placement](../decisions/pud-gemv-macro-contract.md).
+[Accepted BLP-first placement](../decisions/pud-gemv-gemm-workload.md).
 Its fastest-to-slowest enumeration is bank within group, bank group, legal
 K-mat range slot within chip, chip, subarray, then row band. All banks consume
 one slot before the next slot in any bank. The generator checks each required

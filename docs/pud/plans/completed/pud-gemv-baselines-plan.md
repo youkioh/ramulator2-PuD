@@ -1,8 +1,8 @@
 # Final GEMV evaluation baselines
 
-Authority: [Accepted GEMV contract](../../decisions/pud-gemv-macro-contract.md),
+Authority: [Accepted GEMV contract](../../decisions/superseded/pud-gemv-macro-contract.md),
 [addressing/payload](../../decisions/superseded/mimdram-addressing-geometry-and-payload.md),
-[reduction topology](../../decisions/mimdram-reduction-placement-and-movement-lowering.md),
+[reduction topology](../../decisions/superseded/mimdram-reduction-placement-and-movement-lowering.md),
 and [programming-model specification](../../references/gpu-pud-gemv-programming-model.cu).
 
 One implementation Phase: exactly two explicit, functionally validated GEMV

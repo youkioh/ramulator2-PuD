@@ -472,7 +472,7 @@ or that precomputed costs contain no other overhead.
 
 | Construct | Source-verified role / bbop relationship |
 | --- | --- |
-| GEMV macro | The [programming specification](gpu-pud-gemv-programming-model.cu) and [Accepted macro contract](../decisions/pud-gemv-macro-contract.md) compose MUL, movement and ADD stages, plus GPU residual/domain combination. A whole GEMV or output chain is not one existing ADD/MUL microProgram. |
+| GEMV macro | The [programming specification](gpu-pud-gemv-programming-model.cu) and [Accepted macro contract](../decisions/pud-gemv-gemm-workload.md) compose MUL, movement and ADD stages, plus GPU residual/domain combination. A whole GEMV or output chain is not one existing ADD/MUL microProgram. |
 | ADD/MUL invocation | One typed `pud_vector_*` call has array pointers, element count and mat range. In [generator.py](../../../tools/pud_gemv_generator/generator.py), one `arithmetic(...)` call instantiates one selected ADD/MUL program over an output's placed range. This resembles an operation-level boundary, not a source-defined runtime engine allocation. |
 | Logical move | One `pud_mov` call specifies elements/precision. The generator's `move(...)` expands its corresponding movement step over bits and HFF groups into one or many LC/GB Requests, including existing within-output ranged LC. Those transfers are children of the logical move, not separate ISA bbops. |
 | Physical primitive Request | RowCopy/MAJ3/MAJ5/NOT/NOT_COPY or LC/GB is a lower-level invocation with command occurrences. [Validation](../../../src/ramulator/controller/pud_request_validation.cpp) requires its operands to share Bank/subarray; it is not an array-wide bbop. |

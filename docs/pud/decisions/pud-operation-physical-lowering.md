@@ -74,8 +74,9 @@ inputs with a normal result or exact cancellation, matching the existing FP8
 validation boundary. These are raw element operations: MXFP4/NVFP4 block
 scales, packed storage, and GEMV integration are not part of this profile.
 
-Future GEMV composes the existing MUL and ADD PuD operations. No separate FMA
-PuD operation is introduced. GEMV implementation and placement remain deferred.
+GEMV composes the existing MUL and ADD PuD operations. No separate FMA
+PuD operation is introduced. GEMV placement and macro generation are governed
+by the [GEMV/GEMM workload decision](pud-gemv-gemm-workload.md).
 There is no explicit truncation primitive or extra RowCopy sequence; the
 export selection defines the fixed-width boundary. The physical lowerer
 preserves the resulting emitted sequence under the contract below.
@@ -142,7 +143,7 @@ symbolic identities.
 Diagnostic taps and discarded carries are validation observations, not
 architectural live-outs. They do not extend a physical-row lifetime merely so
 that the final post-execution symbolic dictionary can reproduce every
-intermediate name. A future physical validator may observe or snapshot such a
+intermediate name. The physical validator may observe or snapshot such a
 value at its defined observation point without reserving its row through
 operation completion.
 
@@ -184,7 +185,9 @@ different `MatRange`.
 
 ## Validation contract
 
-A future physical validator must establish that:
+The physical validator
+([`physical_replay.py`](../../../tools/pud_operation_generator/physical_replay.py))
+must establish that:
 
 - every symbolic identity has its expected physical binding, including each
   output name's designated binding through its coalesced final source;
@@ -200,11 +203,13 @@ A future physical validator must establish that:
 
 ## Explicitly deferred
 
-Defer allocator algorithm selection, value-equivalence coalescing, general
+Defer value-equivalence coalescing, general
 RowCopy coalescing, primitive scheduling or reordering, live-range splitting,
 spilling or rematerialization, `MatRange`-aware concurrent functional replay,
 LC-MOV, GB-MOV, GEMV layout and macro generation, and host read/write
-amplification. Each requires a later implementation or modeling gate.
+amplification. Each requires a later implementation or modeling gate; GEMV
+layout, macro generation, and their LC-MOV/GB-MOV use are now governed by the
+workload decision rather than by this contract.
 
 Rationale
 
@@ -254,17 +259,17 @@ Evidence
   [artifact writer](../../../tools/pud_operation_generator/artifacts.py), and
   [validator](../../../tools/pud_operation_generator/validation.py) establish
   the fixed symbolic order, destructive semantics, protected inputs and
-  constants, terminal output exports, diagnostic observations, and absence of
+  constants, terminal output exports, diagnostic observations, and, at acceptance time, the absence of
   an existing physical allocator.
 
 Open issues
 
-- The allocator algorithm remains unselected. It must satisfy and permit
-  independent validation of this contract before allocator implementation.
-- The other explicitly deferred transformations and higher-level placement,
-  movement, macro, concurrent-replay, and host-accounting concerns require
-  separate later gates; none is part of initial physical lowering.
-- No additional physical-lowering modeling decision is required before an
-  implementation plan can be written. The plan must keep algorithm selection
-  as a pre-implementation engineering gate and must not broaden this accepted
-  contract.
+- The other explicitly deferred transformations and concerns listed above
+  require separate later gates; none is part of physical lowering.
+- The allocator algorithm is an engineering choice within this contract, not a
+  modeling decision: the completed
+  [implementation plan](../plans/completed/pud-operation-physical-lowering-plan.md)
+  selected and implemented a deterministic closed-interval heap allocator
+  (`lower_to_physical()` in
+  [`lowering.py`](../../../tools/pud_operation_generator/lowering.py)).
+  Changing it must not broaden this contract.

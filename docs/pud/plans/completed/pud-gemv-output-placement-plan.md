@@ -15,9 +15,9 @@ Read `AGENTS.md`, the
 [canonical CUDA specification](../../references/gpu-pud-gemv-programming-model.cu)
 and [programming-model reference](../../references/gpu-pud-gemv-programming-model.md),
 [mapping/reduction reference](../../references/mimdram-data-mapping-and-vector-reduction.md),
-then the Accepted [macro contract](../../decisions/pud-gemv-macro-contract.md),
+then the Accepted [macro contract](../../decisions/superseded/pud-gemv-macro-contract.md),
 [placement/resolver contract](../../decisions/superseded/mimdram-addressing-geometry-and-payload.md),
-[forward reduction](../../decisions/mimdram-reduction-placement-and-movement-lowering.md),
+[forward reduction](../../decisions/superseded/mimdram-reduction-placement-and-movement-lowering.md),
 [operation lowering](../../decisions/pud-operation-physical-lowering.md),
 [execution/resources](../../decisions/superseded/mimdram-movement-execution-ownership-and-device.md),
 and [timing](../../decisions/superseded/mimdram-movement-timing-and-resource-model.md).

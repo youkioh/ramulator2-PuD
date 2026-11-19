@@ -1,4 +1,9 @@
-Status: Accepted
+Status: Superseded
+
+Superseded on 2026-11-19 by the [GEMV/GEMM workload decision](../pud-gemv-gemm-workload.md),
+which consolidates this document's current authority. The text below is
+historical provenance; its links and status notes describe the acceptance-time
+document set.
 
 Question
 
@@ -11,10 +16,10 @@ Decision
 
 The user accepted this project direction on 2026-09-09. This is a
 reduction-orchestration and movement-lowering boundary, not a new substrate
-Gate. It preserves Accepted [Gate A](mimdram-execution-and-timing.md),
-[Gate B](mimdram-geometry-and-placement.md), and Gate C's
-[execution](mimdram-execution-and-timing.md) and
-[timing/transport](mimdram-execution-and-timing.md) behavior.
+Gate. It preserves Accepted [Gate A](../mimdram-execution-and-timing.md),
+[Gate B](../mimdram-geometry-and-placement.md), and Gate C's
+[execution](../mimdram-execution-and-timing.md) and
+[timing/transport](../mimdram-execution-and-timing.md) behavior.
 
 **A. Scope**
 
@@ -26,7 +31,7 @@ substrate implementation.
 
 This decision records placement and composition policy only. Arithmetic and
 reduction macros remain outside the existing
-[substrate implementation plan](../plans/completed/mimdram-pud-substrate-v2-implementation-plan.md);
+[substrate implementation plan](../../plans/completed/mimdram-pud-substrate-v2-implementation-plan.md);
 its W3-W9 work remains unchanged. No compiler, generic lowering, or reduction
 implementation is authorized by this documentation decision.
 
@@ -194,15 +199,15 @@ singleton unit avoids presenting a conservative model as the complete ISA.
 
 Evidence
 
-- [Curated MIMDRAM movement reference](../references/mimdram-inter-column-data-movement.md),
+- [Curated MIMDRAM movement reference](../../references/mimdram-inter-column-data-movement.md),
   §§1.3, 1.5, 1.6, and 4: source instruction/interface, directed neighboring
   datapath, reduction example, precision dependence, and explicit lowering
   gaps. The underlying paper sections are §§4.1, 4.1.1, 4.2, 5, and 6.1.
-- [Geometry reference](../references/mimdram-geometry.md) records evaluated
+- [Geometry reference](../../references/mimdram-geometry.md) records evaluated
   dimensions; Gate B supplies the accepted simulator placement and topology.
   Neither reference establishes vendor physical numbering or the K-mat fold.
-- Current W1/W2 [location authority](../../../src/ramulator/dram/pud_location.cpp)
-  and [request validation](../../../src/ramulator/controller/pud_request_validation.cpp)
+- Current W1/W2 [location authority](../../../../src/ramulator/dram/pud_location.cpp)
+  and [request validation](../../../../src/ramulator/controller/pud_request_validation.cpp)
   retain profile-defined directed neighbors and validate singleton GB
   endpoints. This verifies existing terminology and supported request shape,
   not implemented reduction behavior.

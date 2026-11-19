@@ -209,7 +209,7 @@ factoring.
 The singleton GB footprint is the project's conservative supported low-level
 subset, not a claim that MIMDRAM's published GB-MOV interface is singleton-only.
 Its range/lowering distinction and direct-reduction use are recorded in the
-[reduction placement and movement-lowering decision](../mimdram-reduction-placement-and-movement-lowering.md).
+[reduction placement and movement-lowering decision](mimdram-reduction-placement-and-movement-lowering.md).
 This clarification preserves the accepted topology and executable behavior.
 
 LC's selected range may cross chips because each mat copies locally; this

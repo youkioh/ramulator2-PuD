@@ -5,14 +5,14 @@ passed. No commit made.
 
 Historical note: this completed plan preserves the chain-execution milestone's
 profile, placement and execution descriptions and measurements. Its GEMV
-baseline policy is superseded by the [current Accepted contract](../../decisions/pud-gemv-macro-contract.md)
+baseline policy is superseded by the [current Accepted contract](../../decisions/superseded/pud-gemv-macro-contract.md)
 and [completed baseline plan](pud-gemv-baselines-plan.md).
 
 ## Authority and focused audit
 
 Recover the [canonical CUDA specification](../../references/gpu-pud-gemv-programming-model.cu),
 [programming-model reference](../../references/gpu-pud-gemv-programming-model.md),
-[Accepted macro contract](../../decisions/pud-gemv-macro-contract.md),
+[Accepted macro contract](../../decisions/superseded/pud-gemv-macro-contract.md),
 [execution/completion authority](../../decisions/superseded/mimdram-movement-execution-ownership-and-device.md),
 and [unified substrate](../../decisions/ddr4-pud-unified-substrate.md).
 The [completed integration plan](pud-gemv-trace-integration-plan.md) is prior

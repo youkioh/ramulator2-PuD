@@ -48,9 +48,9 @@ Read authority: [unified substrate](../../decisions/ddr4-pud-unified-substrate.m
 [execution](../../decisions/superseded/mimdram-movement-execution-ownership-and-device.md),
 [timing/resources](../../decisions/superseded/mimdram-movement-timing-and-resource-model.md),
 [target transport](../../decisions/superseded/mimdram-mat-target-transport-abstraction.md),
-[reduction lowering](../../decisions/mimdram-reduction-placement-and-movement-lowering.md),
+[reduction lowering](../../decisions/superseded/mimdram-reduction-placement-and-movement-lowering.md),
 [operation lowering](../../decisions/pud-operation-physical-lowering.md), and
-[GEMV contract](../../decisions/pud-gemv-macro-contract.md), plus the
+[GEMV contract](../../decisions/superseded/pud-gemv-macro-contract.md), plus the
 [user guide](../../ddr4-pud-user-guide.md).
 The current-status paragraphs in canonical decisions resolve historical
 acceptance-time open statements. No old target-queue implementation is needed.

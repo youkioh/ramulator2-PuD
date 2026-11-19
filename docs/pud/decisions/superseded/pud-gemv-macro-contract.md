@@ -1,4 +1,9 @@
-Status: Accepted
+Status: Superseded
+
+Superseded on 2026-11-19 by the [GEMV/GEMM workload decision](../pud-gemv-gemm-workload.md),
+which consolidates this document's current authority. The text below is
+historical provenance; its links and status notes describe the acceptance-time
+document set.
 
 Question
 
@@ -17,8 +22,8 @@ FP8-E4M3 and FP8-E5M2. CLI profiles are the baseline name followed by
 compatibility alias, or selectable characterization placement remains active.
 This cleanup maintains one unambiguous source of truth for evaluation and
 avoids silently retaining a third GEMV policy. The former same-bank placement
-is historical evidence in its [Superseded decision](superseded/pud-gemv-output-placement.md)
-and [completed plan](../plans/completed/pud-gemv-output-placement-plan.md).
+is historical evidence in its [Superseded decision](pud-gemv-output-placement.md)
+and [completed plan](../../plans/completed/pud-gemv-output-placement-plan.md).
 
 Both baselines use one channel/rank and identical deterministic BLP-first
 static placement, fastest to slowest:
@@ -87,8 +92,8 @@ fixed correctness oracles.
 - Reject unsupported lengths explicitly. This milestone introduces no
   partial-group movement, masking, padding, or host fallback.
 
-The [canonical CUDA specification](../references/gpu-pud-gemv-programming-model.cu)
-and its [summary](../references/gpu-pud-gemv-programming-model.md) supply the
+The [canonical CUDA specification](../../references/gpu-pud-gemv-programming-model.cu)
+and its [summary](../../references/gpu-pud-gemv-programming-model.md) supply the
 separate arithmetic interfaces and both exact reduction graphs. Apply the
 selected baseline and the specified GPU scalar residual/domain combination.
 That final combination is the existing completion boundary, not a tail fallback.
@@ -97,7 +102,7 @@ PuD micro-operation-level temporary rows remain private to lowered ADD/MUL opera
 their counts come from the operation generator. PuD macro-operation-level temporary rows
 hold values across operations. Same-mat micro-operations are serialized.
 This acceptance closes the length gate before WU2 in the
-[integration plan](../plans/completed/pud-gemv-trace-integration-plan.md).
+[integration plan](../../plans/completed/pud-gemv-trace-integration-plan.md).
 
 Accepted by the user on 2026-09-15: the standalone phase-latency experiment
 measures MUL and reduction within one normal full execution, using generator
@@ -105,7 +110,7 @@ layout boundary indices and opaque PuDTrace acceptance/completion checkpoints.
 It rejects multi-domain inputs because their chains interleave MUL and
 reduction; general GEMV generation/execution retains multi-domain support.
 Physical Requests, traces, placement, scheduling and controller timing stay
-unchanged. The [user guide](../ddr4-pud-user-guide.md#gemv-trace-generation-and-execution)
+unchanged. The [user guide](../../ddr4-pud-user-guide.md#gemv-trace-generation-and-execution)
 defines the timestamp and output conventions.
 
 **Accepted GEMM contract — 2026-10-11.**
@@ -137,7 +142,7 @@ their reproduction are not GEMM deliverables.
 
 Provide a separate GEMM API/CLI and reuse the required common lowering,
 packing/fusion and trace/replay mechanisms. Preserve GEMV's single-vector and
-M/N semantics. The [G7 GEMM extension](pud-multistandard-substrate.md#accepted-gemm-placement-and-fusion--2026-10-11)
+M/N semantics. The [G7 GEMM extension](../pud-multistandard-substrate.md#accepted-gemm-placement-and-fusion--2026-10-11)
 defines physical placement and the GEMM-only cross-chip fusion boundary.
 The user's subsequent 16-CHAIN acceptance authorizes GEMM implementation.
 
@@ -146,7 +151,7 @@ and artifact meanings. The GEMM artifact contract records Q/K/O shapes and
 arithmetic profile, the placement profile and hierarchy, each output's query/key
 identity and physical input/result locations, and physical group/CHAIN and
 checkpoint ownership. Encode the per-bank band ordering defined by the
-[G7 GEMM extension](pud-multistandard-substrate.md#accepted-gemm-placement-and-fusion--2026-10-11)
+[G7 GEMM extension](../pud-multistandard-substrate.md#accepted-gemm-placement-and-fusion--2026-10-11)
 as consecutive band-0 and band-1 Request sequences in one CHAIN per Bank.
 Use existing full-completion ordering within each CHAIN. The intermediate
 GEMM checkpoint means band-0 completion; final CHAIN completion means band-1
@@ -193,37 +198,37 @@ Evidence
   inputs and NoRefresh, and a separate GEMM interface reusing common mechanisms.
 - The user's subsequent 2026-10-11 acceptance selects GEMM layout schema v1
   and explicit per-bank band completion ordering, authorizes the English
-  [GEMM implementation plan](../plans/completed/pud-gemm-plan.md), and excludes performance
+  [GEMM implementation plan](../../plans/completed/pud-gemm-plan.md), and excludes performance
   lower-bound deliverables while retaining the unverified 1 ms expectation.
 - The user's final 2026-10-11 acceptance replaces 32 CHAINs and D1 with one
   CHAIN per Bank, band-completion checkpoints and unchanged frontend execution,
   and authorizes implementation and small-case validation without a commit.
-- The current [generator](../../../tools/pud_gemv_generator/generator.py),
-  [arithmetic requirements](../../../tools/pud_operation_generator/requirements.py),
-  and [functional replay](../../../tools/pud_gemv_generator/validation.py)
+- The current [generator](../../../../tools/pud_gemv_generator/generator.py),
+  [arithmetic requirements](../../../../tools/pud_operation_generator/requirements.py),
+  and [functional replay](../../../../tools/pud_gemv_generator/validation.py)
   establish the existing graph and visible-width implementation contracts.
-  The [GEMM implementation and validation evidence](../plans/completed/pud-gemm-plan.md#completion-evidence--2026-10-11)
+  The [GEMM implementation and validation evidence](../../plans/completed/pud-gemm-plan.md#completion-evidence--2026-10-11)
   records reuse of those mechanisms and the limits of the initial validation.
 - User acceptance of both named baseline policies and WU1-WU4 on 2026-09-14.
-- [Accepted addressing/payload](mimdram-geometry-and-placement.md):
+- [Accepted addressing/payload](../mimdram-geometry-and-placement.md):
   LC's common nonempty range, common rows/selectors and per-mat local copies.
-  [Substrate boundary](mimdram-execution-and-timing.md)
+  [Substrate boundary](../mimdram-execution-and-timing.md)
   explicitly calls this a lockstep range. Current request validation accepts it.
-- [Baseline implementation plan](../plans/completed/pud-gemv-baselines-plan.md):
+- [Baseline implementation plan](../../plans/completed/pud-gemv-baselines-plan.md):
   characterization audit, functional/Request validation and timing evidence.
 
-- [CUDA programming-model specification](../references/gpu-pud-gemv-programming-model.cu):
+- [CUDA programming-model specification](../../references/gpu-pud-gemv-programming-model.cu):
   the three reduction helpers and partial-final-mat suffix copies.
-- [Accepted placement/payload](mimdram-geometry-and-placement.md):
+- [Accepted placement/payload](../mimdram-geometry-and-placement.md):
   whole-row compute, ordered HFF positions, fixed groups and no active-lane mask.
 - [Accepted reduction policy](mimdram-reduction-placement-and-movement-lowering.md):
   forward topology and the macro layer's responsibility for partial fragments.
-- [Accepted substrate boundary](mimdram-execution-and-timing.md):
+- [Accepted substrate boundary](../mimdram-execution-and-timing.md):
   GPU/host final residual combination outside substrate timing.
-- [MIMDRAM mapping/reduction reference](../references/mimdram-data-mapping-and-vector-reduction.md):
+- [MIMDRAM mapping/reduction reference](../../references/mimdram-data-mapping-and-vector-reduction.md):
   physical movement granularity and source limits.
-- [Current resolver](../../../src/ramulator/dram/pud_location.cpp) and
-  [request validation](../../../src/ramulator/controller/pud_request_validation.cpp):
+- [Current resolver](../../../../src/ramulator/dram/pud_location.cpp) and
+  [request validation](../../../../src/ramulator/controller/pud_request_validation.cpp):
   whole compute mat-rows and explicit ordered movement groups.
 - User acceptance of the positive, HFF-divisible N constraint.
 
@@ -235,5 +240,5 @@ remain outside this milestone and require separate future authority.
 GEMM layout schema v1 and the separate API/CLI boundary are accepted. Field
 names and API/CLI spellings remain implementation details within that contract.
 Existing within-chain ordering closes the band dependency requirement; see the
-[handoff plan](../plans/completed/pud-gemm-plan.md).
+[handoff plan](../../plans/completed/pud-gemm-plan.md).
 This acceptance does not decide generalization beyond the initial shape.

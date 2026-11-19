@@ -114,8 +114,7 @@ dependency-safe request execution/completion sufficient to express that path.
 The concrete ADD primitive sequence, temporary-row placement,
 precision-specific movement counts, arithmetic policy, and complete reduction
 request stream belong to the operation/macro layer
-([reduction decision](mimdram-reduction-placement-and-movement-lowering.md),
-[GEMV contract](pud-gemv-macro-contract.md)). Neither an INT/FP ADD
+([GEMV/GEMM workload decision](pud-gemv-gemm-workload.md)). Neither an INT/FP ADD
 implementation nor a reduction macro is a substrate requirement. A concrete
 macro's correctness and timing require its precision, temporary-row use, legal
 movements, and dependencies to be specified; the substrate itself supplies no

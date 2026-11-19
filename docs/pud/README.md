@@ -45,16 +45,15 @@ These are current project authority. Historical decisions are in
 
 - [pud-operation-physical-lowering](decisions/pud-operation-physical-lowering.md) —
   lowering symbolic primitive traces to physical local rows.
-- [mimdram-reduction-placement-and-movement-lowering](decisions/mimdram-reduction-placement-and-movement-lowering.md) —
-  reduction merging over the directed GB topology.
-- [pud-gemv-macro-contract](decisions/pud-gemv-macro-contract.md) — GEMV
-  evaluation baselines, static placement, and shared-K GEMM reuse.
+- [pud-gemv-gemm-workload](decisions/pud-gemv-gemm-workload.md) — reduction
+  over the directed GB topology, GEMV baselines and length domain, legacy and
+  packed GEMV placement/fusion, and shared-K GEMM.
 
 ### Multistandard (DDR4 / GDDR7 / HBM3)
 
 - [pud-multistandard-substrate](decisions/pud-multistandard-substrate.md) —
-  common substrate architecture, GDDR7/HBM3 bindings, common trace, and
-  GEMV/GEMM placement and fusion. Its common execution-model amendment
+  common substrate architecture, GDDR7/HBM3 bindings, and common trace and
+  frontend admission. Its common execution-model amendment
   (no finite control-engine capacity) amends several decisions above.
 
 ## References (`references/`)

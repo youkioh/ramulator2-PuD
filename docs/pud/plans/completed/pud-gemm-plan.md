@@ -13,8 +13,8 @@ Accepted decisions, then this plan. References are the
 [programming model](../../references/gpu-pud-gemv-programming-model.md).
 Source takes precedence over older implementation-status statements.
 
-Current authority: the [GEMM macro contract](../../decisions/pud-gemv-macro-contract.md)
-and [G7 GEMM contract](../../decisions/pud-multistandard-substrate.md#accepted-gemm-placement-and-fusion--2026-10-11).
+Current authority: the [GEMM macro contract](../../decisions/superseded/pud-gemv-macro-contract.md)
+and [G7 GEMM contract](../../decisions/pud-multistandard-substrate.md) (since 2026-11-19 in the [workload decision](../../decisions/pud-gemv-gemm-workload.md)).
 Preserve [physical lowering](../../decisions/pud-operation-physical-lowering.md),
 [addressing](../../decisions/superseded/mimdram-addressing-geometry-and-payload.md),
 [execution/completion](../../decisions/superseded/mimdram-movement-execution-ownership-and-device.md)

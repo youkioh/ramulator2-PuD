@@ -8,7 +8,7 @@ model, separately from the final GEMV evaluation baseline placement policy?
 
 Decision
 
-Superseded on 2026-09-14 by the [Accepted GEMV baseline contract](../pud-gemv-macro-contract.md).
+Superseded on 2026-09-14 by the [Accepted GEMV baseline contract](pud-gemv-macro-contract.md).
 The placement below is preserved only as historical characterization authority;
 it is no longer an active generator policy. Its rationale and completed
 measurements remain historical evidence.
@@ -17,7 +17,7 @@ Accepted by the user on 2026-09-14 as a **mat-level parallelism characterization
 placement**, with the no-SALP boundary below. Alternative A is not the final
 GEMV baseline placement policy. This authority covers the characterization
 placement and its static capacity fallback, separately from the Accepted
-[numeric/macro contract](../pud-gemv-macro-contract.md) and the substrate's
+[numeric/macro contract](pud-gemv-macro-contract.md) and the substrate's
 [location authority](mimdram-addressing-geometry-and-payload.md). It selects
 allocation order, not new topology, timing, scheduling, or arithmetic.
 
@@ -149,7 +149,7 @@ Evidence
 - [Mapping/reduction reference](../../references/mimdram-data-mapping-and-vector-reduction.md):
   mat-range execution and operand colocation; it does not prescribe this
   application's static traversal order.
-- Accepted [forward reduction](../mimdram-reduction-placement-and-movement-lowering.md),
+- Accepted [forward reduction](mimdram-reduction-placement-and-movement-lowering.md),
   [placement profile](mimdram-addressing-geometry-and-payload.md), and
   [execution/resources](mimdram-movement-execution-ownership-and-device.md)
   permit shifted chip-local ranges but preserve no SALP and bank-exclusive

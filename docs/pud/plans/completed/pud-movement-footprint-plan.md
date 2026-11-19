@@ -59,7 +59,7 @@ additional Decision Gate was identified.
    execution overlap; close isolation, retry atomicity, exact accounting,
    no SALP and unchanged isolated LC/GB anchors. Run affected regressions.
 4. WU4: unchanged INT8 M=17,N=516 under both
-   [GEMV baselines](../../decisions/pud-gemv-macro-contract.md). Output 16 wraps
+   [GEMV baselines](../../decisions/superseded/pud-gemv-macro-contract.md). Output 16 wraps
    16 BLP slots to Bank 0 mats 2..3; output 0 uses mats 0..1, subarray 0.
    Record before/after cycles, peak inflight, counts and command overlap.
 

@@ -6,7 +6,7 @@ integration milestone can be closed; no commit was made.
 
 Historical note: this completed plan preserves the integration milestone's
 profile, placement and execution descriptions and measurements. Its GEMV
-baseline policy is superseded by the [current Accepted contract](../../decisions/pud-gemv-macro-contract.md)
+baseline policy is superseded by the [current Accepted contract](../../decisions/superseded/pud-gemv-macro-contract.md)
 and [completed baseline plan](pud-gemv-baselines-plan.md).
 
 ## Authority and recovery
@@ -18,7 +18,7 @@ and its [Markdown summary](../../references/gpu-pud-gemv-programming-model.md), 
 [MIMDRAM mapping/reduction reference](../../references/mimdram-data-mapping-and-vector-reduction.md),
 then the Accepted [physical lowering](../../decisions/pud-operation-physical-lowering.md),
 [placement/payload](../../decisions/superseded/mimdram-addressing-geometry-and-payload.md),
-[reduction](../../decisions/mimdram-reduction-placement-and-movement-lowering.md),
+[reduction](../../decisions/superseded/mimdram-reduction-placement-and-movement-lowering.md),
 [execution/completion](../../decisions/superseded/mimdram-movement-execution-ownership-and-device.md),
 [timing](../../decisions/superseded/mimdram-movement-timing-and-resource-model.md), and
 [unified substrate](../../decisions/ddr4-pud-unified-substrate.md) decisions.
@@ -56,7 +56,7 @@ as runtime input. The specification is not a required build target.
 
 ## Accepted length gate
 
-The [Accepted macro contract](../../decisions/pud-gemv-macro-contract.md) requires
+The [Accepted macro contract](../../decisions/superseded/pud-gemv-macro-contract.md) requires
 N > 0 and N divisible by HFFS_PER_MAT (=4), not MAT_SIZE. N=516 and other
 whole-group partial final mats remain supported. Reject arbitrary tails;
 introduce no partial-group movement, masking, padding, or host fallback.
