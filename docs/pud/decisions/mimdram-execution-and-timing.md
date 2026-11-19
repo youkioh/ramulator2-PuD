@@ -194,10 +194,8 @@ command issue and legitimate shared constraints still apply; same-cycle
 multi-command issue and linear speedup are not required. Validation must cover
 same-operation overlap and at least one heterogeneous overlap case.
 
-Finite SIMDRAM/MIMDRAM control-unit capacity is outside the performance model:
-compute primitives and LC-MOV/GB-MOV have no finite control-engine charge
-(the common execution model in the
-[multistandard decision](pud-multistandard-substrate.md#accepted-common-execution-model--no-finite-control-engine-capacity-2026-09-16)).
+Compute primitives and LC-MOV/GB-MOV have no finite control-engine charge
+(see **No finite control-engine capacity** below).
 Scan pending compute oldest-to-newest using online first fit: allocate the
 first request whose complete range is available, subject to ordinary/movement,
 subarray, and maintenance eligibility. Allocation is distinct from command
@@ -229,6 +227,68 @@ Ordinary ACT/RD/WR/RDA/WRA, unrelated PRE, PREab, and refresh cannot interrupt
 any protected context within their complete scope. Device rejection is
 defensive protection before timing or state mutation. Independent PuD
 occurrences instead use their associated invocation and footprint checks.
+
+**No finite control-engine capacity**
+
+This common policy applies to DDR4, GDDR7 and HBM3 PuD. The modeled path is
+logical PuD operation -> physical PuD primitives -> DRAM command sequences.
+Model physical hierarchy/placement, mat/subarray/Bank footprints and
+conflicts, command resources and timing, no-SALP where applicable, movement
+dependencies, conventional/PuD protection, terminal recovery,
+frontend/dependency ordering and independently modeled queue/resource limits.
+
+Finite SIMDRAM/MIMDRAM bbop/microProgram control-unit throughput capacity is
+**outside the performance abstraction**. RowCopy, MAJ3, MAJ5, NOT, NOT_COPY,
+LC-MOV and GB-MOV have **no finite control-engine charge**. There is no
+primitive engine count and no engine-pool scope. Do not impose E=8 or any
+other finite E as a runtime primitive concurrency limit, multiply E by Banks,
+or create per-Bank pools. This omits a bottleneck; it does not assert infinite
+physical hardware resources. MIMDRAM's reported eight engines remain prior-work
+architecture/area evidence, not this simulator's primitive performance
+parameter.
+
+Do not introduce parent ADD/MUL/movement contexts, bbop IDs, OPERATION
+directives, completion joins or cross-output GEMV grouping merely to retain E.
+The investigated parent-context model is rejected. Existing arithmetic
+lowering, GEMV calls, reduction ordering, physical traces and CHAIN dependency
+semantics continue without bbop engine identity. Target trace/hierarchy
+representation (G5) and GEMV placement/mapping portability (G7) do not depend
+on finite-engine modeling. Physical footprint ownership/conflicts, no-SALP,
+command and movement timing, placement, arithmetic/GEMV dependencies, terminal
+recovery and conventional/PuD protection are unaffected by this policy.
+Completed older plans and the original source audit describe the former
+finite-engine implementation; they do not restore engine authority.
+
+Reintroducing finite engines requires a **new explicit architecture/modeling
+decision** and a dedicated audit of SIMDRAM, MIMDRAM, Proteus and later
+architectures explicitly modeling the same bottleneck. For each relevant work,
+independently establish:
+
+1. What consumes a context: bbop, complete operation, primitive, partition or other entity?
+2. Its scope: controller, Channel, Rank, Bank, subarray or another unit.
+3. The number of contexts.
+4. The allocation event.
+5. The release event.
+6. Whether movement consumes the same resource.
+7. Interaction with BLP.
+8. Interaction with SALP.
+9. Whether one context controls multiple Banks/subarrays.
+10. The actual hardware/control mechanism enabling any such fan-out.
+11. Whether independent operations progress concurrently.
+12. Whether the performance simulator implements finite occupancy/backpressure.
+13. Whether engines appear only in architectural prose or area accounting.
+14. How published performance evaluation accounts for capacity.
+15. The public source/code supporting each claim.
+
+Expose ambiguity, missing mechanisms, architecture/evaluation inconsistencies
+and unavailable implementation details; do not repair them silently. If no
+complete prior-work model is recoverable, label any proposed finite model
+**NEW PROJECT MODELING ASSUMPTION**, not “MIMDRAM engine model.” Evaluation
+must justify, and preferably sensitivity-sweep, count, scope, allocation
+granularity, release lifetime, movement accounting and BLP/SALP interaction.
+Eight reported engines alone cannot restore E=8. E×Banks, one engine per
+primitive/Bank, or arbitrary multi-Bank parent control are forbidden shortcuts
+unless a new audit independently establishes that exact behavior.
 
 **Recovery, maintenance, and completion**
 
@@ -708,7 +768,13 @@ independent rows, progress, and recovery. Physical-mat exclusion follows the
 accepted project inference from MIMDRAM selection and circuitry; the single
 occupied-subarray boundary avoids importing SALP. Footprint protection through
 recovery is a physical execution constraint independent of control-engine
-accounting. Canonical location identity does not require timing simulation to
+accounting. Prior-work engines execute bbop/microProgram contexts, whereas a
+primitive-level engine charge would count physical compute primitives and
+exclude movement; the papers and inspected public artifacts do not supply a
+complete finite-control model connecting those contexts to evaluated BLP/SALP.
+Omitting that bottleneck explicitly is the selected performance abstraction;
+neither primitive E=8 nor a speculative parent-context model is justified by
+the reported count alone. Canonical location identity does not require timing simulation to
 store functional values. Fixed local compute phase costs expose the hybrid
 timing assumption without inventing width scaling. The four-residual/host
 boundary follows the available reduction evidence and connectivity while
@@ -760,7 +826,11 @@ Evidence
   | Gate B (placement) | 2026-09-08 | moved to the [geometry decision](mimdram-geometry-and-placement.md) |
 
   The movement footprint refinement and the no-finite-control-engine common
-  execution model were Accepted on 2026-09-16. Alternative-A/Q=8 code is
+  execution model were Accepted on 2026-09-16; the latter moved here from the
+  [multistandard decision](pud-multistandard-substrate.md) on 2026-11-19
+  (acceptance-time text in Git history at `3cd4204`). The finite-engine code
+  was removed in the common correction recorded in the completed
+  [multistandard plan](../plans/completed/pud-multistandard-substrate-plan.md). Alternative-A/Q=8 code is
   retained in Git history at `0ce6922` for possible sensitivity analysis.
 - **Source facts.** The
   [MIMDRAM movement reference](../references/mimdram-inter-column-data-movement.md)

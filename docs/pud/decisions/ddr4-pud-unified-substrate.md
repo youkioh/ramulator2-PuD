@@ -9,7 +9,7 @@ the complete modeled mat range or a narrower compute range?
 Decision
 
 **Finite-engine amendment (Accepted 2026-09-16).** The
-[common execution-model decision](pud-multistandard-substrate.md#accepted-common-execution-model--no-finite-control-engine-capacity-2026-09-16)
+[common execution-model decision](mimdram-execution-and-timing.md)
 supersedes only this document's finite primitive-engine-accounting clauses.
 Finite SIMDRAM/MIMDRAM control-unit capacity is outside the performance model:
 compute primitives and LC-MOV/GB-MOV all have no finite control-engine charge.

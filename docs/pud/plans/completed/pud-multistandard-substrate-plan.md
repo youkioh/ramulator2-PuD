@@ -259,7 +259,7 @@ Local documentation links/anchors, new-file whitespace checks and
 ## Common execution-model correction — before GDDR7 implementation
 
 Entry: Phase 1 is complete and the
-[common no-finite-engine decision](../../decisions/pud-multistandard-substrate.md#accepted-common-execution-model--no-finite-control-engine-capacity-2026-09-16)
+[common no-finite-engine decision](../../decisions/mimdram-execution-and-timing.md)
 and reciprocal DDR4 amendments are Accepted. The user separately authorized
 this correction; completion evidence is recorded below.
 No engine-driven G5/G7 gate remains.

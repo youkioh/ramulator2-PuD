@@ -525,7 +525,7 @@ workspace ownership and a justified allocation/release model. CHAIN alone
 cannot supply those semantics. The papers do not establish the missing
 fan-out mechanism, exact lifetime or grouping choice.
 
-The [common decision](../decisions/pud-multistandard-substrate.md#accepted-common-execution-model--no-finite-control-engine-capacity-2026-09-16)
+The [common decision](../decisions/mimdram-execution-and-timing.md)
 rejects this direction because the available evidence does not define it
 faithfully and the project chooses the DRAM-side abstraction below it.
 This is investigation history, not an active proposal or an unresolved

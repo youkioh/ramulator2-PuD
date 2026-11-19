@@ -38,8 +38,8 @@ These are current project authority. Historical decisions are in
   payload, and compute effects.
 - [mimdram-execution-and-timing](decisions/mimdram-execution-and-timing.md) —
   experiment boundary, request boundary, footprint conflicts, lifecycle and
-  maintenance, LC/GB sequences, target transport, timing graphs, and
-  movement statistics.
+  maintenance, no finite control-engine capacity, LC/GB sequences, target
+  transport, timing graphs, and movement statistics.
 
 ### Operation lowering and workloads
 
@@ -53,8 +53,7 @@ These are current project authority. Historical decisions are in
 
 - [pud-multistandard-substrate](decisions/pud-multistandard-substrate.md) —
   common substrate architecture, GDDR7/HBM3 bindings, and common trace and
-  frontend admission. Its common execution-model amendment
-  (no finite control-engine capacity) amends several decisions above.
+  frontend admission.
 
 ## References (`references/`)
 

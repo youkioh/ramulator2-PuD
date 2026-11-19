@@ -1,4 +1,4 @@
-Status: G0 Accepted; GDDR7 G1/G2/G3/G4/G6 Accepted; HBM3 G1/G2/G3/G4/G6 Accepted; G5/G7 Accepted.
+Status: Accepted
 
 Question
 
@@ -8,18 +8,18 @@ keeping unresolved physical profiles and timing explicit?
 
 Decision
 
-**Accepted — G0 common architecture (2026-09-16).** Phase 1's DDR4-preserving
-extraction is complete. The common execution-model amendment below and
-GDDR7/HBM3 G1/G2/G3/G4/G6 are Accepted.
-G5 remains Accepted. G7 is re-Accepted with utilization-aware GEMV packing
-and physical Request fusion; that policy now lives in the
-[GEMV/GEMM workload decision](pud-gemv-gemm-workload.md). Phase 4 was
-separately authorized and is implemented and validated.
-The common finite-engine correction and GDDR7 Phase-2 primitive binding and
-validation are complete. HBM3 Phase-3 primitive implementation and validation
-are also complete following separate user authorization.
-Older DDR4 authorities remain current except for the explicitly superseded
-finite-engine-accounting clauses listed below.
+This is the canonical authority for sharing the PuD substrate across DDR4,
+GDDR7, and HBM3: the common architecture (G0), the GDDR7 and HBM3 target
+bindings (G1–G4, G6), and the common trace and frontend admission (G5).
+Execution, timing, and the no-finite-control-engine policy are in the
+[execution decision](mimdram-execution-and-timing.md); GEMV/GEMM placement,
+packing, and fusion (formerly G7) are in the
+[workload decision](pud-gemv-gemm-workload.md). Gate labels G0–G7 match the
+[audit](../references/investigations/pud-multistandard-substrate-audit.md) and the
+[GDDR7](../references/gddr7-pud-modeling-reference.md) and
+[HBM3](../references/hbm3-pud-modeling-reference.md) references.
+
+**G0 — common architecture**
 
 1. Keep one Request/occurrence protocol, one invocation execution model, and
    one implementation of footprint ownership, compute allocation, movement
@@ -50,98 +50,13 @@ finite-engine-accounting clauses listed below.
    organization and calibration. Preserve current DDR4 registrations, numeric
    command IDs/order, configuration and generated behavior. Continue using
    shared command templates and regenerate generated files from their sources.
-6. Select independently named coordinated target placement profiles only
-   after explicit geometry/routing approval. Expose the selected C++ profile
-   to higher layers; do not maintain an independent Python mat map. Preserve
-   DDR4 defaults, legacy trace bytes and both existing GEMV schedules. Review
-   target trace encoding and placement enumeration before their first use.
+6. Use independently named coordinated target placement profiles (G1).
+   Expose the selected C++ profile to higher layers; do not maintain an
+   independent Python mat map. Preserve DDR4 defaults, legacy trace bytes and
+   both existing GEMV schedules.
 
-The behavior-preserving DDR4 extraction and GDDR7 binding are complete.
-HBM3 Phase-3 primitive implementation and validation are complete. No target may
-become executable with
-temporary DDR4 geometry, cycle counts, or a partially protected movement path.
-
-### Accepted common execution model — no finite control-engine capacity (2026-09-16)
-
-This common policy applies to **DDR4 PuD, GDDR7 PuD and future HBM PuD**.
-The modeled path is logical PuD operation -> physical PuD primitives -> DRAM
-command sequences. Model physical hierarchy/placement, mat/subarray/Bank
-footprints and conflicts, command resources and timing, no-SALP where applicable,
-movement dependencies, conventional/PuD protection, terminal recovery,
-frontend/dependency ordering and independently modeled queue/resource limits.
-
-Finite SIMDRAM/MIMDRAM bbop/microProgram control-unit throughput capacity is
-**outside the performance abstraction**. RowCopy, MAJ3, MAJ5, NOT, NOT_COPY,
-LC-MOV and GB-MOV have **no finite control-engine charge**. There is no primitive
-engine count and no engine-pool scope. Do not impose E=8 or any other finite E
-as a runtime primitive concurrency limit, multiply E by Banks, or create
-per-Bank pools. This omits a bottleneck; it does not assert infinite physical
-hardware resources. MIMDRAM's reported eight engines remain prior-work
-architecture/area evidence, not this simulator's primitive performance parameter.
-
-Do not introduce parent ADD/MUL/movement contexts, bbop IDs, OPERATION
-directives, completion joins or cross-output GEMV grouping merely to retain E.
-The investigated parent-context model is rejected. Existing arithmetic lowering,
-GEMV calls, reduction ordering, physical traces and CHAIN dependency semantics
-continue without bbop engine identity. G5 concerns target trace/hierarchy
-representation and compatibility; G7 concerns target GEMV placement/mapping
-portability. Neither depends on finite-engine modeling.
-
-**Narrow DDR4 amendment.** Supersede only these finite-engine clauses:
-
-- [Execution/ownership](mimdram-execution-and-timing.md):
-  Resources and admission's E/default/pool and atomic engine-plus-range charge;
-  Recovery, maintenance, and completion's engine retention/release; the
-  compute-versus-movement engine distinction and associated rationale.
-- [Unified DDR4 substrate](ddr4-pud-unified-substrate.md): selectable
-  compute-engine capacity and inherited first-fit finite-engine allocation.
-- [Timing/resources](mimdram-execution-and-timing.md): retained
-  compute-engine constraint, E=8/recovery cross-reference and engine waiting.
-- [Mat-target transport](mimdram-execution-and-timing.md): retained
-  independent E=8 default and inherited engine ownership.
-
-Those documents contain reciprocal amendments; their other clauses remain
-Accepted. Physical footprint ownership/conflicts, no-SALP, command and movement
-timing, placement, arithmetic/GEMV dependencies, terminal recovery and
-conventional/PuD protection are unchanged. The completed Phase-1 implementation
-still charges one engine per compute Request through recovery and none to
-movement. That is temporarily stale implementation behavior, not the desired
-architecture, and remains the basis of its frozen historical results until
-a separately authorized common code correction establishes a new baseline.
-Completed older plans and the original source audit likewise describe that
-implementation; they do not restore superseded engine authority.
-
-#### Future finite-engine reintroduction requirements
-
-Reintroduction requires a **new explicit architecture/modeling decision** and
-a dedicated audit of SIMDRAM, MIMDRAM, Proteus and later architectures explicitly
-modeling the same bottleneck. For each relevant work, independently establish:
-
-1. What consumes a context: bbop, complete operation, primitive, partition or other entity?
-2. Its scope: controller, Channel, Rank, Bank, subarray or another unit.
-3. The number of contexts.
-4. The allocation event.
-5. The release event.
-6. Whether movement consumes the same resource.
-7. Interaction with BLP.
-8. Interaction with SALP.
-9. Whether one context controls multiple Banks/subarrays.
-10. The actual hardware/control mechanism enabling any such fan-out.
-11. Whether independent operations progress concurrently.
-12. Whether the performance simulator implements finite occupancy/backpressure.
-13. Whether engines appear only in architectural prose or area accounting.
-14. How published performance evaluation accounts for capacity.
-15. The public source/code supporting each claim.
-
-Expose ambiguity, missing mechanisms, architecture/evaluation inconsistencies
-and unavailable implementation details; do not repair them silently. If no
-complete prior-work model is recoverable, label any proposed finite model
-**NEW PROJECT MODELING ASSUMPTION**, not “MIMDRAM engine model.” Evaluation
-must justify, and preferably sensitivity-sweep, count, scope, allocation
-granularity, release lifetime, movement accounting and BLP/SALP interaction.
-Eight reported engines alone cannot restore E=8. E×Banks, one engine per
-primitive/Bank, or arbitrary multi-Bank parent control are forbidden shortcuts
-unless a new audit independently establishes that exact behavior.
+No target may become executable with temporary DDR4 geometry, cycle counts,
+or a partially protected movement path.
 
 ### Accepted GDDR7 ACT-overhead exclusion (2026-09-16)
 
@@ -166,7 +81,7 @@ of eight physical MIMDRAM HFFs per GDDR7 mat. Subdivide rows contiguously:
 
 Authoritative PuD placement remains **hierarchy through Bank + Row + MatRange +
 optional Group**. The PuD trace/Request path does not require a physical
-byte address to execute an operation; this does not select the later G5 encoding.
+byte address to execute an operation; the trace encoding is G5.
 
 Retain the existing DDR4-style Ramulator integration,
 `CacheLineInterleave + RoBaRaCoCh`, for ordinary physical addresses in the
@@ -231,7 +146,8 @@ GDDR7 internal-path calibration.
 
 Finite microProgram-engine capacity is not modeled; primitive engine count is
 none, pool scope is not applicable, and compute/LC/GB admission has no finite
-engine charge, under the common policy above. No unrelated G3 blocker remains.
+engine charge, under the common policy in the
+[execution decision](mimdram-execution-and-timing.md). No unrelated G3 blocker remains.
 Retain the already resolved command-resource/RCK rules:
 
 | PuD command role | Accepted bus / occupancy | Scope and limitation |
@@ -284,7 +200,7 @@ Accepted G2 conversion exactly once:
 
 Retain existing PREab -> REFab/RFMab, REFab/RFMab -> PREab and nPPD
 relationships. Extend conventional PREab nRP and maintenance recovery into
-PuD opening commands when the binding is implemented; keep invocation-local
+PuD opening commands; keep invocation-local
 PRE recovery local. Common protected ownership blocks PREab/REF/RFM that
 intersect any active or recovering invocation, including pre-ACT reservations.
 
@@ -314,9 +230,7 @@ Phase 2; its completion evidence is retained in the plan.
 
 ### Accepted — HBM3 G1/G2/G3/G4/G6 (2026-09-17)
 
-**Accepted by the user's explicit instructions on 2026-09-17.** HBM3 Phase-3
-primitive implementation and validation were separately authorized and are
-complete. The [HBM3 reference](../references/hbm3-pud-modeling-reference.md)
+HBM3 Phase-3 primitive implementation and validation are complete. The [HBM3 reference](../references/hbm3-pud-modeling-reference.md)
 owns source inventory, external provenance, calculations and uncertainty.
 The Accepted common no-finite-control-engine and no-SALP policies are unchanged.
 G5 is Accepted in the Phase-4 section below; G7 is in the
@@ -325,7 +239,7 @@ G5 is Accepted in the Phase-4 section below; G7 is in the
 | Gate | Accepted choice | First Phase-3 consumer |
 | --- | --- | --- |
 | G1 | Restrict initial profile to `HBM3_8Gb_8hi`: actual Channel/PC/Sid/BG/Bank identity, sixteen 512×512 mats/subarray, 512 rows/subarray, sixteen aggregate HFF-equivalent positions/mat and 32 groups. One logical 32-bit participating slice, never Sid-as-Chip. | Target profile factory and resolver validation |
-| G2 | Retain physical PRADA phases (9,4,32.992,27.992,35) ns, independently quantized at exact 312.5 ps/half-CK: A*=29, A=13, A_S*=106, A_S=90, N=112 ticks; target PRE=52 ticks. Correct duration precision before using this calibration. | Clock-duration transport, target timing definitions and occurrence/recovery binding |
+| G2 | Retain physical PRADA phases (9,4,32.992,27.992,35) ns, independently quantized at exact 312.5 ps/half-CK: A*=29, A=13, A_S*=106, A_S=90, N=112 ticks; target PRE=52 ticks. Duration precision is transported exactly (corrected in Phase 3). | Clock-duration transport, target timing definitions and occurrence/recovery binding |
 | G3 | Shared Channel row/column buses; ACT-like compute and ACT_MOV occupy 3 ticks, rising-only with I+3 pairing. N occupies 1 tick, rising-only; RD_MOV/WR_MOV occupy 2 ticks, rising-only; PuD PRE occupies 1 tick on legal rising/falling edges. | HBM34 reservation/edge integration and PC-scoped shared publication |
 | G4 | Retain common LC/GB sequences, same-Bank/subarray endpoint restrictions, HBM3 read/restore/recovery analogues and tRELOC=1 ns independently quantized to nRELOC=4 half-CK ticks. | Movement occurrence/local timing and topology validation |
 | G6 | Fixed project baseline from `HBM3_8Gb_8hi / HBM3_6400Mbps`, with exact-half-CK duration/reporting, narrowly scoped recovery repairs and nRREFD=13 CK source-consistency correction. Open row policy, AllBank REF evaluation, zero RFM; automatic per-bank evaluation remains gated on issue-based set tracking. | Conventional timing repair, clock reporting, refresh integration and mixed-traffic verification |
@@ -343,15 +257,15 @@ Identity group/bit tables and directed `m -> m+1` edges for m=0..14,
 without reverse/wrap/cross-subarray/Bank/Sid/PC paths, are project conventions.
 Retain one-Channel CacheLineInterleave+RoBaRaCoCh as provisional ordinary PA
 compatibility mapping, separately from authoritative explicit PuD placement.
-No realistic GPU PA hash or target trace encoding is selected.
+No realistic GPU PA hash is selected; the target trace encoding is G5.
 
 **G2 exact duration and anchors.** One HBM3 simulator tick is **312.5 ps**,
 the exact nominal half-CK at the selected preset. The existing 312-ps runtime/
 export value is an integer-truncation/reporting artifact, not the desired
 physical-time model; the 312-ps compatibility alternative is not selected.
-Phase 3 must correct shared clock-duration precision transport through
-serialization, runtime duration and reporting before using HBM3 PuD
-physical-time calibration. Preserve integer half-tick scheduling semantics:
+Shared clock-duration precision transport carries it exactly through
+serialization, runtime duration and reporting (corrected in Phase 3 before
+HBM3 PuD physical-time calibration was used). Preserve integer half-tick scheduling semantics:
 this is a duration/reporting correction, not a different clock model.
 Use final-reception anchors and apply
 `issue_gap=interval+occupancy_before-occupancy_after` once, then HBM edge
@@ -481,14 +395,6 @@ Separating standard organization from physical placement also prevents a
 successful hierarchy conversion from being mistaken for physical evidence.
 Existing memory-standard presets cannot determine mats, HFFs or GB topology.
 
-The finite-engine amendment addresses an abstraction mismatch: prior-work
-engines execute bbop/microProgram contexts, whereas the current code charges
-physical compute primitives and excludes movement. The papers and inspected
-public artifacts do not supply a complete finite-control model connecting
-those contexts to evaluated BLP/SALP. Omitting that bottleneck explicitly is
-the selected performance abstraction; neither primitive E=8 nor a speculative
-parent-context model is justified by the reported count alone.
-
 G1 separates explicit PuD placement from replaceable ordinary PA compatibility;
 GPUHammer granularity alone cannot determine either mapper's bit functions.
 G2 preserves individual physical phases rather than compensating tSR for a
@@ -534,7 +440,7 @@ Evidence
   timing/resource alternatives and conventional-baseline gaps. It selects no
   policy; project status is recorded here.
 - The user's explicit instructions on 2026-09-16 accept the common finite-engine
-  scope amendment and G3, in addition to GDDR7 G1/G2/G4, and
+  scope amendment (now in the [execution decision](mimdram-execution-and-timing.md)) and G3, in addition to GDDR7 G1/G2/G4, and
   preserve the earlier no-ACT-envelope/no-sensitivity sub-decision. The
   [MIMDRAM technical reference](../references/mimdram-inter-column-data-movement.md#12-fine-grained-mat-access-structures)
   records the evaluated <0.5% ACT-latency evidence and its hybrid-applicability
