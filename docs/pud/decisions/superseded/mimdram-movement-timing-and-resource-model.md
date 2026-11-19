@@ -76,7 +76,7 @@ target queue or physical enqueue/dequeue schedule is invented.
 **History scopes and local timing**
 
 Compute phase history and terminal PRE recovery are range-local. Retain the
-[accepted PRADA intervals](../pud-timing-resource-and-command-bus-rules.md) and
+[accepted PRADA intervals](pud-timing-resource-and-command-bus-rules.md) and
 the current NOT_COPY N-to-ACT_PUD interval; do not duplicate these histories
 per mat or impose them through latest-Bank compute history. A range PRE must
 not update a Bank-wide deadline that blocks disjoint compute. Bank/rank-wide

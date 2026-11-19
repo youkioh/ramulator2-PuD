@@ -21,15 +21,11 @@ These are current project authority. Historical decisions are in
 ### DDR4 substrate, commands, and timing
 
 - [ddr4-pud-unified-substrate](decisions/ddr4-pud-unified-substrate.md) —
-  canonical public DDR4 PuD execution model and mat-range selection.
-- [ddr4-pud-code-structure](decisions/ddr4-pud-code-structure.md) — how
-  `DDR4_PuD` reuses DDR4 while leaving standard DDR4 unchanged.
-- [pud-activation-command-representation](decisions/pud-activation-command-representation.md) —
-  activation-variant command identities and operation levels.
-- [pud-not-command-granularity](decisions/pud-not-command-granularity.md) —
-  `N` as one explicit command.
-- [pud-timing-resource-and-command-bus-rules](decisions/pud-timing-resource-and-command-bus-rules.md) —
-  DDR4 PuD timing, resource occupancy, command bus, and activation windows.
+  canonical public DDR4 PuD execution model, `FULL_MAT`/`MatRange` selection,
+  and `DDR4_PuD` standard reuse and isolation.
+- [pud-prada-commands-and-timing](decisions/pud-prada-commands-and-timing.md) —
+  `ACT_PUD*` and `N` command identities, request-level primitives, and the
+  DDR4 PRADA timing derivation, bus occupancy, and activation-window rules.
 
 ### MIMDRAM geometry, execution, and timing
 

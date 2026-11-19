@@ -8,16 +8,6 @@ the complete modeled mat range or a narrower compute range?
 
 Decision
 
-**Finite-engine amendment (Accepted 2026-09-16).** The
-[common execution-model decision](mimdram-execution-and-timing.md)
-supersedes only this document's finite primitive-engine-accounting clauses.
-Finite SIMDRAM/MIMDRAM control-unit capacity is outside the performance model:
-compute primitives and LC-MOV/GB-MOV all have no finite control-engine charge.
-Physical footprint ownership/conflicts, no-SALP, command/movement timing,
-terminal recovery and conventional/PuD protection remain in force. The old
-Phase-1 E=8 implementation persists until separately authorized code correction;
-its results are historical implementation evidence, not the amended model.
-
 Use the completed W1-W9 PRADA/MIMDRAM substrate as the single canonical public
 DDR4 PuD execution model. The public substrate combines compute and movement;
 there is no separate public compute-only versus movement-capable PuD execution
@@ -108,8 +98,9 @@ GB-MOV interpretation and must not be used to invent one.
 The old Bank-wide PRADA compute path and the W1-W9 range-aware compute path are
 not two supported runtime models after consolidation. Runtime or configuration
 selection may choose a supported placement profile, but must not select legacy
-versus range-aware compute semantics. Finite compute-engine capacity is no
-longer a modeled option under the common amendment. Absence of an
+versus range-aware compute semantics. Finite compute-engine capacity is not a
+modeled option ([execution decision](mimdram-execution-and-timing.md)).
+Absence of an
 explicitly selected supported placement profile makes canonical PuD execution
 unavailable; it must never select Bank-wide compute. Movement uses the same
 protected invocation machinery with the
@@ -127,6 +118,17 @@ do not create separate legacy/v2 or compute-only/movement-capable public
 semantics. Implementation must expose one public configuration for the unified
 compute-and-movement substrate while preserving reusable internal layering as
 appropriate.
+
+**Standard reuse and isolation.** Define `DDR4_PuD` as a separate generated
+DRAM standard. Reuse the DDR4 Python definition through inheritance where
+appropriate, but independently copy all mutable command, state, timing,
+request, and preset collections before PuD extensions; common PuD
+declarations return fresh mutable definitions for the same reason. Do not
+introduce a shared C++ or generator base between DDR4 and `DDR4_PuD`; standard
+DDR4 stays unchanged. Common PuD factoring across DDR4, GDDR7, and HBM3
+follows the [multistandard decision](pud-multistandard-substrate.md) (G0).
+Command identities and DDR4 compute timing are in the
+[PRADA commands and timing decision](pud-prada-commands-and-timing.md).
 
 This decision does not add DRAM value simulation, arithmetic macros, reduction
 lowering, primitive-trace replay, a compiler, or a new movement topology. The
@@ -151,7 +153,10 @@ full-range interpretation for operations whose semantics depend on ordered
 source/destination groups and topology.
 
 Preserving reusable PRADA and movement definitions avoids unnecessary
-reimplementation and keeps standard DDR4 isolated. The consolidation removes
+reimplementation and keeps standard DDR4 isolated. A separate generated
+standard creates a distinct C++ class and registration with the smallest
+change to the existing generator, keeps PuD additions out of DDR4, and avoids
+unrelated refactoring. The consolidation removes
 an execution distinction, not implementation provenance or every identifier
 created while the substrate was developed.
 
@@ -160,16 +165,13 @@ Evidence
 - [Completed W1-W9 implementation record](../plans/completed/mimdram-pud-substrate-v2-implementation-plan.md)
   records the implemented resolver, paired-request retention, range-local
   Device state/timing, protected recovery lifetime, conflict rules, resolved
-  target consumption, engine allocation, public ingress, benchmarks, and final
-  integration validation.
-- [Addressing, geometry, and payload](mimdram-geometry-and-placement.md)
+  target consumption, public ingress, benchmarks, and final integration
+  validation.
+- [Geometry and placement](mimdram-geometry-and-placement.md)
   defines the replaceable placement profile, canonical CellID authority,
   explicit compute ranges, and movement endpoint footprints.
-- [Substrate and movement boundary](mimdram-execution-and-timing.md),
-  [execution/lifecycle](mimdram-execution-and-timing.md),
-  [timing/resources](mimdram-execution-and-timing.md), and
-  [target transport](mimdram-execution-and-timing.md) define the
-  accepted hybrid, range concurrency, footprint-local movement, local/shared
+- The [execution and timing decision](mimdram-execution-and-timing.md)
+  defines the accepted hybrid, range concurrency, footprint-local movement, local/shared
   timing, recovery, and resolved-target abstraction retained here.
 - [PRADA primitives](../references/pud-primitives.md),
   [DDR4 PuD timing](../references/ddr4-pud-timing-reference.md), and
@@ -183,13 +185,15 @@ Evidence
   `MatRange` before `pair` and Request construction. The configured profile
   installs that resolver, GenericDDR uses the protected range-aware path, and
   both public benchmarks invoke the unified substrate without a mode selector.
+- The Python code generator emits a standalone DRAMSpec-derived C++ class and
+  factory registration for each registered DRAMStandard subclass. Consolidated
+  on 2026-11-19 with the now-Superseded
+  [code-structure decision](superseded/ddr4-pud-code-structure.md).
 
 Open issues
 
-- The common finite-engine correction remains to be implemented; current code
-  still has the superseded E=8 admission behavior. Otherwise no execution-semantics
-  or implementation-packaging issue remains for the canonical public path.
-  Reusable `DDR4_PuD` and `DDR4_PuD_Movement`
+- No execution-semantics or implementation-packaging issue remains for the
+  canonical public path. Reusable `DDR4_PuD` and `DDR4_PuD_Movement`
   definitions remain implementation structure, not separate public models.
 - Additional placement profiles, physical transport fidelity, functional value
   simulation, and higher-level arithmetic or reduction execution require

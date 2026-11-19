@@ -1,4 +1,9 @@
-Status: Accepted
+Status: Superseded
+
+Superseded on 2026-11-19 by the [PRADA commands and timing decision](../pud-prada-commands-and-timing.md),
+which consolidates this document's current authority. The text below is
+historical provenance; its links and status notes describe the acceptance-time
+document set.
 
 Question
 
@@ -9,7 +14,7 @@ Decision
 
 **Current status (2026-09-10).** The numeric DDR4 timing, command-bus, and
 activation-current rules below remain current. The later Accepted
-[range-local timing/resource decision](mimdram-execution-and-timing.md)
+[range-local timing/resource decision](../mimdram-execution-and-timing.md)
 refines “target-bank-local” for canonical compute: these intervals are enforced
 from each protected resolved range's history rather than a Bank-global compute
 history. Conventional Bank/rank timing retains its ordinary scope.

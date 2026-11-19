@@ -40,7 +40,7 @@ unsupported. Unselected locations remain preserved.
 
 Retain the PRADA-derived compute phase decomposition, including the assumed
 `tCS`, derived sensing/restoration interval, and independently rounded timing
-intervals ([compute timing decision](pud-timing-resource-and-command-bus-rules.md)).
+intervals ([compute timing decision](pud-prada-commands-and-timing.md)).
 Local compute phase costs are independent of selected mat-range width; retain
 the existing incremental cost per RowCopy destination and do not invent
 width-dependent compute timing. Distinguish:
@@ -480,7 +480,7 @@ transport, queue pressure, or mat-selective ordinary-command coexistence.
 **Compute timing scopes and ACT overhead**
 
 Compute phase history and terminal PRE recovery are range-local. Retain the
-[accepted PRADA intervals](pud-timing-resource-and-command-bus-rules.md) and
+[accepted PRADA intervals](pud-prada-commands-and-timing.md) and
 the NOT_COPY N-to-ACT_PUD interval; do not duplicate these histories per mat
 or impose them through latest-Bank compute history. A range PRE must not
 update a Bank-wide deadline that blocks disjoint work. Bank/rank-wide work

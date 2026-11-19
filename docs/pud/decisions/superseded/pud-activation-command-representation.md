@@ -1,4 +1,9 @@
-Status: Accepted
+Status: Superseded
+
+Superseded on 2026-11-19 by the [PRADA commands and timing decision](../pud-prada-commands-and-timing.md),
+which consolidates this document's current authority. The text below is
+historical provenance; its links and status notes describe the acceptance-time
+document set.
 
 Question
 
@@ -37,8 +42,8 @@ operations.
 Open issues
 
 For the canonical DDR4 PuD substrate, later Accepted
-[execution/lifecycle](mimdram-execution-and-timing.md) and
-[timing/resource](mimdram-execution-and-timing.md) decisions
+[execution/lifecycle](../mimdram-execution-and-timing.md) and
+[timing/resource](../mimdram-execution-and-timing.md) decisions
 resolve state transitions, prerequisites, legality, and timing. Reuse on other
 DRAM standards or with different physical-fidelity assumptions requires a new
 decision.

@@ -1,4 +1,9 @@
-Status: Accepted
+Status: Superseded
+
+Superseded on 2026-11-19 by the [unified DDR4 substrate decision](../ddr4-pud-unified-substrate.md),
+which consolidates this document's current authority. The text below is
+historical provenance; its links and status notes describe the acceptance-time
+document set.
 
 Question
 
@@ -9,7 +14,7 @@ Decision
 **Current status (2026-09-10).** This remains an internal code-generation and
 isolation authority. The reusable `DDR4_PuD` and `DDR4_PuD_Movement`
 definitions do not establish separate public execution models; the
-[unified-substrate decision](ddr4-pud-unified-substrate.md) governs the public
+[unified-substrate decision](../ddr4-pud-unified-substrate.md) governs the public
 model.
 
 Define DDR4_PuD as a separate generated DRAM standard. Reuse the DDR4 Python

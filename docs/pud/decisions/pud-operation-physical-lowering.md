@@ -249,9 +249,7 @@ Evidence
   defines the canonical Bank/subarray/local-row placement authority, the
   current profile's 1,024 local rows per subarray, common compute `MatRange`,
   and the pointwise destructive effects of the five compute request types.
-- [Activation command representation](pud-activation-command-representation.md),
-  [NOT command granularity](pud-not-command-granularity.md), and
-  [timing/resource rules](pud-timing-resource-and-command-bus-rules.md) define
+- The [PRADA commands and timing decision](pud-prada-commands-and-timing.md) defines
   the request-level primitive boundary and physical-command costs that a
   removed terminal RowCopy no longer contributes.
 - The current generator [README](../../../tools/pud_operation_generator/README.md),

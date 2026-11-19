@@ -112,7 +112,7 @@ behavior.
 
 ### Decision Gate 1 — DDR4_PuD code structure
 
-Status: Accepted. See `docs/pud/decisions/ddr4-pud-code-structure.md`.
+Status: Accepted. See `docs/pud/decisions/superseded/ddr4-pud-code-structure.md`.
 
 Use an independent generated DDR4_PuD standard whose Python definition reuses
 DDR4 while keeping mutable definition collections independent.
@@ -269,7 +269,7 @@ After the decision gates:
 ### Decision Gate 4 — Activation-command representation
 
 Status: Accepted. See
-`docs/pud/decisions/pud-activation-command-representation.md`.
+`docs/pud/decisions/superseded/pud-activation-command-representation.md`.
 
 Represent `A`, `A*`, `A_S`, and `A_S*` as the explicit lower-level commands
 `ACT_PUD`, `ACT_PUD_OC`, `ACT_PUD_S`, and `ACT_PUD_S_OC`, respectively.
@@ -280,7 +280,7 @@ legality, and timing remain unresolved.
 ### Decision Gate 5 — Minimum simulator abstraction for `N`
 
 Status: Accepted. See
-`docs/pud/decisions/pud-not-command-granularity.md`.
+`docs/pud/decisions/superseded/pud-not-command-granularity.md`.
 
 Represent `N` as one explicit lower-level DRAM command. Separate BL/BL-bar
 precharge, BL-BL-bar charge sharing, sensing, and other internal circuit phases
@@ -443,7 +443,7 @@ timing engine or an explicitly approved minimal extension.
 ### Decision Gate 8 — Timing, resource, and command-bus rules
 
 Status: Accepted. See
-`docs/pud/decisions/pud-timing-resource-and-command-bus-rules.md`.
+`docs/pud/decisions/superseded/pud-timing-resource-and-command-bus-rules.md`.
 
 Use the actual Ramulator2 DDR4_2400R baseline, the accepted continuous-time
 derivation and ceiling conversion, and target-bank-local directed timing

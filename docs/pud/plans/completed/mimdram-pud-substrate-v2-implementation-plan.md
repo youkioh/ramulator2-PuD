@@ -350,7 +350,7 @@ Source evidence is in [MIMDRAM movement](../../references/mimdram-inter-column-d
 [MIMDRAM geometry](../../references/mimdram-geometry.md),
 [PuD primitives](../../references/pud-primitives.md), and
 [DDR4 PuD timing](../../references/ddr4-pud-timing-reference.md).
-[Existing PRADA timing authority](../../decisions/pud-timing-resource-and-command-bus-rules.md)
+[Existing PRADA timing authority](../../decisions/superseded/pud-timing-resource-and-command-bus-rules.md)
 supplies retained intervals, with C-T's range scope and the current NOT_COPY
 edge. The completed [compute](ddr4-pud-primitives-implementation.md) and
 [movement](mimdram-inter-column-movement-implementation-plan.md) plans establish
