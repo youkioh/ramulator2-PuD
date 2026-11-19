@@ -21,7 +21,7 @@ implements the same semantics directly, without parsing CUDA or using the `.cu`
 as runtime input. It emits physical primitive and movement requests for the
 existing unified substrate. The GPU interfaces remain specification declarations.
 The
-[baseline plan](../plans/pud-gemv-baselines-plan.md) tracks that work.
+[baseline plan](../plans/completed/pud-gemv-baselines-plan.md) tracks that work.
 
 The [Accepted macro contract](../decisions/pud-gemv-macro-contract.md) requires
 N > 0 and N divisible by HFFS_PER_MAT (four). N need not be divisible by
@@ -375,7 +375,7 @@ workspace reuse still has no modeled cost. Static placement capacity and the
 accepted engine, mat, subarray, Bank movement, command-bus and timing constraints
 remain authoritative. A peak above one establishes outstanding-request overlap,
 not necessarily simultaneous command execution on conflicting resources.
-The [baseline plan](../plans/pud-gemv-baselines-plan.md) records the identical
+The [baseline plan](../plans/completed/pud-gemv-baselines-plan.md) records the identical
 placement/configuration comparison. The completed characterization plan retains
 only historical same-bank evidence.
 

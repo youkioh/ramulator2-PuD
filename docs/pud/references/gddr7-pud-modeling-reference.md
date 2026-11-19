@@ -895,5 +895,5 @@ injected-command safety tests pass.
 
 Project choices and status are maintained only in the
 [canonical decision](../decisions/pud-multistandard-substrate.md); the
-[implementation plan](../plans/pud-multistandard-substrate-plan.md) tracks their
+[implementation plan](../plans/completed/pud-multistandard-substrate-plan.md) tracks their
 first code consumers. The evidence itself does not confer project acceptance.

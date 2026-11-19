@@ -444,7 +444,7 @@ require scalar PA.
 Preserve legacy DDR4 trace and layout v4 bytes/content exactly. New targets use
 the common versioned trace and layout v5, including global named Bank metadata.
 Resolve FULL_MAT to explicit inclusive endpoints. The
-[codec and compatibility evidence](../references/pud-phase4-g5-g7-investigation.md#3-g5-representation-candidates)
+[codec and compatibility evidence](../references/investigations/pud-phase4-g5-g7-investigation.md#3-g5-representation-candidates)
 records grammar, validation and investigated alternatives.
 
 **Frontend admission:** at most one ready Request admission attempt per
@@ -458,7 +458,7 @@ The single-controller DDR4 budget and frozen behavior remain unchanged.
 ### Accepted G7 — static GEMV placement, packing and fusion (2026-09-17)
 
 **Re-Accepted by the user's explicit packing/fusion selections.** The
-[packing/fusion investigation](../references/pud-phase4-g5-g7-investigation.md#11-utilization-aware-output-packing-and-request-fusion)
+[packing/fusion investigation](../references/investigations/pud-phase4-g5-g7-investigation.md#11-utilization-aware-output-packing-and-request-fusion)
 retains primitive legality, arithmetic proofs, capacities and alternatives.
 The selected policy below applies to new-target Phase-4 GEMV; the frozen
 legacy DDR4 generator remains unchanged.
@@ -574,7 +574,7 @@ on the legacy generator path or reinterpret its artifacts. Any later packed
 DDR4 characterization must use an explicitly separate mode/artifact identity
 and must not overwrite the frozen baseline.
 
-The [placement evidence](../references/pud-phase4-g5-g7-investigation.md#5-g7-logical-placement-interface)
+The [placement evidence](../references/investigations/pud-phase4-g5-g7-investigation.md#5-g7-logical-placement-interface)
 retains the earlier one-output capacity derivations and schedule mappings as
 a comparison case; section 11 records the packing/fusion evidence and selected
 alternative. G7 has no remaining packing/fusion gate. **Phase-4 implementation
@@ -769,7 +769,7 @@ Evidence
   the user's explicit closure selections re-Accept G7 with whole-slice packing,
   path-bounded fusion before Channel striping, and one physical CHAIN per
   packed output group, preserving all other selections. The
-  [Phase-4 investigation](../references/pud-phase4-g5-g7-investigation.md)
+  [Phase-4 investigation](../references/investigations/pud-phase4-g5-g7-investigation.md)
   retains source facts, derivations, compatibility checks and alternatives;
   implementation requires separate approval.
 - The user's explicit HBM3 acceptance instructions on 2026-09-17 select
@@ -788,7 +788,7 @@ Evidence
   [MIMDRAM technical reference](../references/mimdram-inter-column-data-movement.md#12-fine-grained-mat-access-structures)
   records the evaluated <0.5% ACT-latency evidence and its hybrid-applicability
   limitation.
-- [Source audit](../references/pud-multistandard-substrate-audit.md), especially
+- [Source audit](../references/investigations/pud-multistandard-substrate-audit.md), especially
   §§2–5, identifies each current consumer and the actual standard structures.
 - The user's explicit G6 instructions on 2026-09-17 accept the fixed baseline,
   conservative PREab repair and RFM Policy B above. The
@@ -809,14 +809,14 @@ Open issues
 
 G5/G7 are Accepted, including packing/fusion and the DDR4 compatibility boundary.
 Phase-4 implementation and its validation require separate user approval under
-the [Phase-4 plan](../plans/pud-multistandard-substrate-plan.md#phase-4--reusable-operationgemv-integration-and-characterization).
+the [Phase-4 plan](../plans/completed/pud-multistandard-substrate-plan.md#phase-4--reusable-operationgemv-integration-and-characterization).
 Exact realistic GPU PA hashing remains deferred outside the provisional G1
 mapping; physical-fidelity limitations remain as recorded in the references.
 No energy, SALP or functional payload simulation is selected by G5/G7.
 
 GEMM enumeration, 16 physical Bank CHAINs, per-bank band completion ordering,
 band-completion checkpoints and layout schema v1 are accepted.
-The [GEMM plan](../plans/pud-gemm-plan.md#completion-evidence--2026-10-11)
+The [GEMM plan](../plans/completed/pud-gemm-plan.md#completion-evidence--2026-10-11)
 records implementation and initial mapping, functional and lifecycle validation.
 Full target-size latency remains unmeasured and approximately 1 ms remains an
 unverified expectation; that timing run is not required for initial validation.

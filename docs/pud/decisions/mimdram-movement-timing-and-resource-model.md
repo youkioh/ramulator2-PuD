@@ -508,7 +508,7 @@ edges retain numeric authority, but canonical
 against [Request-local history](../../../src/ramulator/controller/pud_sequence.cpp).
 The same seam also enforces the six occurrence-specific LC/GB edges; incoming
 conventional recovery and shared Channel timing still use the hierarchy.
-The [milestone plan](../plans/pud-movement-footprint-plan.md) records isolated
+The [milestone plan](../plans/completed/pud-movement-footprint-plan.md) records isolated
 anchors, pairwise concurrency tests, regression validation and bounded GEMV
 evidence. Decimal arithmetic verified the four upper-envelope ceiling results
 above during the original acceptance.
@@ -527,10 +527,10 @@ one-command-per-tick controller behavior, scheduler readiness path, and
 existing general PRE/refresh recovery edges.
 
 This document consolidates the current accepted authority formerly carried by
-`mimdram-movement-timing-resource-scope.md`,
-`mimdram-movement-timing-responsibility.md`,
-`mimdram-movement-numeric-timing-and-directed-edges.md`, and the T3 transport
-portion of `mimdram-mat-targeting-and-transport-abstraction.md`. Those files
+`superseded/mimdram-movement-timing-resource-scope.md`,
+`superseded/mimdram-movement-timing-responsibility.md`,
+`superseded/mimdram-movement-numeric-timing-and-directed-edges.md`, and the T3 transport
+portion of `superseded/mimdram-mat-targeting-and-transport-abstraction.md`. Those files
 remain as historical provenance.
 
 Open issues
@@ -547,4 +547,4 @@ Open issues
 - Portability of the numeric assumptions to another timing preset,
   organization, or DRAM standard.
 - Current implementation progress is recorded in the
-  [implementation plan](../plans/mimdram-pud-substrate-v2-implementation-plan.md).
+  [implementation plan](../plans/completed/mimdram-pud-substrate-v2-implementation-plan.md).

@@ -157,7 +157,7 @@ created while the substrate was developed.
 
 Evidence
 
-- [Completed W1-W9 implementation record](../plans/mimdram-pud-substrate-v2-implementation-plan.md)
+- [Completed W1-W9 implementation record](../plans/completed/mimdram-pud-substrate-v2-implementation-plan.md)
   records the implemented resolver, paired-request retention, range-local
   Device state/timing, protected recovery lifetime, conflict rules, resolved
   target consumption, engine allocation, public ingress, benchmarks, and final

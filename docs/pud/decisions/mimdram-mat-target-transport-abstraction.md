@@ -74,7 +74,7 @@ do not claim physically complete MIMDRAM target-transport performance.
 
 The separately authorized W6 baseline alignment implements this contract.
 Implementation progress, validation and regression limitations are recorded in
-the [implementation plan](../plans/mimdram-pud-substrate-v2-implementation-plan.md).
+the [implementation plan](../plans/completed/mimdram-pud-substrate-v2-implementation-plan.md).
 
 Rationale
 
@@ -106,7 +106,7 @@ Evidence
   [Device dispatch](../../../src/ramulator/dram/device.cpp) and
   [controller issue](../../../src/ramulator/controller/controller_base.cpp)
   consume the validated resolved occurrence association without that machinery.
-- [W6 progress and baseline verification](../plans/mimdram-pud-substrate-v2-implementation-plan.md)
+- [W6 progress and baseline verification](../plans/completed/mimdram-pud-substrate-v2-implementation-plan.md)
   record the separately authorized implementation's runtime checks and limits.
   Historical detailed-transport verification is identified separately.
 

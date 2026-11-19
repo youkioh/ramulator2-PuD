@@ -20,7 +20,7 @@ additional-profile, mapping, and physical-evidence limits remain live.
 Accept Gate B on 2026-09-08 with the initial
 **MIMDRAM-DDR4_8Gb_x8 modeled placement profile v1** below. This is the
 canonical addressing/geometry authority for MIMDRAM-v2 and the successor to
-[movement addressing, geometry, and payload](mimdram-movement-addressing-geometry-and-payload.md).
+[movement addressing, geometry, and payload](superseded/mimdram-movement-addressing-geometry-and-payload.md).
 It carries forward the shared placement and movement-payload contracts while
 replacing the legacy opaque-selector model for v2. The old file remains
 historical provenance. Existing DDR4, DDR4_PuD, and DDR4_PuD_Movement
@@ -280,7 +280,7 @@ abstractions remain governed by the existing
 [execution](mimdram-movement-execution-ownership-and-device.md) and
 [timing](mimdram-movement-timing-and-resource-model.md) decisions for that
 baseline; they do not decide v2 Gate C. Legacy DDR4_PuD placement remains
-described by [compute placement](pud-operand-placement-and-routing.md).
+described by [compute placement](superseded/pud-operand-placement-and-routing.md).
 
 Bare legacy AddrVec operands do not become valid v2 placements automatically,
 even when Column is below 128. Require profile-resolved paired operands and

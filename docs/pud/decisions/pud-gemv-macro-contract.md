@@ -17,8 +17,8 @@ FP8-E4M3 and FP8-E5M2. CLI profiles are the baseline name followed by
 compatibility alias, or selectable characterization placement remains active.
 This cleanup maintains one unambiguous source of truth for evaluation and
 avoids silently retaining a third GEMV policy. The former same-bank placement
-is historical evidence in its [Superseded decision](pud-gemv-output-placement.md)
-and [completed plan](../plans/pud-gemv-output-placement-plan.md).
+is historical evidence in its [Superseded decision](superseded/pud-gemv-output-placement.md)
+and [completed plan](../plans/completed/pud-gemv-output-placement-plan.md).
 
 Both baselines use one channel/rank and identical deterministic BLP-first
 static placement, fastest to slowest:
@@ -97,7 +97,7 @@ PuD micro-operation-level temporary rows remain private to lowered ADD/MUL opera
 their counts come from the operation generator. PuD macro-operation-level temporary rows
 hold values across operations. Same-mat micro-operations are serialized.
 This acceptance closes the length gate before WU2 in the
-[integration plan](../plans/pud-gemv-trace-integration-plan.md).
+[integration plan](../plans/completed/pud-gemv-trace-integration-plan.md).
 
 Accepted by the user on 2026-09-15: the standalone phase-latency experiment
 measures MUL and reduction within one normal full execution, using generator
@@ -193,7 +193,7 @@ Evidence
   inputs and NoRefresh, and a separate GEMM interface reusing common mechanisms.
 - The user's subsequent 2026-10-11 acceptance selects GEMM layout schema v1
   and explicit per-bank band completion ordering, authorizes the English
-  [GEMM implementation plan](../plans/pud-gemm-plan.md), and excludes performance
+  [GEMM implementation plan](../plans/completed/pud-gemm-plan.md), and excludes performance
   lower-bound deliverables while retaining the unverified 1 ms expectation.
 - The user's final 2026-10-11 acceptance replaces 32 CHAINs and D1 with one
   CHAIN per Bank, band-completion checkpoints and unchanged frontend execution,
@@ -202,14 +202,14 @@ Evidence
   [arithmetic requirements](../../../tools/pud_operation_generator/requirements.py),
   and [functional replay](../../../tools/pud_gemv_generator/validation.py)
   establish the existing graph and visible-width implementation contracts.
-  The [GEMM implementation and validation evidence](../plans/pud-gemm-plan.md#completion-evidence--2026-10-11)
+  The [GEMM implementation and validation evidence](../plans/completed/pud-gemm-plan.md#completion-evidence--2026-10-11)
   records reuse of those mechanisms and the limits of the initial validation.
 - User acceptance of both named baseline policies and WU1-WU4 on 2026-09-14.
 - [Accepted addressing/payload](mimdram-addressing-geometry-and-payload.md):
   LC's common nonempty range, common rows/selectors and per-mat local copies.
   [Substrate boundary](mimdram-substrate-and-movement-request-boundary.md)
   explicitly calls this a lockstep range. Current request validation accepts it.
-- [Baseline implementation plan](../plans/pud-gemv-baselines-plan.md):
+- [Baseline implementation plan](../plans/completed/pud-gemv-baselines-plan.md):
   characterization audit, functional/Request validation and timing evidence.
 
 - [CUDA programming-model specification](../references/gpu-pud-gemv-programming-model.cu):
@@ -235,5 +235,5 @@ remain outside this milestone and require separate future authority.
 GEMM layout schema v1 and the separate API/CLI boundary are accepted. Field
 names and API/CLI spellings remain implementation details within that contract.
 Existing within-chain ordering closes the band dependency requirement; see the
-[handoff plan](../plans/pud-gemm-plan.md).
+[handoff plan](../plans/completed/pud-gemm-plan.md).
 This acceptance does not decide generalization beyond the initial shape.

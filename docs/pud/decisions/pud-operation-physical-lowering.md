@@ -230,7 +230,7 @@ program or placement.
 
 Evidence
 
-- [Physical-row allocation for fixed PuD primitive traces](../references/pud-physical-row-allocation.md)
+- [Physical-row allocation for fixed PuD primitive traces](../references/investigations/pud-physical-row-allocation.md)
   is the research and reference basis for current generator behavior,
   primitive read/write effects, closed lifetime endpoints, physical
   distinctness, constrained precoloring, terminal-output-copy elimination,

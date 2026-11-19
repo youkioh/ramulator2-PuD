@@ -375,7 +375,7 @@ Request stream, **not full end-to-end GEMV latency**. GPU launch/x duplication,
 transposition, readout/conversion, and residual/domain final combination remain
 excluded, including readout before workspace reuse. Static placement and the
 controller/substrate's timing and resource conflicts still constrain overlap.
-The [baseline plan](plans/pud-gemv-baselines-plan.md) reports compute primitive,
+The [baseline plan](plans/completed/pud-gemv-baselines-plan.md) reports compute primitive,
 LC-MOV, GB-MOV and total physical Request counts, controller cycles and peak
 inflight for both baselines under identical placement. Repeat with `--n 12`
 for the focused K=1 case. Cycles are performance evidence, not a fixed oracle.

@@ -26,7 +26,7 @@ substrate implementation.
 
 This decision records placement and composition policy only. Arithmetic and
 reduction macros remain outside the existing
-[substrate implementation plan](../plans/mimdram-pud-substrate-v2-implementation-plan.md);
+[substrate implementation plan](../plans/completed/mimdram-pud-substrate-v2-implementation-plan.md);
 its W3-W9 work remains unchanged. No compiler, generic lowering, or reduction
 implementation is authorized by this documentation decision.
 

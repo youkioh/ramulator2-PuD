@@ -435,7 +435,7 @@ derives one normalized physical footprint union; [GenericDDR](../../../src/ramul
 and [Device](../../../src/ramulator/dram/device.cpp) use protected invocation
 contexts. [Controller completion](../../../src/ramulator/controller/controller_base.cpp)
 retains protection through recovery and extracts completions before callbacks.
-The [milestone plan](../plans/pud-movement-footprint-plan.md) records verification.
+The [milestone plan](../plans/completed/pud-movement-footprint-plan.md) records verification.
 
 MIMDRAM supports physical mat selection, independent work on disjoint ranges,
 mat-local LC row-buffer/HFF/column resources, and explicit GB endpoints using
@@ -474,9 +474,9 @@ and typed `hffs_per_mat`; ordinary throughput uses only served Read/Write
 counts and the DRAM transaction byte width.
 
 This document consolidates the current accepted authority formerly carried by
-`mimdram-movement-occurrences-and-command-identities.md`,
-`mimdram-movement-ownership-and-atomicity.md`, and
-`mimdram-movement-minimum-device-state-and-actions.md`. Those files remain as
+`superseded/mimdram-movement-occurrences-and-command-identities.md`,
+`superseded/mimdram-movement-ownership-and-atomicity.md`, and
+`superseded/mimdram-movement-minimum-device-state-and-actions.md`. Those files remain as
 historical provenance.
 
 Open issues
@@ -491,7 +491,7 @@ Open issues
 - Future movement-aware mapping semantics that could make AQUA or RRS
   compatible with movement operands.
 - Implementation and v2 verification progress are recorded in the
-  [implementation plan](../plans/mimdram-pud-substrate-v2-implementation-plan.md).
+  [implementation plan](../plans/completed/mimdram-pud-substrate-v2-implementation-plan.md).
 - SALP-style cross-subarray execution, finite control-engine modeling,
   host/cache coherence, and mixed ordinary/PuD functional coherence are outside
   the accepted profile.
