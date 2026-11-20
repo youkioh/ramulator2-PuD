@@ -1,4 +1,4 @@
-"""E5M2 and E4M3 arithmetic traces with independent scalar references."""
+"""E2M1, E5M2, and E4M3 arithmetic traces with scalar references."""
 
 from dataclasses import dataclass
 from fractions import Fraction
@@ -13,6 +13,15 @@ class FP8Format:
     fraction_bits: int
     bias: int
     finite_only: bool
+    has_nan: bool
+
+    @property
+    def total_bits(self):
+        return 1 + self.exponent_bits + self.fraction_bits
+
+    @property
+    def sign_bit(self):
+        return self.total_bits - 1
 
     @property
     def exponent_mask(self):
@@ -29,7 +38,11 @@ class FP8Format:
     @property
     def max_normal(self):
         if self.finite_only:
-            significand = (1 << self.fraction_bits) + self.fraction_mask - 1
+            significand = (
+                (1 << self.fraction_bits)
+                + self.fraction_mask
+                - int(self.has_nan)
+            )
             exponent = self.exponent_mask
         else:
             significand = (1 << self.fraction_bits) + self.fraction_mask
@@ -42,15 +55,25 @@ class FP8Format:
         fraction = byte & self.fraction_mask
         if exponent == 0:
             return False
-        if self.finite_only:
+        if self.finite_only and self.has_nan:
             return not (
                 exponent == self.exponent_mask and fraction == self.fraction_mask
             )
-        return exponent != self.exponent_mask
+        return self.finite_only or exponent != self.exponent_mask
 
 
-E5M2 = FP8Format("e5m2", exponent_bits=5, fraction_bits=2, bias=15, finite_only=False)
-E4M3 = FP8Format("e4m3", exponent_bits=4, fraction_bits=3, bias=7, finite_only=True)
+E2M1 = FP8Format(
+    "e2m1", exponent_bits=2, fraction_bits=1, bias=1,
+    finite_only=True, has_nan=False,
+)
+E5M2 = FP8Format(
+    "e5m2", exponent_bits=5, fraction_bits=2, bias=15,
+    finite_only=False, has_nan=True,
+)
+E4M3 = FP8Format(
+    "e4m3", exponent_bits=4, fraction_bits=3, bias=7,
+    finite_only=True, has_nan=True,
+)
 
 
 class FP8Builder(Builder):
@@ -94,8 +117,13 @@ class FP8Builder(Builder):
 
 def _new_builder(format_):
     builder = FP8Builder(
-        [f"{operand}{bit}" for operand in ("A", "B") for bit in range(8)]
+        [
+            f"{operand}{bit}"
+            for operand in ("A", "B")
+            for bit in range(format_.total_bits)
+        ]
     )
+    builder.width = format_.total_bits
     builder.format_name = format_.name
     builder.exponent_bits = format_.exponent_bits
     builder.fraction_bits = format_.fraction_bits
@@ -105,15 +133,15 @@ def _new_builder(format_):
 
 def _build_fp8_mul(format_):
     builder = _new_builder(format_)
-    left = [f"A{bit}" for bit in range(8)]
-    right = [f"B{bit}" for bit in range(8)]
+    left = [f"A{bit}" for bit in range(format_.total_bits)]
+    right = [f"B{bit}" for bit in range(format_.total_bits)]
     fraction_bits = format_.fraction_bits
     exponent_bits = format_.exponent_bits
-    left_exponent = left[fraction_bits:7]
-    right_exponent = right[fraction_bits:7]
+    left_exponent = left[fraction_bits:format_.sign_bit]
+    right_exponent = right[fraction_bits:format_.sign_bit]
 
     builder.stage = f"{format_.name.upper()} MUL.1: sign XOR"
-    sign = builder.bit_xor(left[7], right[7])
+    sign = builder.bit_xor(left[format_.sign_bit], right[format_.sign_bit])
 
     builder.stage = (
         f"{format_.name.upper()} MUL.2: multiply implicit-one significands"
@@ -234,12 +262,13 @@ def _leading_bit_predicates(builder, magnitude):
 def _build_fp8_add(format_):
     builder = _new_builder(format_)
     left, right = (
-        [f"{operand}{bit}" for bit in range(8)] for operand in ("A", "B")
+        [f"{operand}{bit}" for bit in range(format_.total_bits)]
+        for operand in ("A", "B")
     )
     exponent_bits = format_.exponent_bits
     fraction_bits = format_.fraction_bits
-    left_exponent = left[fraction_bits:7]
-    right_exponent = right[fraction_bits:7]
+    left_exponent = left[fraction_bits:format_.sign_bit]
+    right_exponent = right[fraction_bits:format_.sign_bit]
     zero = builder.zero
     one = builder.one
 
@@ -247,7 +276,7 @@ def _build_fp8_add(format_):
         f"{format_.name.upper()} ADD.1: exponent difference and alignment predicates"
     )
     difference = builder.add(
-        left_exponent + [zero],
+        left_exponent + [zero], # add zero to LSB to get signed difference of unsigned exponents
         [builder.bit_not(row) for row in right_exponent + [zero]],
         cin=one,
     )[: exponent_bits + 1]
@@ -263,7 +292,7 @@ def _build_fp8_add(format_):
         f"{format_.name.upper()} ADD.2: select aligned operands and common exponent"
     )
     aligned_width = fraction_bits + 2
-    full_left = left[:fraction_bits] + [one, zero]
+    full_left = left[:fraction_bits] + [one, zero] # bit list is aligned from LSB to MSB from right to left, so add implicit one and zero for sign bit
     full_right = right[:fraction_bits] + [one, zero]
 
     alternatives = [(full_left, [zero] * aligned_width, left_exponent)]
@@ -307,10 +336,10 @@ def _build_fp8_add(format_):
         f"{format_.name.upper()} ADD.3: convert aligned operands to signed values"
     )
     signed_left = builder.conditional_twos_complement(
-        aligned_left + [zero], left[7]
+        aligned_left + [zero], left[format_.sign_bit]
     )
     signed_right = builder.conditional_twos_complement(
-        aligned_right + [zero], right[7]
+        aligned_right + [zero], right[format_.sign_bit]
     )
     builder.taps.update(signed_left=signed_left, signed_right=signed_right)
 
@@ -402,8 +431,8 @@ def scalar_fp8_mul_reference(left, right, format_):
         left_exponent == exponent_mask or right_exponent == exponent_mask
     ):
         exponent = exponent_mask
-    sign = ((left ^ right) >> 7) & 1
-    return (sign << 7) | (exponent << fraction_bits) | fraction
+    sign = ((left ^ right) >> format_.sign_bit) & 1
+    return (sign << format_.sign_bit) | (exponent << fraction_bits) | fraction
 
 
 def fp8_add_reference(left, right, format_):
@@ -441,8 +470,9 @@ def fp8_add_reference(left, right, format_):
             f"d<-{fraction_bits}",
         )
 
-    signed_left = -aligned_left if left & 0x80 else aligned_left
-    signed_right = -aligned_right if right & 0x80 else aligned_right
+    sign_mask = 1 << format_.sign_bit
+    signed_left = -aligned_left if left & sign_mask else aligned_left
+    signed_right = -aligned_right if right & sign_mask else aligned_right
     signed_sum = signed_left + signed_right
     sign = int(signed_sum < 0)
     magnitude = abs(signed_sum)
@@ -463,7 +493,7 @@ def fp8_add_reference(left, right, format_):
 
     fields_fit = 0 <= exponent <= exponent_mask
     encoding = (
-        (sign << 7) | (exponent << fraction_bits) | fraction
+        (sign << format_.sign_bit) | (exponent << fraction_bits) | fraction
         if fields_fit
         else None
     )
@@ -511,15 +541,23 @@ def normal_value(byte, format_):
         if shift >= 0
         else Fraction(significand, 1 << -shift)
     )
-    return -magnitude if byte & 0x80 else magnitude
+    return -magnitude if byte & (1 << format_.sign_bit) else magnitude
 
 
 def normal_positive_grid(format_):
     return [
         (normal_value(byte, format_), byte)
-        for byte in range(128)
+        for byte in range(1 << format_.sign_bit)
         if format_.is_normal(byte)
     ]
+
+
+def build_e2m1_add():
+    return _build_fp8_add(E2M1)
+
+
+def build_e2m1_mul():
+    return _build_fp8_mul(E2M1)
 
 
 def build_e5m2_add():

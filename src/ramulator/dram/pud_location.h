@@ -15,14 +15,14 @@ struct DRAMSpec;
 namespace PuD {
 
 /*
- * Canonical unified DDR4 PuD substrate:
+ * Common PuD substrate (DDR4 and GDDR7 primitive bindings):
  *
  * PlacementProfile / LocationResolver
  *     -> explicit resolved MatRange
  *     -> PairedOperand / Request
  *     -> GenericDRAM public ingress
- *     -> GenericDDR PuD buffer
- *     -> first-fit E-engine + complete-range allocation
+ *     -> controller PuD buffer
+ *     -> first-fit complete-footprint protection
  *     -> resolved occurrence issue
  *     -> terminal PRE / recovery
  *     -> release / accounting / callback
@@ -72,8 +72,16 @@ struct PhysicalBit {
   bool operator==(const PhysicalBit&) const = default;
 };
 
+// Actual hierarchy prefix, beginning at Channel. Its extent defines the scope.
+using HierarchyIdentity = AddrVec_t;
+
+// Complete actual hierarchy path through Bank. No synthetic Rank/BankGroup coordinates.
+// Its names and bounds belong to the retained resolver association.
+using BankIdentity = HierarchyIdentity;
+
 struct ExternalRow {
-  int channel, rank, bank_group, bank, row;
+  BankIdentity bank;
+  int row;
   bool operator==(const ExternalRow&) const = default;
 };
 struct ExternalLocation {
@@ -83,7 +91,8 @@ struct ExternalLocation {
   bool operator==(const ExternalLocation&) const = default;
 };
 struct CellID {
-  int channel, rank, bank_group, bank, subarray, local_row, chip, mat, column;
+  BankIdentity bank;
+  int subarray, local_row, chip, mat, column;
   bool operator==(const CellID&) const = default;
 };
 
@@ -91,7 +100,8 @@ struct CellID {
 // and either whole mat-rows or one ordered group per mat. No scalar anchor is
 // invented for a region, and resolving a bit never implicitly widens its extent.
 struct LayoutRegion {
-  int channel, rank, bank_group, bank, subarray, local_row;
+  BankIdentity bank;
+  int subarray, local_row;
   MatRange mats;
   std::optional<Group> group;
 };
@@ -102,6 +112,7 @@ struct MappingContext {
   std::string channel_mapper, address_mapper;
   bool row_remapping;
   int reserved_rows_per_bank;
+  int interleave_bits = 0;
   bool operator==(const MappingContext&) const = default;
 };
 
@@ -111,7 +122,10 @@ struct MappingContext {
 struct PlacementProfile {
   std::string name;
   int dq, prefetch, channel_width, organization_columns;
+  // External organization; Rank replication is DDR4-only.
   int bank_groups, banks_per_group, rows_per_bank;
+  int banks_per_channel = 0;  // GDDR7; DDR4 compatibility fields above are unused.
+  int pseudochannels = 0, sids_per_pc = 0;  // HBM ancestry, never Chip/Rank.
   int chips, mats_per_chip, cells_per_mat_row, hffs_per_mat, rows_per_subarray;
   std::vector<int> rank_counts;
   // External B -> internal G, common to all participating mats.
@@ -122,14 +136,19 @@ struct PlacementProfile {
   std::vector<int> group_position_to_column;
   // Logical mat -> direct GB destination; -1 denotes no outgoing edge.
   std::vector<int> gb_successor;
+  bool operator==(const PlacementProfile&) const = default;
 
   static PlacementProfile mimdram_ddr4_8gb_x8_v1();
+  static PlacementProfile mimdram_gddr7_16gb_x8_v1();
+  static PlacementProfile mimdram_hbm3_8gb_8hi_v1();
 };
 
 struct LocationAssociation {
   PlacementProfile profile;
   MappingContext routing;
-  int ranks;
+  int ranks;  // DDR4 scalar-map compatibility metadata; not an execution resource.
+  std::vector<std::string> bank_levels;
+  std::vector<int> bank_sizes;
 };
 struct ResolvedBit {
   std::shared_ptr<const LocationAssociation> association;
@@ -154,7 +173,9 @@ struct PairedOperand {
 };
 
 // Validates placement against an actual DRAMSpec and explicit mapping context.
-// GenericDDR installs this shared authority when the supported profile is selected.
+// Controllers install this shared authority when a supported profile is selected.
+// Scalar-map construction/validation shares one mechanism with explicit DDR4
+// and GDDR7 profile geometry (pud_location_ddr4.cpp).
 class LocationResolver {
  public:
   LocationResolver(PlacementProfile profile, const DRAMSpec& spec, MappingContext context);

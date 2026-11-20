@@ -16,6 +16,7 @@ class IChannelMapper {
 
   // Map the request to a channel: set req.addr_vec[0] and req.intra_channel_addr.
   virtual void apply(Request& req) const = 0;
+  virtual int interleave_bits() const { return -1; }
 };
 
 }  // namespace Ramulator

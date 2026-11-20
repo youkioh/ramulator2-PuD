@@ -94,7 +94,7 @@ class RRS : public IControllerPlugin, public Implementation {
     m_num_rows_per_bank = spec->get_level_size("Row");
     m_prefetch = spec->internal_prefetch_size;
     m_num_cls = spec->get_level_size("Column") / m_prefetch;
-    m_reset_period_clk = m_reset_period_ns / (spec->get_timing_value("tCK_ps") / 1000.0f);
+    m_reset_period_clk = m_reset_period_ns / (static_cast<float>(spec->tick_duration_ps) / 1000.0f);
 
     m_hrt.resize(m_num_banks);
     m_spillover_counter.assign(m_num_banks, 0);

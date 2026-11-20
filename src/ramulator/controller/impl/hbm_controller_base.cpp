@@ -43,6 +43,18 @@ void HBMControllerBase::hbm_tick_epilogue() {
 }
 
 std::optional<HBMControllerBase::IssuedCommand> HBMControllerBase::try_issue_slot(SlotType slot) {
+  if (m_device.m_spec->supports_compute_requests()) {
+    auto filter = [&](const Request& req) { return slot_matches(req, slot); };
+    auto cand = pick_pud_aware_candidate(filter, slot == SlotType::ColumnBus);
+    if (!cand.valid) return std::nullopt;
+    // Snapshot before common issue advances or retires the authoritative Request.
+    IssuedCommand issued{slot, cand.it->command, cand.it->addr_vec, m_clk};
+    // Preserve the conventional dual-bus policy: its ordinary active-close
+    // check precedes row-policy upgrade. PuD ownership and actual-command
+    // timing are still revalidated unconditionally by the shared issue path.
+    if (!issue_pud_aware_candidate(cand, filter, &issued.command, false)) return std::nullopt;
+    return issued;
+  }
   Candidate cand;
   if (slot == SlotType::ColumnBus) {
     cand = pick_best_ready_from(m_active_buffer, [&](const Request& req) {

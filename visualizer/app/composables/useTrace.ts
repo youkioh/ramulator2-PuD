@@ -32,7 +32,7 @@ export interface TraceSpec {
   commandMeta: CommandMeta[];
   commandCycles: Uint8Array;
   timingNames: string[];
-  timingValues: Int32Array;
+  timingValues: Float64Array;
 }
 
 export interface TraceArrays {
@@ -138,9 +138,12 @@ function parseSpec(buf: ArrayBuffer, header: TraceHeader): TraceSpec {
     readNullTerminatedStrings(view, offset, header.timingCount);
   offset += tnBytes;
 
-  const timingValues = new Int32Array(header.timingCount);
+  const timingValues = new Float64Array(header.timingCount);
+  const floatingTimings = header.version[0] === 1 && header.version[1] >= 2;
   for (let i = 0; i < header.timingCount; i++)
-    timingValues[i] = view.getInt32(offset + i * 4, true);
+    timingValues[i] = floatingTimings
+      ? view.getFloat64(offset + i * 8, true)
+      : view.getInt32(offset + i * 4, true);
 
   return { levelNames, levelSizes, commandNames, commandMeta, commandCycles, timingNames, timingValues };
 }

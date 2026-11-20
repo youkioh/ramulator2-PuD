@@ -14,6 +14,8 @@
 #include "ramulator/controller/plugin/i_controller_plugin.h"
 #include "ramulator/controller/scheduler/i_scheduler.h"
 #include "ramulator/dram/device.h"
+#include "ramulator/controller/pud_request_validation.h"
+#include "ramulator/controller/pud_sequence.h"
 
 class LocatedSystemUnderTest;
 class ControllerUnderTestCpp;
@@ -28,11 +30,10 @@ class PuDConflictUnderTest;
 
 /*
  * Unified public GenericDRAM -> GenericDDR admission -> existing PuD buffer.
- * GenericDDR: E=8 default, shared across this channel's Banks/Ranks
  * m_pud_buffer: pending PuD + allocated compute Requests (sole schedulable copies)
  *                    |
- *       compute: oldest-to-newest first fit, engine + complete range
- *       movement: first ACT acquires footprint, no compute engine
+ *       compute: oldest-to-newest first fit, complete physical footprint
+ *       movement: first ACT acquires footprint
  *                    |
  *                    v
  *        +----------------------------------+
@@ -50,11 +51,11 @@ class PuDConflictUnderTest;
  *        Request moves to m_pending; protection outlives command scheduling.
  *
  * Request owns sequence/history; context (device.h) owns protocol phase.
- * Delayed completion owns depart = terminal Request timestamp + nRP and releases
- * protection before accounting/callback.
+ * Delayed completion uses the binding's recovery anchor/interval and releases
+ * protection before accounting/callback (DDR4: terminal timestamp + nRP).
  * Protected records retain resource identity/lifetime via explicit reservations.
  * PuD issue --> Device consumes the current resolved occurrence (device.h).
- * GenericDDR derives free engines/ranges from this store (E=8 by default).
+ * GenericDDR checks physical footprint conflicts against this store.
  * Allocation derives from the Request/context association. Ready allocated
  * compute uses GenericDDR's narrow candidate path; no active-buffer ownership,
  * separate allocated-request container or allocator range table.
@@ -87,6 +88,8 @@ class ControllerBase : public IController, public Implementation {
   // Install the shared placement authority before traffic; canonical public
   // execution also requires the combined standard capability.
   void set_location_resolver(std::shared_ptr<const PuD::LocationResolver> resolver);
+  void initialize_system_locations(std::shared_ptr<const PuD::LocationResolver> shared,
+      int channels, const std::string& channel_mapper, int interleave_bits) override;
 
   bool send(Request& req) override;
   bool priority_send(Request& req) override;
@@ -124,6 +127,7 @@ class ControllerBase : public IController, public Implementation {
   IRowPolicy* m_rowpolicy = nullptr;
   std::vector<IControllerPlugin*> m_plugins;
   std::shared_ptr<const PuD::LocationResolver> m_location_resolver;
+  std::string m_pud_placement_profile;
 
   // Request buffers
   std::deque<Request> m_pending;
@@ -146,33 +150,41 @@ class ControllerBase : public IController, public Implementation {
 
   // Cached spec lookups
   int m_bank_level = -1;
-  int m_tCK_ps = -1;
+  double m_tCK_ps = -1;
 
   // Per flat-bank count of requests in m_active_buffer (typically 0 or 1).
   // Maintained by promote_to_active / retire_request.
   std::vector<int> m_active_per_bank;
 
-  // PuD invocation lifetime; compute reservations also retain engine allocation.
+  // Physical PuD invocation lifetime, from acquisition through terminal recovery.
   // Neither this store nor the context owns a cursor or duplicates mat geometry.
   struct ProtectedPuD {
-    int engine;  // -1 for movement; it never consumes a compute engine.
     std::shared_ptr<PuDExecutionContext> context;
     bool completion_pending = false;
   };
   std::vector<ProtectedPuD> m_protected_pud;
-  bool reserve_pud_compute(Request& req, int engine);
-  bool pud_compute_resources_available(const Request& req, int engine) const;
+  bool reserve_pud_compute(Request& req);
+  bool pud_compute_resources_available(const Request& req) const;
   bool pud_compute_start_eligible(const Request& req) const;
   PuDExecutionContext& protected_pud_context(const Request& req) const;
   ProtectedPuD& protected_pud_record(const Request& req);
   void release_completed_resources(Request& req);
 
   // Issue mechanics for protected contexts; movement acquires at first ACT.
-  // These methods neither allocate engines nor select/schedule pending work.
+  // These methods do not select/schedule pending work.
   bool check_pud_compute_issue(const Request& req);
   void issue_pud_compute(Request& req);
   bool check_pud_movement_issue(const Request& req);
   void issue_pud_movement(Request& req);
+
+  // Opt-in PuD integration; conventional controllers keep their existing tick.
+  PuDPlacementLevels m_pud_placement_levels{};
+  PuDMovementTimingConstraints m_movement_timing{};
+  bool check_pud_request_timing(const Request& req);
+  std::optional<bool> try_send_pud_request(Request& req);
+  bool is_pud_candidate_eligible(const Request& req) const;
+  bool is_active_movement_sequence(const Request& req) const;
+  void protect_pending_pud_compute();
 
   // Stats
   Clk_t m_measured_clk = 0;
@@ -248,6 +260,13 @@ class ControllerBase : public IController, public Implementation {
     ReqBuffer::iterator it;
     ReqBuffer* buffer = nullptr;
   };
+
+  Candidate pick_allocated_compute(RequestFilterRef command_filter = {});
+  Candidate pick_pud_aware_candidate(RequestFilterRef command_filter = {}, bool include_ordinary_active = true);
+  // After the controller grants a command slot. Preserves pre-issue views for
+  // notifications, then retires/promotes the sole authoritative Request.
+  bool issue_pud_aware_candidate(Candidate& candidate, RequestFilterRef command_filter = {},
+                                 int* issued_command = nullptr, bool recheck_ordinary_active_close = true);
 
   Candidate pick_best_ready_from(
       ReqBuffer& buffer,

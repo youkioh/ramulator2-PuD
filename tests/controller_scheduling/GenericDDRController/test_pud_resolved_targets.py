@@ -40,7 +40,7 @@ def blocked(d, source, clk):
 @pytest.mark.parametrize("mats", [(0, 0), (15, 16), (0, 127)])
 def test_resolved_occurrences_and_recovery_anchors(name, mats):
     d, r = fixture()
-    assert d.add(compute(r, name, mats, row=21), 1, 0)
+    assert d.add(compute(r, name, mats, row=21), 1)
     for index, (clk, command) in enumerate(zip(TIMELINES[name], COMMANDS[name])):
         if index:
             blocked(d, 1, clk-1)
@@ -70,7 +70,7 @@ def test_resolved_occurrences_and_recovery_anchors(name, mats):
 def test_rowcopy_each_equal_range_retains_distinct_operand(destinations, mats):
     d, r = fixture()
     req = request(r, "RowCopy", [descriptor(10+i, mats) for i in range(destinations+1)])
-    assert d.add(req.copy(), 1, 0)
+    assert d.add(req.copy(), 1)
     for index, clk in enumerate([0] + [40+5*i for i in range(destinations+1)]):
         before = d.compute_state(1)
         occurrence = before["occurrences"][index]
@@ -85,9 +85,9 @@ def test_rowcopy_each_equal_range_retains_distinct_operand(destinations, mats):
 @pytest.mark.parametrize("mats", [(0, 0), (15, 16)])
 def test_many_explicit_reservations_have_no_per_chip_issue_order_or_capacity(mats):
     d, r = fixture()
-    # Explicit fixture engines, not a production allocation policy or E default.
+    # Explicit fixture reservations, independent of production admission policy.
     for i in range(12):
-        assert d.add(compute(r, "NOT", mats, bank=i % 4, bg=i // 4), i, i)
+        assert d.add(compute(r, "NOT", mats, bank=i % 4, bg=i // 4), i)
     for clk, i in enumerate(reversed(range(12))):
         issue(d, i, clk)
     assert d.held() == 12
@@ -107,7 +107,7 @@ def test_cold_and_late_activation_issue_as_soon_as_ordinary_recovery_allows(late
         d.raw("PREpb", addr(), True)
     clk = (16 if preceding_pre else 0) + late
     d.advance(clk)
-    assert d.add(compute(r, "NOT"), 1, 0)
+    assert d.add(compute(r, "NOT"), 1)
     issue(d, 1, clk)
     assert d.compute_state(1)["history"] == [clk, -1, -1]
 
@@ -115,7 +115,7 @@ def test_cold_and_late_activation_issue_as_soon_as_ordinary_recovery_allows(late
 @pytest.mark.parametrize("command", ["ACT", "ACT_MOV"])
 def test_actual_compute_cycle_blocks_other_bank_but_next_cycle_is_free(command):
     d, r = fixture()
-    assert d.add(compute(r), 1, 0)
+    assert d.add(compute(r), 1)
     issue(d, 1, 0)
     before = snapshot(d, 1)
     assert not d.probe(command, command, addr(bank=1))["issue"]
@@ -130,7 +130,7 @@ def test_actual_compute_cycle_blocks_other_bank_but_next_cycle_is_free(command):
 @pytest.mark.parametrize("command", ["ACT", "ACT_MOV"])
 def test_ordinary_or_movement_command_cycle_blocks_compute_without_mutation(command):
     d, r = fixture()
-    assert d.add(compute(r), 1, 0)
+    assert d.add(compute(r), 1)
     d.raw(command, addr(bank=1), True)
     blocked(d, 1, 0)
     issue(d, 1, 1)
@@ -139,7 +139,7 @@ def test_ordinary_or_movement_command_cycle_blocks_compute_without_mutation(comm
 @pytest.mark.parametrize("scheduler", ["FRFCFS", "FRFCFS-RowHit"])
 def test_scheduled_ordinary_command_issues_next_cycle(scheduler):
     d, r = fixture(scheduler)
-    assert d.add(compute(r), 1, 0)
+    assert d.add(compute(r), 1)
     issue(d, 1, 0)
     d.send(0, addr(bank=1), 2)
     d.advance(1)
@@ -150,7 +150,7 @@ def test_scheduled_ordinary_command_issues_next_cycle(scheduler):
 @pytest.mark.parametrize("scheduler", ["FRFCFS", "FRFCFS-RowHit"])
 def test_scheduled_movement_issues_next_cycle_and_preserves_local_anchor(name, scheduler):
     d, r = fixture(scheduler)
-    assert d.add(compute(r), 1, 0)
+    assert d.add(compute(r), 1)
     issue(d, 1, 0)
     d.movement(movement(r, name, bank=1), 2)
     d.advance(1)
@@ -170,7 +170,7 @@ def test_scheduled_movement_issues_next_cycle_and_preserves_local_anchor(name, s
 def test_allocated_ranges_drain_after_maintenance_arrives_before_first_act(scheduler):
     d, r = fixture(scheduler)
     for i, mats in enumerate([(14, 15), (15, 16), (16, 17)]):
-        assert d.add(compute(r, mats=mats, bank=i), i, i)
+        assert d.add(compute(r, mats=mats, bank=i), i)
     d.priority("REFab", scope())
     assert not d.start(compute(r, bank=3))
     for offset in (0, 40, 45):
@@ -185,7 +185,7 @@ def test_allocated_ranges_drain_after_maintenance_arrives_before_first_act(sched
 def test_replacement_profile_supplies_resolved_row_and_chip_segments_across_n():
     r, config = synthetic()
     d = _PuDConflictUnderTest(controller(config, mapper="PassThroughAddrMapper"))
-    assert d.add(compute(r, "NOT_COPY", (7, 8), row=1022), 1, 0)
+    assert d.add(compute(r, "NOT_COPY", (7, 8), row=1022), 1)
     for index, clk in enumerate(TIMELINES["NOT_COPY"]):
         occurrence = d.compute_state(1)["occurrences"][index]
         assert occurrence["range"] == [7, 8]
@@ -204,7 +204,7 @@ def test_unallocated_and_released_associations_cannot_issue():
         with pytest.raises(RuntimeError, match="protected PuD invocation context"):
             d.unallocated_dispatch(compute(r), mutate)
         assert snapshot(d) == before
-    assert d.add(compute(r), 1, 0)
+    assert d.add(compute(r), 1)
     for clk in TIMELINES["RowCopy"]:
         issue(d, 1, clk)
     d.advance(61)
@@ -217,8 +217,8 @@ def test_unallocated_and_released_associations_cannot_issue():
 
 def test_disjoint_activation_after_range_pre_keeps_close_and_target_independent():
     d, r = fixture()
-    assert d.add(compute(r, mats=(0, 0)), 1, 0)
-    assert d.add(compute(r, "NOT_COPY", (1, 1), row=30), 2, 1)
+    assert d.add(compute(r, mats=(0, 0)), 1)
+    assert d.add(compute(r, "NOT_COPY", (1, 1), row=30), 2)
     for clk in TIMELINES["RowCopy"]:
         issue(d, 1, clk)
     before = d.compute_state(1)
@@ -240,8 +240,8 @@ def test_shared_deadline_honors_actual_command_cycles(command):
     config["command_cycles"][Standard.commands.index(command)] = 3
     d = _PuDConflictUnderTest(controller(config, mapper="PassThroughAddrMapper"))
     r = resolver(config=config)
-    assert d.add(compute(r, "NOT", (0, 0)), 1, 0)
-    assert d.add(compute(r, "MAJ3", (1, 1)), 2, 1)
+    assert d.add(compute(r, "NOT", (0, 0)), 1)
+    assert d.add(compute(r, "MAJ3", (1, 1)), 2)
     if command == "ACT_PUD_S_OC":
         issue(d, 1, 0)
     else:

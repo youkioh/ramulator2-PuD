@@ -2,6 +2,7 @@
 from collections import Counter
 import json
 from pathlib import Path
+from .targets import target_config
 
 from tools.pud_operation_generator import PhysicalRowLayout, lower_to_physical
 from tools.pud_operation_generator.requirements import (
@@ -15,10 +16,93 @@ PROFILES = {f"{baseline}-{format_}": (f"{format_}-add", f"{format_}-mul")
 OPCODES = {"TRA": "MAJ3", "5RA": "MAJ5"}
 
 
-def placement_profile():
+def placement_profile(target="DDR4"):
     # The C++ factory is the only source of geometry, group order and topology.
     from ramulator._ramulator import pud_placement_profile
-    return pud_placement_profile()
+    if target == "DDR4":
+        return pud_placement_profile()
+    config = target_config(target)
+    return pud_placement_profile(config["dram"].to_config(), config["profile"], config["channels"])
+
+
+def _group_placement(geometry, footprint, group):
+    """One connected path per fusion group, Channel first, then accepted ancestry."""
+    sizes = dict(zip(geometry["bank_levels"], geometry["bank_sizes"]))
+    order = (["Channel", "PseudoChannel", "BankGroup", "Bank", "Sid"]
+             if "PseudoChannel" in sizes else ["Channel", "Bank"]
+             if "Rank" not in sizes else ["Channel", "Bank", "BankGroup", "Rank"])
+    context = {}
+    remaining = group
+    for name in order:
+        remaining, context[name] = divmod(remaining, sizes[name])
+    remaining, chip = divmod(remaining, geometry["chips"])
+    band, subarray = divmod(remaining, geometry["rows_per_bank"] // geometry["rows_per_subarray"])
+    if footprint > geometry["rows_per_subarray"]:
+        raise ValueError("GEMV output layout exceeds local-row capacity")
+    if band >= geometry["rows_per_subarray"] // footprint:
+        raise ValueError("GEMV layout exceeds system placement capacity")
+    return [context[name] for name in geometry["bank_levels"]], subarray, band*footprint, chip*geometry["mats_per_chip"]
+
+
+def _fuse_group(trace, records, depth):
+    """Compose equal-graph members at each dependency frontier before advancing.
+
+    Includes every member move before the next shared arithmetic primitive.
+    Prefold suffix restoration retains its original position after ADD. GB
+    edges stay singleton; compute and identical LC pairs union only adjacent
+    or identical ranges. Callers own placement and connectivity: GEMV supplies
+    one chip-local path; GEMM may replicate an already synchronized, GB-free
+    local graph across chips without extending its reduction domain.
+    """
+    start = records[0]["first_request_index"] - 1
+    streams = [trace[r["first_request_index"]-1:r["domains"][-1]["completion_index"]] for r in records]
+    if len({len(s) for s in streams}) != 1:
+        raise AssertionError("packed members must share the same arithmetic graph")
+    boundaries = {r["initial_mul_final_request_index"]-r["first_request_index"]+1 for r in records}
+    boundaries.update(d["completion_index"]-r["first_request_index"]+1 for r in records for d in r["domains"])
+    fused, ends = [], {}
+    # generate() passes request tuples; other callers may pass serialized lines.
+    # Output keeps the input representation.
+    textual = bool(streams[0]) and isinstance(streams[0][0], str)
+    if textual:
+        streams = [[(opcode, *map(int, fields)) for opcode, *fields in map(str.split, stream)]
+                   for stream in streams]
+    lo, hi = depth + 1, depth + 3
+    for index, frontier in enumerate(zip(*streams), 1):
+        compatible = {}
+        for member, line in enumerate(frontier):
+            # Key: opcode, context and operands; the mat range varies per member.
+            key = (line[:lo], line[hi:], member if line[0] == "GB-MOV" else None)
+            ranges = compatible.get(key)
+            if ranges is None:
+                compatible[key] = [line[lo:hi]]
+            else:
+                ranges.append(line[lo:hi])
+        for (head, operands, _), ranges in compatible.items():
+            opcode, context = head[0], head[1:]
+            merged = []
+            for first, last in sorted(set(ranges)):
+                if opcode != "GB-MOV" and merged and first <= merged[-1][1]+1:
+                    merged[-1] = (merged[-1][0], max(last, merged[-1][1]))
+                else:
+                    merged.append((first, last))
+            for first, last in merged:
+                request = (opcode, *context, first, last, *operands)
+                fused.append(" ".join(map(str, request)) if textual else request)
+        if index in boundaries:
+            ends[index] = start + len(fused)
+    for record in records:
+        old_start = record["first_request_index"]-1
+        record["initial_mul_final_request_index"] = ends[record["initial_mul_final_request_index"]-old_start]
+        for domain in record["domains"]:
+            domain["completion_index"] = ends[domain["completion_index"]-old_start]
+            domain["checkpoint_request"] = domain["completion_index"]-start
+        record["first_request_index"] = start+1
+    trace[start:] = fused
+    return dict(chain_id=records[0]["chain_id"], output_ids=[r["output_id"] for r in records],
+                context=records[0]["context"], first_request_index=start+1,
+                initial_mul_final_request_index=records[0]["initial_mul_final_request_index"],
+                completion_index=start+len(fused))
 
 
 def _output_placement(geometry, k, footprint, output):
@@ -44,11 +128,12 @@ def _output_placement(geometry, k, footprint, output):
     return [0, 0, bg, bank], subarray, band * footprint, mats
 
 
-def generate(profile, m, n):
+def generate(profile, m, n, *, target="DDR4"):
     if profile not in PROFILES:
         raise ValueError("expected an explicit baseline/profile: " + ", ".join(PROFILES))
     baseline, format_ = profile.split("-", 2)[1:]
-    geometry = placement_profile()
+    geometry = placement_profile(target)
+    packed = target != "DDR4"
     width, h = geometry["cells_per_mat_row"], geometry["hffs_per_mat"]
     if type(m) is not int or m <= 0:
         raise ValueError("M must be a positive integer")
@@ -73,18 +158,36 @@ def generate(profile, m, n):
     footprint = 2*bits*domain_count + 3*bits + len(constant_names) + op_rows
     rows_per_subarray = geometry["rows_per_subarray"]
     # Reject excessive M before lowering any arithmetic or materializing outputs.
-    _output_placement(geometry, output_mats, footprint, m - 1)
+    packing_factor = width // n if n <= width else 1
+    members_per_group = (domain_mats // output_mats) * packing_factor
+    if packed:
+        _group_placement(geometry, footprint, (m-1)//members_per_group)
+    else:
+        _output_placement(geometry, output_mats, footprint, m - 1)
     trace, outputs, micro_operation_counts = [], [], Counter()
+    groups = []
     # Programs are fixed for this generate() call. Cache only local-row lowering;
     # each invocation still emits its own context, mat range and external rows.
     lowering_cache = {}
+    shifted_cache = {}
 
     def emit(opcode, context, first, last, *operands):
-        trace.append(" ".join(map(str, (opcode, *context, first, last, *operands))))
+        # Requests stay tuples until all fusion is done; serialized once below.
+        trace.append((opcode, *context, first, last, *operands))
 
     for output in range(m):
-        context, subarray, base, mats = _output_placement(
-            geometry, output_mats, footprint, output)
+        origin = 0
+        if packed:
+            group_id, member = divmod(output, members_per_group)
+            context, subarray, base, path_start = _group_placement(geometry, footprint, group_id)
+            origin = (member % packing_factor)*n if n <= width else 0
+            first = path_start + (member // packing_factor)*output_mats
+            mats = tuple(range(first, first+output_mats))
+            if any(geometry["gb_successor"][a] != b for a, b in zip(mats, mats[1:])):
+                raise ValueError("GEMV requires a profile-supported contiguous forward range")
+        else:
+            context, subarray, base, mats = _output_placement(
+                geometry, output_mats, footprint, output)
         external_base = subarray * rows_per_subarray
         primary = base + 2*bits*domain_count
         reduction, movement = primary + bits, primary + 2*bits
@@ -101,6 +204,9 @@ def generate(profile, m, n):
             "micro_operation_temporary_rows": [external_base + row for row in temporary],
             "domains": [],
         }
+        if packed:
+            record.update(output_id=output, chain_id=group_id, packed_output_group=group_id,
+                          position_origin=origin, group_origin=origin//h)
 
         def arithmetic(name, a, b, dst, first, last):
             program = programs[name]
@@ -123,9 +229,17 @@ def generate(profile, m, n):
             if lowered.additional_temporary_rows != count or len(lowered.primitives) != requirements[name]["primitive_count"]:
                 raise AssertionError("operation requirements differ from physical instantiation")
             micro_operation_counts[name] += 1
-            for primitive in lowered.primitives:
-                emit(OPCODES.get(primitive.opcode, primitive.opcode), context, first, last,
-                     *(external_base + row for row in primitive.physical_rows))
+            # The lowered primitive list is fixed per (lowering, external base);
+            # cache its opcode/external-row form instead of rebuilding per call.
+            shifted_key = (key, external_base)
+            shifted = shifted_cache.get(shifted_key)
+            if shifted is None:
+                shifted = shifted_cache[shifted_key] = [
+                    (OPCODES.get(primitive.opcode, primitive.opcode),
+                     tuple(external_base + row for row in primitive.physical_rows))
+                    for primitive in lowered.primitives]
+            prefix = tuple(context)
+            trace.extend([(opcode, *prefix, first, last, *rows) for opcode, rows in shifted])
 
         def move(src, dst, src_mat, dst_mat, src_offset, dst_offset, count, *, local_last=None):
             if any(v % h for v in (src_offset, dst_offset, count)):
@@ -142,8 +256,8 @@ def generate(profile, m, n):
             for bit in range(bits):
                 for offset in range(0, count, h):
                     emit(opcode, context, src_mat, dst_mat if local_last is None else local_last,
-                         external_base + src+bit, (src_offset+offset)//h,
-                         external_base + dst+bit, (dst_offset+offset)//h)
+                         external_base + src+bit, (origin+src_offset+offset)//h,
+                         external_base + dst+bit, (origin+dst_offset+offset)//h)
 
         def reduce_local(current, valid, first, last):
             # Identical mat-local stages share one invocation only within this
@@ -210,7 +324,15 @@ def generate(profile, m, n):
                 "result_rows": list(range(external_base+current, external_base+current+bits)),
                 "residual_count": valid, "completion_index": len(trace),
             })
+            if packed:
+                record["domains"][-1].update(domain=domain,
+                    term_begin=domain*domain_elements, term_end=domain*domain_elements+elements,
+                    residual_positions=list(range(origin, origin+valid)), chain_id=group_id)
         outputs.append(record)
+        if packed and (output+1 == m or (output+1) % members_per_group == 0):
+            members = outputs[group_id*members_per_group:output+1]
+            groups.append(_fuse_group(trace, members, len(geometry["bank_levels"])))
+    trace = [" ".join(map(str, request)) for request in trace]
     metadata = {
         "schema_version": 4, "macro_profile": profile, "M": m, "N": n,
         "baseline": "MIMDRAM-" + baseline, "arithmetic_format": format_,
@@ -224,27 +346,53 @@ def generate(profile, m, n):
         "request_counts": dict(Counter(line.split()[0] for line in trace)),
         "request_count": len(trace),
     }
+    if packed:
+        metadata["schema_version"] = 5
+        del metadata["ranks"]
+        metadata.update(target=target, bank_levels=geometry["bank_levels"], bank_sizes=geometry["bank_sizes"],
+            output_placement="fusion-first Channel striping", packed_output_groups=groups,
+            packing_factor=packing_factor, connected_path_mats=domain_mats,
+            hffs_per_mat=h, logical_output_count=m,
+            logical_operation_counts=dict(micro_operation_counts),
+            logical_scalar_mul_calls=m*n, logical_pud_scalar_add_calls=m*(n-domain_count*h),
+            residual_values_per_output=domain_count*h, host_add_calls=m*domain_count*(h+1),
+            occupied_mat_rows=((m+packing_factor-1)//packing_factor)*output_mats*footprint,
+            useful_position_utilization=(m*n)/( ((m+packing_factor-1)//packing_factor)*output_mats*width*domain_count),
+            fused_range_widths=[max(int(line.split()[len(geometry["bank_levels"])+2]) -
+                                     int(line.split()[len(geometry["bank_levels"])+1])+1
+                                   for line in trace[g["first_request_index"]-1:g["completion_index"]]
+                                   if not line.startswith("GB-MOV")) for g in groups])
     return metadata, trace
 
 
-def write_gemv(profile, m, n, directory):
-    metadata, trace = generate(profile, m, n)
+def write_gemv(profile, m, n, directory, *, target="DDR4"):
+    metadata, trace = generate(profile, m, n, target=target)
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     write_requirements(directory / "generated")
-    (directory / f"{profile}.layout.json").write_text(
+    artifact = profile if target == "DDR4" else f"{target}-{profile}"
+    (directory / f"{artifact}.layout.json").write_text(
         json.dumps(metadata, indent=2)+"\n", encoding="utf-8"
     )
-    header = f"PUD_TRACE\nPROFILE {metadata['placement_profile']}\nRANKS {metadata['ranks']}\n"
-    path = directory / f"{profile}.trace"
+    header = trace_header(metadata)
+    path = directory / f"{artifact}.trace"
     # Keep physical requests and their flattened completion indices unchanged.
     # Only the serialized stream adds dependency-chain selection directives.
     with path.open("w", encoding="utf-8") as stream:
         stream.write(header)
         start = 0
-        for chain_id, output in enumerate(metadata["outputs"]):
-            end = output["domains"][-1]["completion_index"]
+        records = metadata.get("packed_output_groups", metadata["outputs"])
+        for chain_id, output in enumerate(records):
+            end = output["completion_index"] if metadata["schema_version"] == 5 else output["domains"][-1]["completion_index"]
             stream.write(f"CHAIN {chain_id}\n")
             stream.write("\n".join(trace[start:end])+"\n")
             start = end
     return metadata, path
+
+
+def trace_header(metadata):
+    if metadata["schema_version"] == 4:
+        return f"PUD_TRACE\nPROFILE {metadata['placement_profile']}\nRANKS {metadata['ranks']}\n"
+    return (f"PUD_TRACE 2\nPROFILE {metadata['placement_profile']}\n"
+            + "BANK_LEVELS " + " ".join(metadata["bank_levels"]) + "\n"
+            + "BANK_SIZES " + " ".join(map(str, metadata["bank_sizes"])) + "\n")

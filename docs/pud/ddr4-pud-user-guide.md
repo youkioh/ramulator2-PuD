@@ -38,11 +38,13 @@ The currently supported placement profile is
 all compute and movement command definitions. It does not denote a separate
 movement execution model.
 
-The controller parameter `pud_compute_engines` is the positive compute-engine
-capacity E for one controller/channel instance, shared across its Banks and
-Ranks. Its default is 8. E=1 is a serialized control; larger values permit
-eligible requests on disjoint ranges to overlap. `pud_buffer_size` separately
-bounds resident PuD requests and defaults to 32.
+Finite control-engine capacity is not modeled for compute or movement.
+`pud_compute_engines` has been removed: Python configuration rejects it as an
+unknown parameter, and raw exported configs fail with a removal diagnostic.
+Delete the key from older configurations and re-export them.
+`pud_buffer_size` still bounds resident PuD requests and defaults to 32.
+Physical footprints, no-SALP, Bank state, command resources, timing, dependencies,
+and terminal recovery continue to constrain concurrency.
 
 The canonical example configuration is
 [`examples/ddr4_pud_microbenchmark_config.py`](../../examples/ddr4_pud_microbenchmark_config.py).
@@ -59,7 +61,6 @@ controller = ramulator.controller.GenericDDR(
     dram=dram,
     pud_buffer_size=32,
     pud_placement_profile="MIMDRAM_DDR4_8Gb_x8_v1",
-    pud_compute_engines=8,
     scheduler=ramulator.scheduler.FRFCFS(),
     refresh_manager=ramulator.refresh_manager.NoRefresh(),
     row_policy=ramulator.row_policy.Open(),
@@ -166,7 +167,7 @@ request.size_bytes = Request::kMovementSizeBytesNotApplicable;
 LC-MOV range width determines moved bits as
 `selected_mat_count * hffs_per_mat`. GB-MOV moves
 `hffs_per_mat` bits. The `-1` size is a named not-applicable contract, not
-a byte count. Movement consumes no compute engine. Compute and LC protect
+a byte count. Compute and LC protect
 their selected physical mats; GB protects the union of its source/destination
 mats. Disjoint PuD footprints in the same Bank/subarray may progress
 concurrently; intersecting footprints serialize through terminal recovery.
@@ -194,10 +195,11 @@ A successful admission owns the request once. Failed admission does not consume
 or reorder its operands. Do not reconstruct or move the Request between
 retries.
 
-Compute allocation reserves one engine and the complete resolved range
+Compute admission reserves the complete resolved physical footprint
 atomically using oldest-to-newest first fit. Disjoint ranges in the same
-subarray may progress concurrently when E permits; intersecting ranges and
-different subarrays of the same Bank conflict. The reservation starts before
+subarray may progress concurrently subject to command resources and timing;
+intersecting ranges and different subarrays of the same Bank conflict.
+The reservation starts before
 the first PuD activation and remains protected through terminal `PREpb` plus
 `nRP` recovery. Protection is released before exact-once accounting and the
 callback.
@@ -228,19 +230,6 @@ LD_LIBRARY_PATH=. ./build/mimdram_movement_microbenchmark \
 The first benchmark exercises all compute requests with explicit subranges and
 `FULL_MAT`, disjoint-range overlap, dependency callbacks, LC-MOV, and GB-MOV.
 The second runs focused movement cases. Both use controlled unique source IDs.
-
-To compare compute-engine capacities, set only E when exporting:
-
-```bash
-for engines in 1 2 8; do
-  RAMULATOR_PUD_ENGINES=$engines PYTHONPATH=python python3 -m ramulator export \
-    examples/ddr4_pud_microbenchmark_config.py \
-    -o build/ddr4_pud_microbenchmark_e${engines}.yaml
-  LD_LIBRARY_PATH=. ./build/ddr4_pud_microbenchmark \
-    build/ddr4_pud_microbenchmark_e${engines}.yaml \
-    build/ddr4_pud_trace.csv.ch0
-done
-```
 
 ## GEMV trace generation and execution
 
@@ -334,7 +323,7 @@ Each supports `int8`, `fp8-e4m3`, and `fp8-e5m2`, yielding the six exact
 placement modes remain. FP8 profiles are validated against their own schedule
 graphs; the two orders need not produce equal results.
 
-Both use identical [Accepted BLP-first placement](decisions/pud-gemv-macro-contract.md):
+Both use identical [Accepted BLP-first placement](decisions/pud-gemv-gemm-workload.md):
 all bank-group/bank pairs before another legal K-mat range slot, then chip,
 subarray capacity fallback and row-band capacity fallback. M=2,N=12 uses
 bank0/mat0 and bank1/mat0; M=2,N=516 uses bank0/mats0..1 and bank1/mats0..1.
@@ -386,12 +375,55 @@ Request stream, **not full end-to-end GEMV latency**. GPU launch/x duplication,
 transposition, readout/conversion, and residual/domain final combination remain
 excluded, including readout before workspace reuse. Static placement and the
 controller/substrate's timing and resource conflicts still constrain overlap.
-The [baseline plan](plans/pud-gemv-baselines-plan.md) reports compute primitive,
+The [baseline plan](plans/completed/pud-gemv-baselines-plan.md) reports compute primitive,
 LC-MOV, GB-MOV and total physical Request counts, controller cycles and peak
 inflight for both baselines under identical placement. Repeat with `--n 12`
 for the focused K=1 case. Cycles are performance evidence, not a fixed oracle.
 Historical same-bank characterization remains in its completed plan and is
 not an active evaluation policy.
+
+## DDR4-packed shared-K GEMM
+
+The separate `tools.pud_gemm_generator` interface supports the accepted fixed
+`Q[8,128] x K[128,2048] -> O[8,2048]` workload. K is shared; chip h uses query h.
+It reuses the existing six GEMV format/schedule profiles and physical lowering.
+The [canonical GEMM contract](decisions/pud-gemv-gemm-workload.md)
+defines placement and fusion; existing GEMV artifacts and instrumentation retain
+their meanings.
+
+With the same Python/native-module environment used for GEMV:
+
+```bash
+python -m tools.pud_gemm_generator --profile MIMDRAM-InterMatFirst-int8 --out /tmp/pud-gemm
+python -m experiments.pud_gemm --profile MIMDRAM-InterMatFirst-int8 --out /tmp/pud-gemm-run
+```
+
+The first command generates artifacts only. The second runs the full workload;
+full-size timing is optional after initial small-case validation. Artifacts use
+the current DDR4-packed/multistandard `PUD_TRACE 2` grammar and a separate
+`pud-gemm` layout schema v1. Each of 16 Bank CHAINs contains band 0 then band 1,
+ordered by existing full-completion callbacks. Different banks may overlap.
+The intermediate checkpoint records band-0 completion; final CHAIN completion
+records band 1. These are not MUL/reduction latency boundaries. Per-output
+query/key identity, residual positions and readout ownership are in the layout.
+
+The Python API exports `generate(profile)`, `write_gemm(profile, directory)`,
+`read_gemm(trace_path)`, `execute_trace(layout, trace, q, k)` and
+`scalar_graph(profile, q, k)`. Inputs to replay/oracle are raw 8-bit integers;
+FP8 uses encoded bytes. Replay snapshots four residuals per output and applies
+the existing untimed host fold, returning scalar O. It also checks protected
+inputs/constants and retention of both bands' residuals. Ramulator itself
+remains value-free.
+
+The runner saves resolved configuration, raw statistics and a result JSON with
+logical arithmetic, physical Request counts, issued command occurrences,
+band-completion timestamps, modeled PuD time and simulator wall time.
+Each `output_completion_observations[].complete_cycle` is the completion timestamp
+of the output's owning Bank/band. All outputs in that band share that timestamp;
+these are not independent output latency measurements.
+Measurement uses preplaced/replicated inputs and NoRefresh, includes terminal
+recovery, and excludes loading, readout and host folding. Approximately 1 ms
+remains an unverified full-workload expectation.
 
 ## Command traces and latency
 
@@ -431,7 +463,7 @@ At `DDR4_2400R`, uncontended first-command-through-recovery anchors are:
 | LC-MOV | `130 CK` |
 | GB-MOV | `75 CK` |
 
-The totals already include terminal `nRP`. Queueing, engine/range allocation,
+The totals already include terminal `nRP`. Queueing, physical footprint admission,
 maintenance, and shared command arbitration can increase end-to-end latency.
 
 The current T-A abstraction delivers each resolved row/range to its

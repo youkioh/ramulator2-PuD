@@ -47,7 +47,15 @@ class GenericDRAMSystem final : public IMemorySystem, public Implementation {
     // Setup channel mapper with controller info
     m_tx_bytes = m_controllers[0]->get_tx_bytes();
     m_channel_mapper->setup(static_cast<int>(m_controllers.size()), calc_log2(m_tx_bytes));
-    for (const auto* controller : m_controllers) {
+    std::shared_ptr<const PuD::LocationResolver> shared;
+    for (auto* controller : m_controllers) {
+      controller->initialize_system_locations(shared, static_cast<int>(m_controllers.size()),
+          m_channel_mapper->m_impl->get_name(), m_channel_mapper->interleave_bits());
+      if (controller == m_controllers.front()) shared = controller->location_resolver();
+      if (bool(shared) != bool(controller->location_resolver()) ||
+          (shared && (controller->get_tCK() != m_controllers.front()->get_tCK() ||
+                      controller->m_impl->get_name() != m_controllers.front()->m_impl->get_name())))
+        throw std::runtime_error("heterogeneous PuD controller set");
       if (const auto resolver = controller->location_resolver()) {
         const auto& routing = resolver->association().routing;
         if (routing.channels != static_cast<int>(m_controllers.size()) ||

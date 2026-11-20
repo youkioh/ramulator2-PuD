@@ -8,6 +8,7 @@
 #include "ramulator/base/type.h"
 #include "ramulator/dram/dram_spec.h"
 #include "ramulator/dram/node.h"
+#include "ramulator/dram/pud_binding.h"
 
 class ComputeRangesUnderTest;
 class ComputeLifecycleUnderTest;
@@ -164,18 +165,25 @@ class DRAMDevice {
   friend class ::ComputeRangesUnderTest;
   friend class ::ComputeLifecycleUnderTest;
   friend class PuDConflictUnderTest;
-  // Actual command occupancy only. Compute and movement share the canonical
-  // PuD deadline below on the combined DDR4 single bus;
-  // ordinary paths retain generated timing (including other standards' dual
-  // buses). Their deadlines gate PuD, not unrelated bus arbitration.
-  Clk_t m_pud_ca_ready = -1;
-  Clk_t m_command_ca_ready = -1;
+  // Actual occupancy, keyed by binding-provided shared resources. These do not
+  // replace conventional controller bus/edge arbitration.
+  const PuDBinding* m_pud_binding = nullptr;
+  std::map<int, Clk_t> m_pud_resource_ready, m_command_resource_ready;
+  bool pud_resources_ready(int command, Clk_t clk, bool conventional) const;
+  void record_pud_resources(int command, Clk_t clk, bool conventional);
   void validate_pud_reservation(const Request& req, const PuDExecutionContext* context) const;
   bool check_pud_timing(const Request& req, const PuDOccurrence& occurrence,
                         const PuDExecutionContext* context, Clk_t clk);
   void issue_pud_command(Request& req, const PuDOccurrence& occurrence,
                          PuDExecutionContext* context, Clk_t clk);
-  std::vector<std::weak_ptr<PuDExecutionContext>> m_protected_pud;
+  // Protected invocations with their immutable flat Bank and identity, cached
+  // at protection so per-cycle scans compare integers before locking.
+  struct ProtectedPuD {
+    std::weak_ptr<PuDExecutionContext> context;
+    const PuDExecutionContext* raw;
+    int bank;
+  };
+  std::vector<ProtectedPuD> m_protected_pud;
   void validate_pud_command(const Request& req, const PuDOccurrence& occurrence,
                             const PuDExecutionContext* context) const;
   // Run any command-specific defensive validation across the complete target

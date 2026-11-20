@@ -56,8 +56,7 @@ inline int run(const ConfigNode& config, const std::string& trace_path, Scenario
   const auto controller = config["memory_system"]["controllers"].seq().front();
   require(controller["refresh_manager"]["impl"].as<std::string>() == "NoRefresh",
           "isolated/overlap anchor scenarios require NoRefresh");
-  const int engines = controller["pud_compute_engines"].as<int>(8);
-  std::cout << "profile=" << resolver->association().profile.name << " E=" << engines
+  std::cout << "profile=" << resolver->association().profile.name
             << "\ntransport=T-A resolved-target consumption at ACT issue\n"
                "Transport latency, mat-queue stalls and target-delivery C/A contention "
                "are omitted, not physically zero.\n";
@@ -72,7 +71,7 @@ inline int run(const ConfigNode& config, const std::string& trace_path, Scenario
   auto make_compute = [&](int type, auto target, int count, int first_row = 100) {
     std::vector<PuD::PairedOperand> operands;
     for (int i = 0; i < count; ++i) {
-      const PuD::ExternalRow row{0, 0, 0, 0, first_row + i};
+      const PuD::ExternalRow row{{0, 0, 0, 0}, first_row + i};
       auto region = resolver->compute_footprint(row, target);
       operands.push_back(resolver->pair(std::move(region)));
     }
@@ -83,7 +82,7 @@ inline int run(const ConfigNode& config, const std::string& trace_path, Scenario
   auto make_lcmov = [&](PuD::MatRange mats) {
     std::vector<PuD::PairedOperand> operands;
     for (int i = 0; i < 2; ++i) {
-      auto region = resolver->group_footprint({0, 0, 0, 0, 100 + i}, mats, PuD::Group{3 + i});
+      auto region = resolver->group_footprint({{0, 0, 0, 0}, 100 + i}, mats, PuD::Group{3 + i});
       operands.push_back(resolver->pair(std::move(region)));
     }
     Request req(resolver, std::move(operands), Request::Type::LCMOV);
@@ -93,7 +92,7 @@ inline int run(const ConfigNode& config, const std::string& trace_path, Scenario
   auto make_gbmov = [&] {
     std::vector<PuD::PairedOperand> operands;
     for (int i = 0; i < 2; ++i) {
-      auto region = resolver->group_footprint({0, 0, 0, 0, 100 + i}, PuD::MatRange{6 + i, 6 + i}, PuD::Group{3 + i});
+      auto region = resolver->group_footprint({{0, 0, 0, 0}, 100 + i}, PuD::MatRange{6 + i, 6 + i}, PuD::Group{3 + i});
       operands.push_back(resolver->pair(std::move(region)));
     }
     Request req(resolver, std::move(operands), Request::Type::GBMOV);
@@ -215,7 +214,7 @@ inline int run(const ConfigNode& config, const std::string& trace_path, Scenario
     std::cout << "source=" << source << " " << result.label << " " << request_type_name(result.type);
     for (const auto& operand : result.locations->operands) {
       const auto& origin = operand.location.origin;
-      std::cout << " [bank=" << origin.bank << " subarray=" << origin.subarray << " row=" << origin.local_row
+      std::cout << " [bank=" << origin.bank.back() << " subarray=" << origin.subarray << " row=" << origin.local_row
                 << " mats=" << origin.mats.first << ".." << origin.mats.last;
       if (origin.group) {
         std::cout << " group=" << origin.group->value;
@@ -244,9 +243,7 @@ inline int run(const ConfigNode& config, const std::string& trace_path, Scenario
       const auto& a = explicit_operand.location;
       const auto& b = tagged_operand.location;
       require(explicit_operand.external == tagged_operand.external && a.external_row == b.external_row &&
-                  a.cell_count == b.cell_count && a.origin.channel == b.origin.channel &&
-                  a.origin.rank == b.origin.rank && a.origin.bank_group == b.origin.bank_group &&
-                  a.origin.bank == b.origin.bank && a.origin.subarray == b.origin.subarray &&
+                  a.cell_count == b.cell_count && a.origin.bank == b.origin.bank && a.origin.subarray == b.origin.subarray &&
                   a.origin.local_row == b.origin.local_row && a.origin.mats == b.origin.mats &&
                   a.origin.group == b.origin.group,
               "FULL_MAT and explicit full MatRange resolved differently");
@@ -266,11 +263,8 @@ inline int run(const ConfigNode& config, const std::string& trace_path, Scenario
   }
   for (auto [a, b] : overlap_pairs) {
     const auto first_b = commands.at(b).front().clk;
-    require(engines == 1 ? first_b >= results[a].depart : first_b < results[a].depart,
-            "engine serialization/overlap mismatch");
-    if (engines > 1) {
-      require(commands.at(b)[1].clk < results[a].depart, "no later-occurrence overlap");
-    }
+    require(first_b < results[a].depart, "disjoint footprints did not overlap");
+    require(commands.at(b)[1].clk < results[a].depart, "no later-occurrence overlap");
   }
   if (dependent >= 0) {
     for (int producer : producers) {

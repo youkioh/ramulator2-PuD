@@ -3,6 +3,12 @@
 
 #include "ramulator/controller/rowpolicy/i_row_policy.h"
 
+// Preserve the DDR4 fixture's public two-deadline view of combined-bus ID 0.
+inline Clk_t ddr4_test_deadline(const std::map<int, Clk_t>& deadlines) {
+  const auto it = deadlines.find(0);
+  return it == deadlines.end() ? -1 : it->second;
+}
+
 // W2 component fixtures exercise retention without enabling execution.
 inline std::vector<std::vector<int>> region_cells(const PuD::LocationResolver& resolver,
                                                   const PuD::ResolvedRegion& region) {
@@ -27,7 +33,9 @@ inline nb::dict located_snapshot(const Request& req, bool cells) {
       const auto& region = pair.location;
       const auto& o = region.origin;
       nb::dict item;
-      item["origin"] = std::vector<int>{o.channel, o.rank, o.bank_group, o.bank, o.subarray, o.local_row};
+      auto coordinates = o.bank;
+      coordinates.insert(coordinates.end(), {o.subarray, o.local_row});
+      item["origin"] = coordinates;
       item["range"] = std::vector<int>{o.mats.first, o.mats.last};
       item["group"] = o.group ? nb::cast(o.group->value) : nb::none();
       item["burst"] = region.burst ? nb::cast(region.burst->value) : nb::none();
@@ -90,7 +98,7 @@ inline Request located_request(const LocationResolverUnderTest& fixture, int typ
       column = PuD::BurstColumn{nb::cast<int>(d["column"])};
     }
     auto region = full_mat
-        ? fixture.resolver()->compute_footprint(LocationResolverUnderTest::row(row), PuD::FULL_MAT)
+        ? fixture.resolver()->compute_footprint(fixture.row(row), PuD::FULL_MAT)
         : fixture.region(kind, row, mats[0], mats[1], group);
     operands.push_back(fixture.resolver()->pair(std::move(region), column));
   }
@@ -107,9 +115,11 @@ class LocationHarnessObserver final : public IControllerPlugin, public Implement
 
  public:
   inline static ControllerBase* created_controller = nullptr;
+  inline static std::vector<ControllerBase*> created_controllers;
   nb::list events;
   void init() override {
     created_controller = cast_parent<ControllerBase>();
+    created_controllers.push_back(created_controller);
   }
   void on_issue(const Request& req) override {
     auto out = located_snapshot(req, false);
@@ -125,7 +135,7 @@ class LocationHarnessObserver final : public IControllerPlugin, public Implement
 class LocatedSystemUnderTest {
  public:
   LocatedSystemUnderTest(nb::dict controller, const LocationResolverUnderTest& fixture,
-                         const std::string& channel_mapper, bool install)
+                         const std::string& channel_mapper, bool install, int channels)
       : m_frontend(std::make_unique<HarnessFrontEnd>(64)), m_resolver(fixture.resolver()) {
     auto config = py_to_confignode(controller);
     auto plugins = config["controller_plugins"];
@@ -133,13 +143,15 @@ class LocatedSystemUnderTest {
     plugins.push_back(ConfigNode::Map{{"impl", "LocationHarnessObserver"}});
     config.set("controller_plugins", std::move(plugins));
     LocationHarnessObserver::created_controller = nullptr;
+    LocationHarnessObserver::created_controllers.clear();
     ConfigNode sys(ConfigNode::Map{{"impl", "GenericDRAM"},
                                    {"clock_ratio", 1},
                                    {"channel_mapper", ConfigNode::Map{{"impl", channel_mapper}}},
-                                   {"controllers", ConfigNode::Seq{config}}});
+                                   {"controllers", ConfigNode::Seq(channels, config)}});
     m_system = Factory::create_memory_system(wrap_interface_config(IMemorySystem::get_name(), sys));
     m_owner.reset(dynamic_cast<Implementation*>(m_system));
     m_controller = LocationHarnessObserver::created_controller;
+    m_controllers = LocationHarnessObserver::created_controllers;
     if (!m_controller) {
       throw std::runtime_error("missing observed controller");
     }
@@ -185,6 +197,18 @@ class LocatedSystemUnderTest {
     req.size_bytes = m_system->get_tx_bytes();
     return submit(std::move(req), source, nb::none());
   }
+  bool priority(const std::string& name, const AddrVec_t& address) {
+    const int cmd = m_controller->m_device.m_spec->get_command_id(name);
+    Request req(address, Request::Cmd, cmd);
+    return m_controller->priority_send(req);
+  }
+  bool ready(const std::string& name, const AddrVec_t& address) {
+    auto& device = m_controller->m_device;
+    const int cmd = device.m_spec->get_command_id(name);
+    if (device.conflicts_with_protected_pud(cmd, address)) return false;
+    return device.get_preq_command(cmd, address, m_controller->m_clk) == cmd &&
+           device.check_timing(cmd, address, m_controller->m_clk);
+  }
   void advance(Clk_t clk) {
     while (m_controller->m_clk < clk) m_system->tick();
   }
@@ -204,10 +228,6 @@ class LocatedSystemUnderTest {
       item["arrive"] = req.arrive;
       const auto context = req.pud_context.lock();
       item["phase"] = context ? static_cast<int>(context->phase()) : -1;
-      item["engine"] = -1;
-      for (const auto& held : m_controller->m_protected_pud) {
-        if (held.context == context) item["engine"] = held.engine;
-      }
       return item;
     };
     for (const auto& req : m_controller->m_pud_buffer.buffer) pending.append(snapshot(req));
@@ -252,6 +272,20 @@ class LocatedSystemUnderTest {
     out["completion_retained"] = callback_had_locations;
     return out;
   }
+  float tick_duration_ns() const { return m_system->get_tCK(); }
+  nb::list channel_info() const {
+    nb::list result;
+    for (auto* ctrl : m_controllers) {
+      nb::dict entry;
+      entry["id"] = ctrl->m_channel_id;
+      entry["local_channels"] = ctrl->m_device.m_spec->organization.level_sizes[0];
+      entry["shared"] = ctrl->location_resolver() == m_resolver;
+      entry["bank_sizes"] = m_resolver->association().bank_sizes;
+      result.append(entry);
+    }
+    return result;
+  }
+  void finalize() { m_system->finalize(); }
   nb::dict stats() const {
     m_system->update_stats_recursive();
     return nb::cast<nb::dict>(confignode_to_py(m_system->collect_stats()));
@@ -289,12 +323,13 @@ class LocatedSystemUnderTest {
   std::unique_ptr<Implementation> m_owner;
   IMemorySystem* m_system = nullptr;
   ControllerBase* m_controller = nullptr;
+  std::vector<ControllerBase*> m_controllers;
   std::shared_ptr<const PuD::LocationResolver> m_resolver;
   nb::list completed;
 };
 
 // W3 component-only execution: fixtures provide separate ranges directly. No
-// production scheduler, engine allocation or completion is installed.
+// production scheduler, physical protection or completion is installed.
 class ComputeRangesUnderTest {
  public:
   explicit ComputeRangesUnderTest(nb::dict dram) {
@@ -348,7 +383,8 @@ class ComputeRangesUnderTest {
     const auto& record = records.at(id);
     const auto& context = *record.context;
     nb::dict out = located_snapshot(record.req, false);
-    static const char* phases[] = {"Closed", "PuDChargeSharing", "PuDSensed", "Recovering"};
+    static const char* phases[] = {"Closed", "PuDChargeSharing", "PuDSensed", "Recovering",
+                                   "MovementActive", "MovementDataValid"};
     out["phase"] = phases[static_cast<int>(context.phase())];
     // Observation only: active identities come from the authoritative issued
     // prefix. Terminal PRE closes that view without erasing Request history.
@@ -375,7 +411,8 @@ class ComputeRangesUnderTest {
         nb::dict item;
         item["level"] = level;
         if (level == 0) item["command_occupancy"] =
-            std::vector<Clk_t>{device.m_pud_ca_ready, device.m_command_ca_ready};
+            std::vector<Clk_t>{ddr4_test_deadline(device.m_pud_resource_ready),
+                              ddr4_test_deadline(device.m_command_resource_ready)};
         item["id"] = node->m_node_id;
         item["state"] = node->m_state;
         item["rows"] = std::map<int, int>(node->m_row_state.begin(), node->m_row_state.end());
@@ -410,7 +447,7 @@ class ComputeRangesUnderTest {
 };
 
 // W4 drives the same ControllerBase buffers/retirement/completion inherited by
-// GenericDDR. Scheduling and engine selection are explicit fixture actions;
+// GenericDDR. Scheduling and footprint reservation are explicit fixture actions;
 // no production allocator/arbitration is supplied by this test.
 class ComputeLifecycleUnderTest : public ControllerBase {
  public:
@@ -450,12 +487,12 @@ class ComputeLifecycleUnderTest : public ControllerBase {
     ++s_num_pud_reqs[*legacy_pud_statistic_slot(req.type_id)];
     return true;
   }
-  bool reserve(int source, int engine) {
+  bool reserve(int source) {
     auto [buffer, it] = find(source);
-    return reserve_pud_compute(*it, engine);
+    return reserve_pud_compute(*it);
   }
-  bool available(const Request& req, int engine) const {
-    return pud_compute_resources_available(req, engine);
+  bool available(const Request& req) const {
+    return pud_compute_resources_available(req);
   }
   void dispatch(int source, Clk_t clk, bool coincident_terminal, Clk_t retirement_delay) {
     advance(clk);
@@ -470,7 +507,7 @@ class ComputeLifecycleUnderTest : public ControllerBase {
     if (coincident_terminal && occurrence.terminal && clk == last_issue) {
       // Synthetic equal-deadline fixture only: bypass the occupied issue cycle,
       // while keeping the same Device occurrence, phase and timing checks.
-      m_device.m_pud_ca_ready = clk;
+      m_device.m_pud_resource_ready[0] = clk;
     }
     it->command = occurrence.command;
     m_device.issue_pud_command(*it, occurrence, &context, m_clk);
@@ -494,7 +531,7 @@ class ComputeLifecycleUnderTest : public ControllerBase {
     return saved.size() - 1;
   }
   bool saved_expired(size_t id) const { return saved.at(id).pud_context.expired(); }
-  bool reserve_saved(size_t id, int engine) { return reserve_pud_compute(saved.at(id), engine); }
+  bool reserve_saved(size_t id) { return reserve_pud_compute(saved.at(id)); }
   void stale_dispatch(size_t id) {
     auto req = saved.at(id);
     auto& context = protected_pud_context(req);
@@ -564,7 +601,14 @@ class ComputeLifecycleUnderTest : public ControllerBase {
     nb::list held;
     for (const auto& record : m_protected_pud) {
       nb::dict item;
-      item["engine"] = record.engine;
+      auto identify = [&](const auto& requests) {
+        for (const auto& req : requests) {
+          if (req.pud_context.lock() == record.context) item["source"] = req.source_id;
+        }
+      };
+      identify(m_pud_buffer.buffer);
+      identify(m_active_buffer.buffer);
+      identify(m_pending);
       item["phase"] = static_cast<int>(record.context->phase());
       const auto pending = std::find_if(m_pending.begin(), m_pending.end(),
           [&](const Request& req) { return req.pud_context.lock() == record.context; });
@@ -602,7 +646,7 @@ class PuDConflictUnderTest {
   // W6's explicit-reservation fixture uses sources 0..11; W7 uses 0..8.
   explicit PuDConflictUnderTest(nb::dict config) : dut(config, 12, false), ctrl(dut.m_controller_base) {}
   // W7 only: bypass public ingress, but exercise the real GenericDDR buffer,
-  // allocator, arbitration and completion. No fixture engine assignment.
+  // allocator, arbitration and completion. No fixture footprint assignment.
   bool enqueue(Request req, int source, nb::object callback) {
     check_source(source);
     if (!req.pud_locations || !is_inherited_pud_request_type(req.type_id)) {
@@ -647,11 +691,11 @@ class PuDConflictUnderTest {
   bool scheduled_probe(int source) {
     return ctrl->check_request_timing(find_compute(source));
   }
-  bool allocation_probe(Request req, int engine) const {
+  bool allocation_probe(Request req) const {
     initialize_pud_sequence(req, *ctrl->m_device.m_spec);
-    return ctrl->pud_compute_resources_available(req, engine) && ctrl->pud_compute_start_eligible(req);
+    return ctrl->pud_compute_resources_available(req) && ctrl->pud_compute_start_eligible(req);
   }
-  void block_command_bus(Clk_t until) { ctrl->m_device.m_command_ca_ready = until; }
+  void block_command_bus(Clk_t until) { ctrl->m_device.m_command_resource_ready[0] = until; }
   // Interpose for one real tick after selection, without a production hook.
   void recheck_tick(const std::string& command, nb::object callback) {
     struct Upgrade final : IRowPolicy {
@@ -676,12 +720,12 @@ class PuDConflictUnderTest {
     }
     ctrl->m_rowpolicy = upgrade.original;
   }
-  bool add(Request req, int source, int engine) {
+  bool add(Request req, int source) {
     check_source(source);
     initialize_pud_sequence(req, *ctrl->m_device.m_spec);
     req.source_id = source;
     req.arrive = ctrl->m_clk;
-    if (!ctrl->reserve_pud_compute(req, engine)) return false;
+    if (!ctrl->reserve_pud_compute(req)) return false;
     req.callback = [this](Request& r) {
       nb::dict event = located_snapshot(r, false);
       event["source"] = r.source_id;
@@ -773,8 +817,23 @@ class PuDConflictUnderTest {
   }
   nb::list issued() const { return history; }
   nb::list completions() const { return completed; }
-  size_t held() const { return std::count_if(ctrl->m_protected_pud.begin(), ctrl->m_protected_pud.end(),
-      [](const auto& held) { return held.engine >= 0; }); }
+  // Count protected compute invocations, including fixture-driven requests.
+  size_t held() const {
+    return std::count_if(ctrl->m_protected_pud.begin(), ctrl->m_protected_pud.end(),
+        [&](const auto& held) {
+          for (const auto& [source, req] : compute) {
+            if (req.pud_context.lock() == held.context) return true;
+          }
+          auto contains = [&](const auto& requests) {
+            return std::any_of(requests.begin(), requests.end(), [&](const Request& req) {
+              return is_inherited_pud_request_type(req.type_id) &&
+                     req.pud_context.lock() == held.context;
+            });
+          };
+          return contains(ctrl->m_pud_buffer.buffer) || contains(ctrl->m_active_buffer.buffer) ||
+                 contains(ctrl->m_pending);
+        });
+  }
   nb::dict stats() { ctrl->update_stats(); return nb::cast<nb::dict>(confignode_to_py(ctrl->IController::collect_stats())); }
   void capacity(size_t active) { ctrl->m_active_buffer.max_size = active; }
 
@@ -797,11 +856,6 @@ class PuDConflictUnderTest {
     auto out = located_snapshot(req, false);
     const auto context = req.pud_context.lock();
     out["phase"] = context ? static_cast<int>(context->phase()) : -1;
-    int engine = -1;
-    for (const auto& held : ctrl->m_protected_pud) {
-      if (held.context == context) engine = held.engine;
-    }
-    out["engine"] = engine;
     nb::list occurrences;
     // Observation derived from the sole Request history, not retained target state.
     for (size_t i = 0; i < get_pud_sequence_length(req); ++i) {
@@ -812,8 +866,9 @@ class PuDConflictUnderTest {
       item["command"] = ctrl->m_device.m_spec->command_names[occurrence.command];
       item["operand"] = occurrence.operand_index;
       item["external"] = occurrence.location()->external;
-      item["origin"] = std::vector<int>{origin.channel, origin.rank, origin.bank_group,
-                                       origin.bank, origin.subarray, origin.local_row};
+      auto coordinates = origin.bank;
+      coordinates.insert(coordinates.end(), {origin.subarray, origin.local_row});
+      item["origin"] = coordinates;
       item["range"] = std::vector<int>{origin.mats.first, origin.mats.last};
       item["associated"] = context && occurrence.locations == context->locations();
       item["issued"] = req.occurrence_issue_history.at(i);
@@ -834,7 +889,8 @@ class PuDConflictUnderTest {
     return true;
   }
   std::vector<Clk_t> command_occupancy() const {
-    return {ctrl->m_device.m_pud_ca_ready, ctrl->m_device.m_command_ca_ready};
+    return {ddr4_test_deadline(ctrl->m_device.m_pud_resource_ready),
+            ddr4_test_deadline(ctrl->m_device.m_command_resource_ready)};
   }
 
  private:
@@ -1064,12 +1120,16 @@ inline void bind_pud_request_harness(nb::module_& m) {
     return out;
   });
   nb::class_<LocatedSystemUnderTest>(m, "_LocatedSystemUnderTest")
-      .def(nb::init<nb::dict, const LocationResolverUnderTest&, const std::string&, bool>(), nb::arg("controller"),
-           nb::arg("resolver"), nb::arg("channel_mapper") = "CacheLineInterleave", nb::arg("install") = true)
+      .def(nb::init<nb::dict, const LocationResolverUnderTest&, const std::string&, bool, int>(), nb::arg("controller"),
+           nb::arg("resolver"), nb::arg("channel_mapper") = "CacheLineInterleave", nb::arg("install") = true,
+           nb::arg("channels") = 1)
+      .def("channel_info", &LocatedSystemUnderTest::channel_info)
       .def("send", &LocatedSystemUnderTest::send, nb::arg("request"), nb::arg("path") = "system")
       .def("request", &LocatedSystemUnderTest::request)
       .def("submit", &LocatedSystemUnderTest::submit, nb::arg("request"), nb::arg("source"), nb::arg("callback") = nb::none())
       .def("submit_ordinary", &LocatedSystemUnderTest::submit_ordinary)
+      .def("priority", &LocatedSystemUnderTest::priority)
+      .def("ready", &LocatedSystemUnderTest::ready)
       .def("advance", &LocatedSystemUnderTest::advance)
       .def("issued", &LocatedSystemUnderTest::issued)
       .def("completions", &LocatedSystemUnderTest::completions)
@@ -1077,6 +1137,8 @@ inline void bind_pud_request_harness(nb::module_& m) {
       .def("ordinary", &LocatedSystemUnderTest::ordinary, nb::arg("address"), nb::arg("type"), nb::arg("size") = 1,
            nb::arg("cells") = true, nb::arg("wrong_intra") = nb::none())
       .def("stats", &LocatedSystemUnderTest::stats)
+      .def("finalize", &LocatedSystemUnderTest::finalize)
+      .def_prop_ro("tick_duration_ns", &LocatedSystemUnderTest::tick_duration_ns)
       .def("forwarding", &LocatedSystemUnderTest::forwarding)
       .def_prop_ro("pending", &LocatedSystemUnderTest::pending);
 }

@@ -18,7 +18,6 @@ class GenericDDR(Component):
     write_buffer_size = Param(int, default=32)
     priority_buffer_size = Param(int, default=1568)
     pud_buffer_size = Param(int, default=32)
-    pud_compute_engines = Param(int, default=8)
     pud_placement_profile = Param(str, default='')
     scheduler = Child("scheduler")
     refresh_manager = Child("refresh_manager")

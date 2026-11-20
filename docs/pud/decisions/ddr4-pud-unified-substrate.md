@@ -97,14 +97,17 @@ GB-MOV interpretation and must not be used to invent one.
 
 The old Bank-wide PRADA compute path and the W1-W9 range-aware compute path are
 not two supported runtime models after consolidation. Runtime or configuration
-selection may choose a supported placement profile or compute-engine capacity,
-but must not select legacy versus range-aware compute semantics. Absence of an
+selection may choose a supported placement profile, but must not select legacy
+versus range-aware compute semantics. Finite compute-engine capacity is not a
+modeled option ([execution decision](mimdram-execution-and-timing.md)).
+Absence of an
 explicitly selected supported placement profile makes canonical PuD execution
 unavailable; it must never select Bank-wide compute. Movement uses the same
 protected invocation machinery with the
-[Accepted physical-mat footprint scope](mimdram-movement-execution-ownership-and-device.md).
-It acquires at first ACT, consumes no compute engine, and protects only its
-footprint through recovery. There is no Bank-wide movement fallback.
+[Accepted physical-mat footprint scope](mimdram-execution-and-timing.md).
+It acquires at first ACT and protects only its footprint through recovery.
+Neither compute nor movement has a finite control-engine charge. There is
+no Bank-wide movement fallback.
 
 Historical `v2` terminology identifies the development and verification effort
 that produced the canonical substrate. It is non-normative in the final user
@@ -116,6 +119,17 @@ semantics. Implementation must expose one public configuration for the unified
 compute-and-movement substrate while preserving reusable internal layering as
 appropriate.
 
+**Standard reuse and isolation.** Define `DDR4_PuD` as a separate generated
+DRAM standard. Reuse the DDR4 Python definition through inheritance where
+appropriate, but independently copy all mutable command, state, timing,
+request, and preset collections before PuD extensions; common PuD
+declarations return fresh mutable definitions for the same reason. Do not
+introduce a shared C++ or generator base between DDR4 and `DDR4_PuD`; standard
+DDR4 stays unchanged. Common PuD factoring across DDR4, GDDR7, and HBM3
+follows the [multistandard decision](pud-multistandard-substrate.md) (G0).
+Command identities and DDR4 compute timing are in the
+[PRADA commands and timing decision](pud-prada-commands-and-timing.md).
+
 This decision does not add DRAM value simulation, arithmetic macros, reduction
 lowering, primitive-trace replay, a compiler, or a new movement topology. The
 completed W1-W9 plan remains implementation history rather than the definition
@@ -124,9 +138,9 @@ of the final user model.
 Rationale
 
 The completed substrate already provides one canonical placement authority,
-resolved request-location lifetime, explicit range contexts, first-fit engine
-allocation, range-local timing and recovery, physical-mat movement interaction,
-and exact-once completion. Keeping an alternate no-range Bank-wide compute path
+resolved request-location lifetime, explicit range contexts, first-fit physical
+range allocation, range-local timing and recovery, physical-mat movement
+interaction, and exact-once completion. Keeping an alternate no-range Bank-wide compute path
 would preserve two meanings for the same public compute primitives, bypass the
 canonical location authority, and make configuration rather than request
 semantics determine affected resources.
@@ -139,25 +153,25 @@ full-range interpretation for operations whose semantics depend on ordered
 source/destination groups and topology.
 
 Preserving reusable PRADA and movement definitions avoids unnecessary
-reimplementation and keeps standard DDR4 isolated. The consolidation removes
+reimplementation and keeps standard DDR4 isolated. A separate generated
+standard creates a distinct C++ class and registration with the smallest
+change to the existing generator, keeps PuD additions out of DDR4, and avoids
+unrelated refactoring. The consolidation removes
 an execution distinction, not implementation provenance or every identifier
 created while the substrate was developed.
 
 Evidence
 
-- [Completed W1-W9 implementation record](../plans/mimdram-pud-substrate-v2-implementation-plan.md)
+- [Completed W1-W9 implementation record](../plans/completed/mimdram-pud-substrate-v2-implementation-plan.md)
   records the implemented resolver, paired-request retention, range-local
   Device state/timing, protected recovery lifetime, conflict rules, resolved
-  target consumption, engine allocation, public ingress, benchmarks, and final
-  integration validation.
-- [Addressing, geometry, and payload](mimdram-addressing-geometry-and-payload.md)
+  target consumption, public ingress, benchmarks, and final integration
+  validation.
+- [Geometry and placement](mimdram-geometry-and-placement.md)
   defines the replaceable placement profile, canonical CellID authority,
   explicit compute ranges, and movement endpoint footprints.
-- [Substrate and movement boundary](mimdram-substrate-and-movement-request-boundary.md),
-  [execution/lifecycle](mimdram-movement-execution-ownership-and-device.md),
-  [timing/resources](mimdram-movement-timing-and-resource-model.md), and
-  [target transport](mimdram-mat-target-transport-abstraction.md) define the
-  accepted hybrid, range concurrency, footprint-local movement, local/shared
+- The [execution and timing decision](mimdram-execution-and-timing.md)
+  defines the accepted hybrid, range concurrency, footprint-local movement, local/shared
   timing, recovery, and resolved-target abstraction retained here.
 - [PRADA primitives](../references/pud-primitives.md),
   [DDR4 PuD timing](../references/ddr4-pud-timing-reference.md), and
@@ -171,6 +185,10 @@ Evidence
   `MatRange` before `pair` and Request construction. The configured profile
   installs that resolver, GenericDDR uses the protected range-aware path, and
   both public benchmarks invoke the unified substrate without a mode selector.
+- The Python code generator emits a standalone DRAMSpec-derived C++ class and
+  factory registration for each registered DRAMStandard subclass. Consolidated
+  on 2026-11-19 with the now-Superseded
+  [code-structure decision](superseded/ddr4-pud-code-structure.md).
 
 Open issues
 

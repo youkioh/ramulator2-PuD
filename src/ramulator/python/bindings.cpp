@@ -8,6 +8,7 @@
 
 #include "ramulator/base/factory.h"
 #include "ramulator/dram/pud_location.h"
+#include "ramulator/dram/pud_binding.h"
 #include "ramulator/frontend/i_frontend.h"
 #include "ramulator/memory_system/i_memory_system.h"
 #include "ramulator/python/binding_utils.h"
@@ -101,8 +102,21 @@ class Simulation {
 
 NB_MODULE(_ramulator, m) {
   // Expose the existing modeled placement data; do not implement a Python mapper.
-  m.def("pud_placement_profile", []() {
-    const auto p = PuD::PlacementProfile::mimdram_ddr4_8gb_x8_v1();
+  m.def("pud_placement_profile", [](nb::object dram, const std::string& profile, int channels) {
+    auto p = PuD::PlacementProfile::mimdram_ddr4_8gb_x8_v1();
+    std::shared_ptr<const PuD::LocationResolver> resolver;
+    if (!dram.is_none()) {
+      const auto cfg = py_to_confignode(dram);
+      const auto spec = DRAMSpec::create(cfg["impl"].as<std::string>(),
+          ConfigNode(ConfigNode::Map{{"dram", cfg}}));
+      const auto local = pud_binding(*spec).placement(profile, *spec, "RoBaRaCoCh");
+      auto routing = local->association().routing;
+      routing.channels = channels;
+      resolver = std::make_shared<const PuD::LocationResolver>(local->association().profile, *spec, routing);
+      p = resolver->association().profile;
+    } else if (!profile.empty() || channels != 1) {
+      throw std::invalid_argument("system profile export requires a DRAM configuration");
+    }
     nb::dict result;
     result["name"] = p.name;
     result["bank_groups"] = p.bank_groups;
@@ -116,8 +130,13 @@ NB_MODULE(_ramulator, m) {
     result["rank_counts"] = nb::cast(p.rank_counts);
     result["gb_successor"] = nb::cast(p.gb_successor);
     result["group_position_to_column"] = nb::cast(p.group_position_to_column);
+    if (resolver) {
+      result["bank_levels"] = resolver->association().bank_levels;
+      result["bank_sizes"] = resolver->association().bank_sizes;
+      result["capacity_bytes"] = resolver->capacity_bytes();
+    }
     return result;
-  });
+  }, nb::arg("dram") = nb::none(), nb::arg("profile") = "", nb::arg("channels") = 1);
   m.doc() = "Ramulator2 Python bindings";
 
   nb::class_<Simulation>(m, "Simulation")

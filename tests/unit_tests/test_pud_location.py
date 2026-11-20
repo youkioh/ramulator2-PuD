@@ -251,7 +251,7 @@ def test_synthetic_coherent_replacement_with_nonidentity_groups_and_positions():
     assert len(r.footprint("compute", [0]*5, 0, 0)["cells"]) == 1024
 
 
-@pytest.mark.parametrize("context", [dict(channels=0), dict(channels=2),
+@pytest.mark.parametrize("context", [dict(channels=0), dict(channels=3),
     dict(channel_mapper="PassThroughChannelMapper"), dict(address_mapper="PassThroughAddrMapper"),
     dict(address_mapper="ChRaBaRoCo"), dict(address_mapper="RITAddrMapper"),
     dict(row_remapping=True), dict(reserved_rows_per_bank=1), dict(reserved_rows_per_bank=-1),

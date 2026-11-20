@@ -10,9 +10,7 @@ namespace Ramulator {
 struct DRAMSpec;
 
 struct PuDPlacementLevels {
-  int rank = -1;
-  int bankgroup = -1;
-  int bank = -1;
+  std::vector<int> bank_context;
   int row = -1;
 };
 
@@ -20,7 +18,8 @@ PuDPlacementLevels get_pud_placement_levels(const DRAMSpec& spec);
 
 void validate_pud_placement(
     const Request& req, const DRAMSpec& spec, int controller_channel_id,
-    const PuDPlacementLevels& levels, const PuD::LocationResolver* resolver = nullptr);
+    const PuDPlacementLevels& levels, const PuD::LocationResolver* resolver = nullptr,
+    bool spec_validated_with_resolver = false);
 
 // On-demand ordinary consumer result; size annotates the requested byte region,
 // while ACT and RD/WR always describe their complete canonical footprints.

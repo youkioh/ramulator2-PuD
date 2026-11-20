@@ -73,7 +73,7 @@ int ControllerBase::get_preq_command(int command, const AddrVec_t& addr_vec) {
 int ControllerBase::get_preq_command(const Request& req) {
   if (is_movement_request_type(req.type_id) && req.pud_locations) {
     const auto* bank = m_device.m_bank_nodes[m_device.get_flat_bank_id(req.addr_vec)];
-    if (req.occurrence_index > 0 || bank->m_state == m_device.m_spec->get_state_id("Closed")) {
+    if (req.occurrence_index > 0 || pud_binding(*m_device.m_spec).conventional_closed(*m_device.m_spec, *bank)) {
       return req.final_command;
     }
   }
@@ -112,6 +112,34 @@ void ControllerBase::set_location_resolver(std::shared_ptr<const PuD::LocationRe
   m_location_resolver = std::move(resolver);
 }
 
+void ControllerBase::initialize_system_locations(
+    std::shared_ptr<const PuD::LocationResolver> shared, int channels,
+    const std::string& channel_mapper, int interleave_bits) {
+  if (m_pud_placement_profile.empty()) {
+    if (shared) throw std::runtime_error("all controllers must select the same PuD profile");
+    return;
+  }
+  // Bindings validate the selected local geometry/capabilities. Installation is
+  // deferred until the system's global Channel bounds and root IDs are known.
+  const auto local = pud_binding(*m_device.m_spec).placement(
+      m_pud_placement_profile, *m_device.m_spec, m_addr_mapper->m_impl->get_name());
+  auto routing = local->association().routing;
+  routing.channels = channels;
+  routing.channel_mapper = channel_mapper;
+  routing.interleave_bits = interleave_bits;
+  if (shared) {
+    if (shared->association().routing != routing ||
+        shared->association().profile != local->association().profile)
+      throw std::runtime_error("heterogeneous PuD system association");
+  } else {
+    shared = std::make_shared<const PuD::LocationResolver>(
+        local->association().profile, *m_device.m_spec, routing);
+  }
+  if (m_channel_id < 0 || m_channel_id >= channels)
+    throw std::runtime_error("controller root outside global Channel bounds");
+  set_location_resolver(std::move(shared));
+}
+
 // ── Shared initialization ───────────────────────────────────────────────
 
 void ControllerBase::init_base() {
@@ -133,7 +161,7 @@ void ControllerBase::init_base() {
 
   // Cache frequently-used lookups
   m_bank_level = m_device.m_spec->get_level_id("Bank");
-  m_tCK_ps = m_device.m_spec->get_timing_value("tCK_ps");
+  m_tCK_ps = m_device.m_spec->tick_duration_ps;
 
   // Active buffer holds requests with in-flight opening commands (ACT).
   // One request per bank at most, so size to total bank count.
@@ -247,8 +275,10 @@ bool ControllerBase::send(Request& req) {
   }
   if (req.pud_locations || (m_location_resolver && is_movement_request_type(req.type_id))) {
     validate_pud_routing(req, m_location_resolver ? m_location_resolver->association().routing.channels : 1);
+    // set_location_resolver() validated this resolver against m_device.m_spec.
     validate_pud_placement(req, *m_device.m_spec, m_channel_id,
-                           get_pud_placement_levels(*m_device.m_spec), m_location_resolver.get());
+                           get_pud_placement_levels(*m_device.m_spec), m_location_resolver.get(),
+                           /*spec_validated_with_resolver=*/true);
     if (!m_location_resolver ||
         (is_inherited_pud_request_type(req.type_id) && !supports_range_aware_compute()) ||
         (is_movement_request_type(req.type_id) && !supports_movement_requests())) {
@@ -373,14 +403,12 @@ void ControllerBase::tick_prologue() {
 
 // ── Request lifecycle ────────────────────────────────────────────────────
 
-bool ControllerBase::pud_compute_resources_available(const Request& req, int engine) const {
-  if (engine < 0 || !req.pud_locations || !is_inherited_pud_request_type(req.type_id)) {
-    throw std::logic_error("Compute reservation requires a located compute request and engine");
+bool ControllerBase::pud_compute_resources_available(const Request& req) const {
+  if (!req.pud_locations || !is_inherited_pud_request_type(req.type_id)) {
+    throw std::logic_error("Compute reservation requires a located compute request");
   }
-  validate_pud_placement(req, *m_device.m_spec, m_channel_id,
-                         get_pud_placement_levels(*m_device.m_spec), m_location_resolver.get());
+  // Placement was validated at send(); this per-cycle allocation probe does not repeat it.
   for (const auto& record : m_protected_pud) {
-    if (record.engine == engine) return false;
     if (req.pud_locations->conflicts(*record.context->locations())) return false;
   }
   // This is occupied-resource availability, not full start eligibility or
@@ -404,24 +432,24 @@ bool ControllerBase::pud_compute_start_eligible(const Request& req) const {
     }
     if (m_device.get_flat_bank_id(active.addr_vec) == bank_id) return false;
   }
-  if (bank->m_state != m_device.m_spec->get_state_id("Closed") || !bank->m_row_state.empty()) return false;
+  if (!pud_binding(*m_device.m_spec).conventional_drained(*m_device.m_spec, *bank)) return false;
   // Incoming conventional PRE/AP/REF recovery is distinct from local primitive
   // readiness. No range-aware compute command updates these hierarchical deadlines.
   const auto first = describe_pud_occurrence(req, 0, *m_device.m_spec);
   return m_device.m_root->check_timing(first.command, req.operands.front(), m_clk);
 }
 
-bool ControllerBase::reserve_pud_compute(Request& req, int engine) {
+bool ControllerBase::reserve_pud_compute(Request& req) {
   const std::weak_ptr<PuDExecutionContext> empty;
   if (req.pud_context.owner_before(empty) || empty.owner_before(req.pud_context)) {
     throw std::logic_error("Request already has a current or stale compute reservation");
   }
-  if (!pud_compute_resources_available(req, engine) || !pud_compute_start_eligible(req)) return false;
+  if (!pud_compute_resources_available(req) || !pud_compute_start_eligible(req)) return false;
   std::shared_ptr<PuDExecutionContext> context = m_device.make_pud_context(req);
   m_device.protect_pud(context);
-  // Commit both resources together; a failed reservation changes no Request.
+  // Commit the complete footprint; a failed reservation changes no Request.
   // A failed insertion leaves only an expired non-owning Device reference.
-  m_protected_pud.push_back({engine, std::move(context), false});
+  m_protected_pud.push_back({std::move(context), false});
   req.pud_context = m_protected_pud.back().context;
   return true;
 }
@@ -473,7 +501,7 @@ void ControllerBase::issue_pud_movement(Request& req) {
   if (req.pud_context.expired()) {
     std::shared_ptr<PuDExecutionContext> context = m_device.make_pud_context(req);
     m_device.protect_pud(context);
-    m_protected_pud.push_back({-1, std::move(context), false});
+    m_protected_pud.push_back({std::move(context), false});
     req.pud_context = m_protected_pud.back().context;
   }
   const auto occurrence = describe_pud_occurrence(req, req.occurrence_index, *m_device.m_spec);
@@ -501,7 +529,7 @@ void ControllerBase::release_completed_resources(Request& req) {
       [&](const auto& held) { return held.context.get() == context; });
   // Release conflict-registry references at recovery too, including the final
   // invocation when no later allocation will prune expired entries.
-  std::erase_if(m_device.m_protected_pud, [](const auto& held) { return held.expired(); });
+  std::erase_if(m_device.m_protected_pud, [](const auto& held) { return held.context.expired(); });
   req.pud_context.reset();
 }
 
@@ -544,8 +572,8 @@ void ControllerBase::retire_request(ReqBuffer::iterator& req_it, ReqBuffer& buff
   } else if (is_pud_request_type(req_it->type_id)) {
     // Request history is the sole terminal-issue authority; retirement time
     // need not be substituted for it. Delayed completion owns recovery release.
-    const Clk_t terminal_clk = protected_invocation ? req_it->occurrence_issue_history.back() : m_clk;
-    req_it->depart = terminal_clk + m_device.m_spec->get_timing_value("nRP");
+    req_it->depart = pud_binding(*m_device.m_spec).recovery_deadline(
+        *m_device.m_spec, *req_it, m_clk, protected_invocation != nullptr);
     m_pending.push_back(*req_it);
     if (protected_invocation) protected_invocation->completion_pending = true;
   } else if (req_it->type_id == -1) {
@@ -727,7 +755,7 @@ void ControllerBase::serve_completed_requests() {
     Request completed = std::move(*it);
     m_pending.erase(it);
 
-    // Recovery protection outlives command retirement. Erase its engine/range
+    // Recovery protection outlives command retirement. Erase its footprint
     // record before accounting/callback, so reentrant successors can reuse it.
     release_completed_resources(completed);
 

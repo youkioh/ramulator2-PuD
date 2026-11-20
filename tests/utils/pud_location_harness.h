@@ -13,12 +13,18 @@ class LocationResolverUnderTest {
   LocationResolverUnderTest(nb::dict dram, nb::dict routing, nb::dict overrides) {
     ConfigNode cfg = py_to_confignode(dram);
     auto spec = DRAMSpec::create(cfg["impl"].as<std::string>(), ConfigNode(ConfigNode::Map{{"dram", cfg}}));
-    auto p = PuD::PlacementProfile::mimdram_ddr4_8gb_x8_v1();
+    auto p = spec->standard_name == "HBM3" || spec->standard_name == "HBM3_PuD"
+        ? PuD::PlacementProfile::mimdram_hbm3_8gb_8hi_v1()
+        : spec->standard_name == "GDDR7" || spec->standard_name == "GDDR7_PuD"
+        ? PuD::PlacementProfile::mimdram_gddr7_16gb_x8_v1()
+        : PuD::PlacementProfile::mimdram_ddr4_8gb_x8_v1();
     std::map<std::string, int*> dimensions{{"dq", &p.dq},
                                            {"prefetch", &p.prefetch},
                                            {"channel_width", &p.channel_width},
                                            {"organization_columns", &p.organization_columns},
                                            {"bank_groups", &p.bank_groups},
+                                           {"pseudochannels", &p.pseudochannels},
+                                           {"sids_per_pc", &p.sids_per_pc},
                                            {"banks_per_group", &p.banks_per_group},
                                            {"rows_per_bank", &p.rows_per_bank},
                                            {"chips", &p.chips},
@@ -51,19 +57,22 @@ class LocationResolverUnderTest {
         std::move(p), *spec,
         PuD::MappingContext{context["address_space"].as<std::string>(), context["channels"].as<int>(),
                             context["channel_mapper"].as<std::string>(), context["address_mapper"].as<std::string>(),
-                            context["row_remapping"].as<bool>(), context["reserved_rows_per_bank"].as<int>()});
+                            context["row_remapping"].as<bool>(), context["reserved_rows_per_bank"].as<int>(),
+                            routing.contains("interleave_bits") ? nb::cast<int>(routing["interleave_bits"]) : 0});
   }
 
   std::shared_ptr<const PuD::LocationResolver> resolver() const { return m_resolver; }
 
   static std::vector<int> cell_vector(PuD::CellID c) {
-    return {c.channel, c.rank, c.bank_group, c.bank, c.subarray, c.local_row, c.chip, c.mat, c.column};
+    auto result = c.bank;
+    result.insert(result.end(), {c.subarray, c.local_row, c.chip, c.mat, c.column});
+    return result;
   }
-  static PuD::ExternalRow row(const std::vector<int>& v) {
-    if (v.size() != 5) {
-      throw std::invalid_argument("expected five external row coordinates");
+  PuD::ExternalRow row(const std::vector<int>& v) const {
+    if (v.size() != m_resolver->association().bank_levels.size() + 1) {
+      throw std::invalid_argument("incorrect external row coordinate count");
     }
-    return {v[0], v[1], v[2], v[3], v[4]};
+    return {{v.begin(), v.end() - 1}, v.back()};
   }
   nb::dict resolve(Addr_t address, int bit) const {
     auto r = m_resolver->resolve(PuD::PhysicalBit{address, bit});
@@ -78,24 +87,23 @@ class LocationResolverUnderTest {
     return result;
   }
   std::vector<int64_t> inverse(const std::vector<int>& v) const {
-    if (v.size() != 9) {
-      throw std::invalid_argument("expected nine CellID coordinates");
+    const size_t n = m_resolver->association().bank_levels.size();
+    if (v.size() != n + 5) {
+      throw std::invalid_argument("incorrect CellID coordinate count");
     }
-    auto r = m_resolver->inverse({v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8]});
+    auto r = m_resolver->inverse({{v.begin(), v.begin() + n}, v[n], v[n+1], v[n+2], v[n+3], v[n+4]});
     return {r.byte, r.bit};
   }
   PuD::ResolvedRegion region(const std::string& kind, const std::vector<int>& coordinates, int first, int last,
                              std::optional<int> selector) const {
     if (kind == "layout") {
-      if (coordinates.size() != 6) {
-        throw std::invalid_argument("expected six internal row coordinates");
+      const size_t n = m_resolver->association().bank_levels.size();
+      if (coordinates.size() != n + 2) {
+        throw std::invalid_argument("incorrect internal row coordinate count");
       }
-      return m_resolver->resolve(PuD::LayoutRegion{coordinates[0],
-                                                   coordinates[1],
-                                                   coordinates[2],
-                                                   coordinates[3],
-                                                   coordinates[4],
-                                                   coordinates[5],
+      return m_resolver->resolve(PuD::LayoutRegion{{coordinates.begin(), coordinates.begin() + n},
+                                                   coordinates[n],
+                                                   coordinates[n+1],
                                                    {first, last},
                                                    selector ? std::optional<PuD::Group>{{*selector}} : std::nullopt});
     }
@@ -128,15 +136,16 @@ class LocationResolverUnderTest {
       cells.push_back(cell_vector(m_resolver->cell_at(r, i)));
     }
     result["cells"] = cells;
-    result["external_row"] = std::vector<int>{r.external_row.channel, r.external_row.rank, r.external_row.bank_group,
-                                              r.external_row.bank, r.external_row.row};
+    auto external_row = r.external_row.bank;
+    external_row.push_back(r.external_row.row);
+    result["external_row"] = external_row;
     result["burst"] = r.burst ? nb::cast(r.burst->value) : nb::none();
     result["profile"] = r.association->profile.name;
     result["address_space"] = r.association->routing.address_space;
     return result;
   }
   std::vector<int> region_cell(int64_t index, bool foreign, bool tampered) const {
-    auto r = m_resolver->compute_footprint({0, 0, 0, 0, 0}, {0, 0});
+    auto r = m_resolver->compute_footprint({{0, 0, 0, 0}, 0}, {0, 0});
     if (foreign) {
       r.association = std::make_shared<const PuD::LocationAssociation>(*r.association);
     }

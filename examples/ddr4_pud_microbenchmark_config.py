@@ -1,6 +1,5 @@
 """Export-only configuration for the canonical DDR4 PuD microbenchmark."""
 
-import os
 import ramulator
 
 frontend = ramulator.frontend.External(clock_ratio=1, num_cores=105)
@@ -15,7 +14,6 @@ controller = ramulator.controller.GenericDDR(
     dram=dram,
     pud_buffer_size=32,
     pud_placement_profile="MIMDRAM_DDR4_8Gb_x8_v1",
-    pud_compute_engines=int(os.environ.get("RAMULATOR_PUD_ENGINES", "8")),
     scheduler=ramulator.scheduler.FRFCFS(),
     refresh_manager=ramulator.refresh_manager.NoRefresh(),
     row_policy=ramulator.row_policy.Open(),

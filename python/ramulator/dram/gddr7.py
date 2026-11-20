@@ -146,6 +146,19 @@ class GDDR7(DRAMStandard):
         TimingConstraint("Bank", ["PREpb"], ["ACT"], "nRP"),
         TimingConstraint("Bank", ["PREpb"], ["ACT", "REFpb"], "nRPD", sibling=True),
 
+        # Accepted G6 project repair: every affected Bank contributes at Channel
+        # scope. Nominal final-reception intervals; serialization converts once.
+        # Conservative relative to existing modeled recovery, not calibrated
+        # JEDEC/vendor PREab timing. RFM values remain plumbing placeholders.
+        TimingConstraint("Channel", ["ACT"], ["PREab"], "nRAS"),
+        TimingConstraint("Channel", ["RD"], ["PREab"], "nRTPSB"),
+        TimingConstraint("Channel", ["WR"], ["PREab"], "nWL + nBL + nWR"),
+        TimingConstraint("Channel", ["RDA"], ["PREab"], "nRTPSB + nRP"),
+        TimingConstraint("Channel", ["WRA"], ["PREab"], "nWL + nBL + nWR + nRP"),
+        TimingConstraint("Channel", ["REFpb"], ["PREab"], "nRFCpb"),
+        TimingConstraint("Channel", ["RFMpb"], ["PREab"], "nRFMpb"),
+        TimingConstraint("Channel", ["PREab"], ["ACT", "REFpb", "RFMpb"], "nRP"),
+
         # Explicit precharge and auto-precharge follow-up.
         TimingConstraint("Bank", ["RD"], ["PREpb"], "nRTPSB"),
         TimingConstraint("Bank", ["WR"], ["PREpb"], "nWL + nBL + nWR"),

@@ -5,10 +5,16 @@ from .core import validate_structure
 from .lowering import PhysicalLoweredProgram
 
 PROFILES = {
-    'uint8-add': 'Exact unsigned 8+8 -> unsigned 9-bit sum.',
-    'uint8-mul': 'Exact unsigned 8x8 -> unsigned 16-bit product.',
+    'uint4-add': 'Full exact unsigned 5-bit internal sum; low 4 bits exported.',
+    'uint4-mul': 'Full exact unsigned 8-bit internal product; low 4 bits exported.',
+    'int4-add': 'Full exact signed 5-bit internal sum; low 4 bits exported, no saturation.',
+    'int4-mul': 'Full exact signed 8-bit internal product; low 4 bits exported.',
+    'uint8-add': 'Full exact unsigned 9-bit internal sum; low 8 bits exported.',
+    'uint8-mul': 'Full exact unsigned 16-bit internal product; low 8 bits exported.',
     'int8-add': 'Full exact signed 9-bit internal sum; low 8 bits exported, no saturation.',
     'int8-mul': 'Full exact signed 16-bit internal product, columns 0..15 computed; low 8 bits exported.',
+    'fp4-e2m1-add': 'E2M1 bounded-alignment addition without rounding or block scaling.',
+    'fp4-e2m1-mul': 'E2M1 multiplication with magnitude truncation and no block scaling.',
     'fp8-e5m2-add': 'E5M2 bounded-alignment addition without rounding or complete special-value handling.',
     'fp8-e5m2-mul': 'E5M2 multiplication with magnitude truncation over the documented normal domain.',
     'fp8-e4m3-add': 'OFP8 E4M3 bounded-alignment addition without rounding or complete special-value handling.',

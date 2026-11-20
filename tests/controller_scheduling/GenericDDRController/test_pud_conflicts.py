@@ -56,7 +56,7 @@ def finish(d, source, name="RowCopy", offset=0):
 def test_protected_scope_blocks_before_prerequisite_and_final_issue(scheduler, phase, command):
     d, r = fixture(scheduler)
     name = "NOT" if phase == "N" else "MAJ3"
-    assert d.add(compute(r, name, bank=3, bg=3), 1, 0)
+    assert d.add(compute(r, name, bank=3, bg=3), 1)
     if phase == "sharing":
         d.dispatch(1, 0)
     elif phase == "N":
@@ -81,7 +81,7 @@ def test_protected_scope_blocks_before_prerequisite_and_final_issue(scheduler, p
 @pytest.mark.parametrize("name", MOVES)
 def test_compute_blocks_real_movement_through_recovery(scheduler, name):
     d, r = fixture(scheduler)
-    assert d.add(compute(r), 1, 0)
+    assert d.add(compute(r), 1)
     d.movement(movement(r, name, mat=0), 2)  # Intersecting physical mats conflict.
     d.advance(5)
     assert d.issued() == []  # Allocated but no first ACT, no active-buffer entry.
@@ -109,10 +109,10 @@ def test_movement_blocks_compute_and_unrelated_close_through_recovery(name, prom
     for clk in [1, 2, timeline[-1]+1, total]:
         d.advance(clk)
         assert not d.start(candidate)
-        assert not d.add(candidate.copy(), 2, 0)
+        assert not d.add(candidate.copy(), 2)
         assert not d.probe("PREpb", "PREpb", addr())["issue"]
     d.advance(total+1)
-    assert d.start(candidate) and d.add(candidate, 2, 0)
+    assert d.start(candidate) and d.add(candidate, 2)
     assert [e["clk"]-1 for e in d.issued()] == timeline
 
 
@@ -136,9 +136,9 @@ def test_conventional_preab_recovery_blocks_reservation():
     d.raw("PREab", scope(), True)
     candidate = compute(r)
     d.advance(15)
-    assert not d.start(candidate) and not d.add(candidate.copy(), 1, 0)
+    assert not d.start(candidate) and not d.add(candidate.copy(), 1)
     d.advance(16)
-    assert d.add(candidate, 1, 0)
+    assert d.add(candidate, 1)
 
 
 @pytest.mark.parametrize("first,second", list(itertools.product(MOVES, repeat=2)))
@@ -211,14 +211,14 @@ def test_ordinary_autoprecharge_recovery_blocks_compute_start(auto, delay):
     d, r = fixture()
     candidate = compute(r)
     d.raw("ACT", addr(), True)
-    assert not d.start(candidate) and not d.add(candidate.copy(), 1, 0)
+    assert not d.start(candidate) and not d.add(candidate.copy(), 1)
     d.advance(39)
     d.raw(auto, addr(), True)
-    assert not d.start(candidate) and not d.add(candidate.copy(), 1, 0)
+    assert not d.start(candidate) and not d.add(candidate.copy(), 1)
     d.advance(39+delay-1)
     assert not d.start(candidate)
     d.advance(39+delay)
-    assert d.start(candidate) and d.add(candidate, 1, 0)
+    assert d.start(candidate) and d.add(candidate, 1)
 
 
 def test_ordinary_active_work_and_conventional_preparation_drain_before_reservation():
@@ -226,7 +226,7 @@ def test_ordinary_active_work_and_conventional_preparation_drain_before_reservat
     d.send(0, addr(), 2)
     d.advance(1)  # ACT issued; ordinary request still active.
     candidate = compute(r)
-    assert not d.start(candidate) and not d.add(candidate.copy(), 1, 0)
+    assert not d.start(candidate) and not d.add(candidate.copy(), 1)
     d.advance(40)  # Read completed, conventional Bank remains open.
     assert not d.start(candidate)
     before = candidate.snapshot()
@@ -237,7 +237,7 @@ def test_ordinary_active_work_and_conventional_preparation_drain_before_reservat
     d.advance(56)
     assert not d.start(candidate)
     d.advance(57)
-    assert d.add(candidate, 1, 0)
+    assert d.add(candidate, 1)
 
 
 @pytest.mark.parametrize("command", ["PREab", "REFab"])
@@ -246,8 +246,8 @@ def test_priority_maintenance_waits_for_last_recovery_before_whole_scope_action(
     d, r = fixture()
     # Earlier Bank is Opened: a later conflict must prevent partial PRE/action/history updates.
     d.raw("ACT", addr(0), True)
-    assert d.add(compute(r, "MAJ3", bank=2), 1, 0)
-    assert d.add(compute(r, "NOT", bank=3, bg=3), 2, 1)
+    assert d.add(compute(r, "MAJ3", bank=2), 1)
+    assert d.add(compute(r, "NOT", bank=3, bg=3), 2)
     # The ordinary ACT at zero occupies the shared command cycle.
     events = sorted([(clk+1, 1) for clk in TIMELINES["MAJ3"]] +
                     [(clk+2, 2) for clk in TIMELINES["NOT"]])
@@ -277,7 +277,7 @@ def test_priority_maintenance_waits_for_last_recovery_before_whole_scope_action(
 
 def test_no_redundant_preab_after_compute_only_drain():
     d, r = fixture()
-    assert d.add(compute(r), 1, 0)
+    assert d.add(compute(r), 1)
     d.priority("REFab", scope())
     finish(d, 1)
     d.advance(60)
@@ -290,26 +290,26 @@ def test_queued_maintenance_and_active_nrfc_block_start_but_other_rank_is_legal(
     d, r = fixture(ranks=4, nRFC=20)
     candidate = compute(r)
     d.priority("REFab", scope())
-    assert not d.start(candidate) and not d.add(candidate.copy(), 1, 0)
+    assert not d.start(candidate) and not d.add(candidate.copy(), 1)
     d.advance(1)
     assert d.issued()[0]["command"] == "REFab"
-    assert not d.start(candidate) and not d.add(candidate.copy(), 1, 0)
-    assert d.add(compute(r, rank=1), 2, 1)
+    assert not d.start(candidate) and not d.add(candidate.copy(), 1)
+    assert d.add(compute(r, rank=1), 2)
     d.priority("REFab", scope(2))
     d.advance(2)
     assert d.issued()[-1]["addr_vec"][1] == 2
     d.advance(20)
     assert not d.start(candidate)
     d.advance(21)
-    assert d.add(candidate, 1, 0)
+    assert d.add(candidate, 1)
 
 
 def test_fifo_head_prevents_other_rank_bypass_and_new_reservations():
     d, r = fixture(ranks=4)
-    assert d.add(compute(r), 1, 0)
+    assert d.add(compute(r), 1)
     d.priority("REFab", scope())
     d.priority("REFab", scope(1))
-    assert not d.add(compute(r, rank=2), 2, 1)
+    assert not d.add(compute(r, rank=2), 2)
     finish(d, 1)
     d.advance(60)
     assert d.issued() == []
@@ -320,8 +320,8 @@ def test_fifo_head_prevents_other_rank_bypass_and_new_reservations():
 @pytest.mark.parametrize("name", ["RowCopy", "MAJ3", "NOT_COPY"])
 def test_disjoint_compute_continues_during_other_range_recovery(name):
     d, r = fixture()
-    assert d.add(compute(r), 1, 0)
-    assert d.add(compute(r, name, mats=(1, 1)), 2, 1)
+    assert d.add(compute(r), 1)
+    assert d.add(compute(r, name, mats=(1, 1)), 2)
     events = sorted([(clk, 1) for clk in TIMELINES["RowCopy"]] +
                     [(clk+2, 2) for clk in TIMELINES[name]])
     for clk, source in events:
@@ -334,7 +334,7 @@ def test_disjoint_compute_continues_during_other_range_recovery(name):
 @pytest.mark.parametrize("scheduler", ["FRFCFS", "FRFCFS-RowHit"])
 def test_ordinary_queue_and_rowpolicy_commands_cannot_repair_protected_bank(policy, scheduler):
     d, r = fixture(scheduler, policy=policy)
-    assert d.add(compute(r), 1, 0)
+    assert d.add(compute(r), 1)
     d.send(0, addr(), 2)
     d.send(0, addr(1), 3)
     d.advance(20)
@@ -353,7 +353,7 @@ def test_ordinary_queue_and_rowpolicy_commands_cannot_repair_protected_bank(poli
 def test_final_recheck_catches_command_scope_upgrade():
     d, r = fixture()
     d.raw("ACT", addr(0), True)
-    assert d.add(compute(r, bank=3), 1, 0)
+    assert d.add(compute(r, bank=3), 1)
     d.advance(40)
     assert d.probe("RD", "RD", addr())["issue"]
     # An upgraded command can have a broader effective scope than final_command.
@@ -364,7 +364,7 @@ def test_final_recheck_catches_command_scope_upgrade():
 def test_selection_then_compute_reservation_rechecks_ordinary_issue():
     d, r = fixture()
     assert d.probe("RD", "ACT", addr())["issue"]
-    assert d.add(compute(r), 1, 0)
+    assert d.add(compute(r), 1)
     before = d.shared()
     assert not d.probe("RD", "ACT", addr())["issue"]
     assert d.shared() == before
@@ -373,7 +373,7 @@ def test_selection_then_compute_reservation_rechecks_ordinary_issue():
 @pytest.mark.parametrize("name,offset", [("RowCopy", 65), ("NOT", 0), ("MAJ5", 0)])
 def test_allbank_generated_refresh_drains_allocated_active_and_recovering_compute(name, offset):
     d, r = fixture(refresh=True, nREFI=64, nRFC=2)
-    assert d.add(compute(r, name), 1, 0)
+    assert d.add(compute(r, name), 1)
     finish(d, 1, name, offset)
     ready = TOTALS[name]+offset
     d.advance(ready-1)
@@ -384,7 +384,7 @@ def test_allbank_generated_refresh_drains_allocated_active_and_recovering_comput
 
 def test_forwarding_and_coalescing_still_happen_while_device_issue_is_blocked():
     d, r = fixture()
-    assert d.add(compute(r), 1, 0)
+    assert d.add(compute(r), 1)
     d.send(1, addr(), 2)
     d.send(1, addr(), 3)
     d.send(0, addr(), 4)

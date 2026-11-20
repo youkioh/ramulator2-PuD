@@ -123,10 +123,13 @@ inline void validate_addr_vec_size(const DRAMSpec& spec, const AddrVec_t& addr_v
   }
 }
 
-inline std::map<std::string, int> timing_map(const DRAMSpec& spec) {
-  std::map<std::string, int> out;
+inline nb::dict timing_map(const DRAMSpec& spec) {
+  nb::dict out;
   for (int i = 0; i < spec.timing_count; i++) {
-    out[spec.timing_names[i]] = spec.timing_vals[i];
+    if (spec.timing_names[i] == "tCK_ps")
+      out["tCK_ps"] = spec.tick_duration_ps;
+    else
+      out[spec.timing_names[i].c_str()] = spec.timing_vals[i];
   }
   return out;
 }

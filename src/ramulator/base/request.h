@@ -52,6 +52,14 @@ struct RequestLocations {
   std::vector<MatSegment> mat_footprint() const;
   bool same_bank(const RequestLocations& other) const;
   bool conflicts(const RequestLocations& other) const;
+
+  // Lazily computed once: the bundle is immutable after construction, and
+  // conflicts() runs per candidate per protected context on every cycle.
+  const std::vector<MatSegment>& cached_mat_footprint() const;
+  mutable std::shared_ptr<const std::vector<MatSegment>> m_mat_footprint_cache{};
+  // Set only after every paired operand passed resolver->validate(); the
+  // operands and resolver are immutable, so later checks reuse the result.
+  mutable bool m_pairs_validated = false;
 };
 }  // namespace PuD
 

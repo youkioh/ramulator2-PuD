@@ -11,6 +11,8 @@
 namespace Ramulator {
 namespace {
 
+// Legacy unlocated DDR4 movement diagnostics only. Public canonical admission
+// rejects this fallback; these constants are not target geometry defaults.
 constexpr int kLogicalMatCount = 128;
 constexpr int kLogicalMatsPerChip = 16;
 
@@ -71,12 +73,16 @@ void validate_movement_placement(const Request& req) {
 }
 
 void validate_resolved_placement(const Request& req, const DRAMSpec& spec, int channel,
-                                 const PuD::LocationResolver* expected) {
+                                 const PuD::LocationResolver* expected,
+                                 bool spec_validated_with_resolver = false) {
   validate_pud_operand_count(req);
   validate_pud_pairs(req, expected);
   validate_movement_metadata(req);
   const auto& resolver = *req.pud_locations->resolver;
-  resolver.validate_spec(spec);
+  // A controller passing its own resolver and spec states that this pair was
+  // already validated at resolver installation; validate_pud_pairs() has
+  // proven the request uses that resolver. Otherwise validate the spec here.
+  if (!(expected && spec_validated_with_resolver)) resolver.validate_spec(spec);
   if (!is_valid_external_request_size(req.type_id, req.size_bytes, spec.get_tx_bytes())) {
     throw std::runtime_error("PuD invalid size_bytes (movement requires N/A)");
   }
@@ -84,12 +90,10 @@ void validate_resolved_placement(const Request& req, const DRAMSpec& spec, int c
   const auto& first = operands.front().location.origin;
   for (size_t i = 0; i < operands.size(); ++i) {
     const auto& origin = operands[i].location.origin;
-    if (origin.channel != channel) {
+    if (origin.bank.at(0) != channel) {
       throw std::runtime_error("PuD operand does not target the controller channel");
     }
-    if (origin.channel != first.channel || origin.rank != first.rank ||
-        origin.bank_group != first.bank_group || origin.bank != first.bank ||
-        origin.subarray != first.subarray) {
+    if (origin.bank != first.bank || origin.subarray != first.subarray) {
       throw std::runtime_error("PuD operands must share Bank and subarray context");
     }
     if (is_movement_request_type(req.type_id) != origin.group.has_value()) {
@@ -120,22 +124,22 @@ void validate_resolved_placement(const Request& req, const DRAMSpec& spec, int c
 }  // namespace
 
 PuDPlacementLevels get_pud_placement_levels(const DRAMSpec& spec) {
-  return {
-      .rank = spec.get_level_id("Rank"),
-      .bankgroup = spec.get_level_id("BankGroup"),
-      .bank = spec.get_level_id("Bank"),
-      .row = spec.get_level_id("Row"),
-  };
+  PuDPlacementLevels result;
+  for (int level = 1; level <= spec.get_level_id("Bank"); ++level) result.bank_context.push_back(level);
+  result.row = spec.get_level_id("Row");
+  return result;
 }
 
 void validate_pud_placement(
     const Request& req, const DRAMSpec& spec, int controller_channel_id,
-    const PuDPlacementLevels& levels, const PuD::LocationResolver* resolver) {
+    const PuDPlacementLevels& levels, const PuD::LocationResolver* resolver,
+    bool spec_validated_with_resolver) {
   if (is_inherited_pud_request_type(req.type_id) && !req.pud_locations) {
     throw std::runtime_error("PuD compute requires canonical resolved locations");
   }
   if (req.pud_locations || resolver) {
-    validate_resolved_placement(req, spec, controller_channel_id, resolver);
+    validate_resolved_placement(req, spec, controller_channel_id, resolver,
+                                spec_validated_with_resolver);
     return;
   }
   if (!spec.geometry.has_subarrays()) {
@@ -177,7 +181,7 @@ void validate_pud_placement(
   for (size_t i = 1; i < req.operands.size(); i++) {
     const auto& operand = req.operands[i];
     validate_operand(operand, i);
-    for (int level : {levels.rank, levels.bankgroup, levels.bank}) {
+    for (int level : levels.bank_context) {
       if (operand[level] != first[level]) {
         throw std::runtime_error(fmt::format(
             "{} operands must share {}: operand 0 has {}, operand {} has {}",
@@ -203,7 +207,7 @@ std::uint64_t get_movement_moved_bits(const Request& req, const DRAMSpec& spec) 
     if (!is_movement_request_type(req.type_id)) {
       throw std::runtime_error("Cannot derive movement bits for a compute request");
     }
-    validate_resolved_placement(req, spec, req.operands.at(0).at(0), nullptr);
+    // The completed Request was validated at ingress; its locations are immutable.
     return static_cast<std::uint64_t>(req.pud_locations->operands.front().location.cell_count);
   }
   if (!spec.hffs_per_mat.has_value() || *spec.hffs_per_mat <= 0) {

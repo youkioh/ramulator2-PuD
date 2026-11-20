@@ -205,7 +205,7 @@ class DRAMStandard(Component):
                 if k == "rate":
                     pass
                 elif k == "tCK_ps":
-                    timing_dict[k] //= tick_mult
+                    timing_dict[k] /= tick_mult
                 else:
                     timing_dict[k] = int(timing_dict[k] * tick_mult)
         cmd_cycles = {cmd: int(c * tick_mult) for cmd, c in cls.command_cycles.items()}

@@ -27,19 +27,25 @@ std::vector<PuD::MatSegment> PuD::RequestLocations::mat_footprint() const {
   return result;
 }
 
+const std::vector<PuD::MatSegment>& PuD::RequestLocations::cached_mat_footprint() const {
+  if (!m_mat_footprint_cache) {
+    m_mat_footprint_cache = std::make_shared<const std::vector<MatSegment>>(mat_footprint());
+  }
+  return *m_mat_footprint_cache;
+}
+
 bool PuD::RequestLocations::same_bank(const RequestLocations& other) const {
   const auto& a = operands.at(0).location.origin;
   const auto& b = other.operands.at(0).location.origin;
-  return a.channel == b.channel && a.rank == b.rank &&
-         a.bank_group == b.bank_group && a.bank == b.bank;
+  return a.bank == b.bank;
 }
 
 bool PuD::RequestLocations::conflicts(const RequestLocations& other) const {
   if (!same_bank(other)) return false;
   // Subarrays are capacity units, not independently executable resources.
   if (operands.at(0).location.origin.subarray != other.operands.at(0).location.origin.subarray) return true;
-  const auto a = mat_footprint();
-  const auto b = other.mat_footprint();
+  const auto& a = cached_mat_footprint();
+  const auto& b = other.cached_mat_footprint();
   for (const auto& x : a) for (const auto& y : b) {
     if (x.chip == y.chip && x.first_local_mat <= y.last_local_mat &&
         y.first_local_mat <= x.last_local_mat) return true;

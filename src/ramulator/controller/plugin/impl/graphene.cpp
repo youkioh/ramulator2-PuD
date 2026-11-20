@@ -54,7 +54,7 @@ class Graphene : public IControllerPlugin, public Implementation {
           "have Victim-Row-Refresh (VRR) command!");
     }
 
-    m_reset_period_clk = m_reset_period_ns / ((float)spec->get_timing_value("tCK_ps") / 1000.0f);
+    m_reset_period_clk = m_reset_period_ns / (static_cast<float>(spec->tick_duration_ps) / 1000.0f);
 
     m_vrr_cmd_id = spec->get_command_id("VRR");
     m_rank_level = spec->get_level_id("Rank");

@@ -11,8 +11,24 @@ from .artifacts import (
     write_physical_program,
     write_program,
 )
-from .fp8 import build_e4m3_add, build_e4m3_mul, build_e5m2_add, build_e5m2_mul
-from .integer import build_int8_add, build_int8_mul, build_uint8_add, build_uint8_mul
+from .fp8 import (
+    build_e2m1_add,
+    build_e2m1_mul,
+    build_e4m3_add,
+    build_e4m3_mul,
+    build_e5m2_add,
+    build_e5m2_mul,
+)
+from .integer import (
+    build_int4_add,
+    build_int4_mul,
+    build_int8_add,
+    build_int8_mul,
+    build_uint4_add,
+    build_uint4_mul,
+    build_uint8_add,
+    build_uint8_mul,
+)
 from .lowering import (
     PhysicalLoweringError,
     PhysicalRowLayout,
@@ -25,10 +41,16 @@ from .validation import verify
 
 
 BUILDERS = {
+    "uint4-add": build_uint4_add,
+    "uint4-mul": build_uint4_mul,
+    "int4-add": build_int4_add,
+    "int4-mul": build_int4_mul,
     "uint8-add": build_uint8_add,
     "uint8-mul": build_uint8_mul,
     "int8-add": build_int8_add,
     "int8-mul": build_int8_mul,
+    "fp4-e2m1-add": build_e2m1_add,
+    "fp4-e2m1-mul": build_e2m1_mul,
     "fp8-e5m2-add": build_e5m2_add,
     "fp8-e5m2-mul": build_e5m2_mul,
     "fp8-e4m3-add": build_e4m3_add,
