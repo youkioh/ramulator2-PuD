@@ -216,7 +216,7 @@ execution of:
 The corresponding movement-specific mat, local-I/O, global-I/O,
 neighboring-link, command-interface, and other shared-resource conflict rules
 therefore remain physically unresolved. The project's
-[Accepted execution authority](../decisions/mimdram-movement-execution-ownership-and-device.md)
+[Accepted execution authority](../decisions/mimdram-execution-and-timing.md)
 now selects physical-mat-footprint intersection, replacing its earlier
 conservative Bank domain. Source-supported facts are LC's selected mat-local
 row-buffer/HFF/column resources (§1.4) and GB's explicit source/destination

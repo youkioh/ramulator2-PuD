@@ -5,7 +5,7 @@ HEAD `74b7a59210f7da85191e2066cbe95213a5a75730`; working tree clean at entry.
 Scope: HBM3 G1/G2/G3/G4/G6 only. This document records source facts,
 derivations, alternatives and fidelity limits, not accepted project decisions.
 The [canonical decision](../decisions/pud-multistandard-substrate.md) owns
-modeling status; the [plan](../plans/pud-multistandard-substrate-plan.md)
+modeling status; the [plan](../plans/completed/pud-multistandard-substrate-plan.md)
 owns first consumers. The common no-finite-control-engine policy remains fixed.
 G5/G7 were not investigated. No production code, generated source or tests
 were modified during the HBM3 investigation.
@@ -13,7 +13,7 @@ were modified during the HBM3 investigation.
 ## 1. Evidence and inspection boundary
 
 The required common decision, plan, original
-[source audit](pud-multistandard-substrate-audit.md), and complete
+[source audit](investigations/pud-multistandard-substrate-audit.md), and complete
 [GDDR7 reference](gddr7-pud-modeling-reference.md) were read. The last is a
 methodological precedent, not authority for HBM3 physical parameters.
 
@@ -380,7 +380,7 @@ or GB-link owner is inferred.
 
 ## 6. G4 movement candidate and independent calculations
 
-The [common movement authority](../decisions/mimdram-movement-timing-and-resource-model.md)
+The [common movement authority](../decisions/mimdram-execution-and-timing.md)
 and [technical evidence](mimdram-inter-column-data-movement.md) provide the
 logical LC/GB graphs and guarded FIGARO-derived tRELOC=1 ns assumption.
 No HBM3-specific evidence found here requires replacing that assumption.

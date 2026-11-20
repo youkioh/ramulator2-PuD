@@ -21,9 +21,9 @@ implements the same semantics directly, without parsing CUDA or using the `.cu`
 as runtime input. It emits physical primitive and movement requests for the
 existing unified substrate. The GPU interfaces remain specification declarations.
 The
-[baseline plan](../plans/pud-gemv-baselines-plan.md) tracks that work.
+[baseline plan](../plans/completed/pud-gemv-baselines-plan.md) tracks that work.
 
-The [Accepted macro contract](../decisions/pud-gemv-macro-contract.md) requires
+The [Accepted macro contract](../decisions/pud-gemv-gemm-workload.md) requires
 N > 0 and N divisible by HFFS_PER_MAT (four). N need not be divisible by
 MAT_SIZE: partial final mats such as N=516 remain supported. Arbitrary
 one-to-three-element tails are rejected. There is no partial-group movement,
@@ -157,7 +157,7 @@ Alternating the primary/reduction roles preserves that constraint.
 The specification sets 512 element positions per mat, 16 mats per chip-local
 reduction domain, and four HFF positions per mat. A domain holds up to 8192
 elements. These are the selected project baseline; the
-[Accepted placement profile](../decisions/mimdram-addressing-geometry-and-payload.md)
+[Accepted placement profile](../decisions/mimdram-geometry-and-placement.md)
 supplies their modeled physical correspondence.
 
 `pud_mov(src, src_offset, dst, dst_offset, element_count, element_size)`
@@ -191,7 +191,7 @@ domain, preserving the previous physical reduction order:
 5. Perform the GPU scalar residual/domain combine below.
 
 Mat numbers above denote domain-local positions mapped to consecutive,
-reachable mats. The [Accepted forward-fold policy](../decisions/mimdram-reduction-placement-and-movement-lowering.md)
+reachable mats. The [Accepted forward-fold policy](../decisions/pud-gemv-gemm-workload.md)
 governs low-to-high GB-MOV and the highest reachable sink. Domains remain
 separate across unsupported chip/connectivity boundaries; no reverse,
 wraparound, or cross-chip GB path is implied.
@@ -270,7 +270,7 @@ physical trace through the
 [unified substrate](../decisions/ddr4-pud-unified-substrate.md);
 Ramulator does not interpret GEMV or hold functional payload values.
 
-The [Accepted completion boundary](../decisions/mimdram-substrate-and-movement-request-boundary.md)
+The [Accepted completion boundary](../decisions/mimdram-execution-and-timing.md)
 places GPU/host readout, conversion, and final arithmetic outside PuD substrate
 timing. The programming model does not assign these costs. FP8 addition is
 non-associative, so the baselines can return different results. Functional
@@ -284,7 +284,7 @@ Build, generation, and execution instructions are in the
 [DDR4 PuD user guide](../ddr4-pud-user-guide.md#gemv-trace-generation-and-execution).
 
 Both baselines use the same deterministic one-rank
-[Accepted BLP-first placement](../decisions/pud-gemv-macro-contract.md).
+[Accepted BLP-first placement](../decisions/pud-gemv-gemm-workload.md).
 Its fastest-to-slowest enumeration is bank within group, bank group, legal
 K-mat range slot within chip, chip, subarray, then row band. All banks consume
 one slot before the next slot in any bank. The generator checks each required
@@ -375,7 +375,7 @@ workspace reuse still has no modeled cost. Static placement capacity and the
 accepted engine, mat, subarray, Bank movement, command-bus and timing constraints
 remain authoritative. A peak above one establishes outstanding-request overlap,
 not necessarily simultaneous command execution on conflicting resources.
-The [baseline plan](../plans/pud-gemv-baselines-plan.md) records the identical
+The [baseline plan](../plans/completed/pud-gemv-baselines-plan.md) records the identical
 placement/configuration comparison. The completed characterization plan retains
 only historical same-bank evidence.
 

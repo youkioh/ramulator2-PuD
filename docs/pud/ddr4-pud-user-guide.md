@@ -323,7 +323,7 @@ Each supports `int8`, `fp8-e4m3`, and `fp8-e5m2`, yielding the six exact
 placement modes remain. FP8 profiles are validated against their own schedule
 graphs; the two orders need not produce equal results.
 
-Both use identical [Accepted BLP-first placement](decisions/pud-gemv-macro-contract.md):
+Both use identical [Accepted BLP-first placement](decisions/pud-gemv-gemm-workload.md):
 all bank-group/bank pairs before another legal K-mat range slot, then chip,
 subarray capacity fallback and row-band capacity fallback. M=2,N=12 uses
 bank0/mat0 and bank1/mat0; M=2,N=516 uses bank0/mats0..1 and bank1/mats0..1.
@@ -375,7 +375,7 @@ Request stream, **not full end-to-end GEMV latency**. GPU launch/x duplication,
 transposition, readout/conversion, and residual/domain final combination remain
 excluded, including readout before workspace reuse. Static placement and the
 controller/substrate's timing and resource conflicts still constrain overlap.
-The [baseline plan](plans/pud-gemv-baselines-plan.md) reports compute primitive,
+The [baseline plan](plans/completed/pud-gemv-baselines-plan.md) reports compute primitive,
 LC-MOV, GB-MOV and total physical Request counts, controller cycles and peak
 inflight for both baselines under identical placement. Repeat with `--n 12`
 for the focused K=1 case. Cycles are performance evidence, not a fixed oracle.
@@ -387,7 +387,7 @@ not an active evaluation policy.
 The separate `tools.pud_gemm_generator` interface supports the accepted fixed
 `Q[8,128] x K[128,2048] -> O[8,2048]` workload. K is shared; chip h uses query h.
 It reuses the existing six GEMV format/schedule profiles and physical lowering.
-The [canonical GEMM contract](decisions/pud-multistandard-substrate.md#accepted-gemm-placement-and-fusion--2026-10-11)
+The [canonical GEMM contract](decisions/pud-gemv-gemm-workload.md)
 defines placement and fusion; existing GEMV artifacts and instrumentation retain
 their meanings.
 

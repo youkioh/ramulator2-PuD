@@ -1,4 +1,4 @@
-Status: G0 Accepted; GDDR7 G1/G2/G3/G4/G6 Accepted; HBM3 G1/G2/G3/G4/G6 Accepted; G5/G7 Accepted.
+Status: Accepted
 
 Question
 
@@ -8,17 +8,18 @@ keeping unresolved physical profiles and timing explicit?
 
 Decision
 
-**Accepted — G0 common architecture (2026-09-16).** Phase 1's DDR4-preserving
-extraction is complete. The common execution-model amendment below and
-GDDR7/HBM3 G1/G2/G3/G4/G6 are Accepted.
-G5 remains Accepted. G7 is re-Accepted with utilization-aware GEMV packing
-and physical Request fusion, including their allocation/dependency contracts
-below. Phase-4 implementation remains unauthorized until separate user approval.
-The common finite-engine correction and GDDR7 Phase-2 primitive binding and
-validation are complete. HBM3 Phase-3 primitive implementation and validation
-are also complete following separate user authorization.
-Older DDR4 authorities remain current except for the explicitly superseded
-finite-engine-accounting clauses listed below.
+This is the canonical authority for sharing the PuD substrate across DDR4,
+GDDR7, and HBM3: the common architecture (G0), the GDDR7 and HBM3 target
+bindings (G1–G4, G6), and the common trace and frontend admission (G5).
+Execution, timing, and the no-finite-control-engine policy are in the
+[execution decision](mimdram-execution-and-timing.md); GEMV/GEMM placement,
+packing, and fusion (formerly G7) are in the
+[workload decision](pud-gemv-gemm-workload.md). Gate labels G0–G7 match the
+[audit](../references/investigations/pud-multistandard-substrate-audit.md) and the
+[GDDR7](../references/gddr7-pud-modeling-reference.md) and
+[HBM3](../references/hbm3-pud-modeling-reference.md) references.
+
+**G0 — common architecture**
 
 1. Keep one Request/occurrence protocol, one invocation execution model, and
    one implementation of footprint ownership, compute allocation, movement
@@ -49,98 +50,13 @@ finite-engine-accounting clauses listed below.
    organization and calibration. Preserve current DDR4 registrations, numeric
    command IDs/order, configuration and generated behavior. Continue using
    shared command templates and regenerate generated files from their sources.
-6. Select independently named coordinated target placement profiles only
-   after explicit geometry/routing approval. Expose the selected C++ profile
-   to higher layers; do not maintain an independent Python mat map. Preserve
-   DDR4 defaults, legacy trace bytes and both existing GEMV schedules. Review
-   target trace encoding and placement enumeration before their first use.
+6. Use independently named coordinated target placement profiles (G1).
+   Expose the selected C++ profile to higher layers; do not maintain an
+   independent Python mat map. Preserve DDR4 defaults, legacy trace bytes and
+   both existing GEMV schedules.
 
-The behavior-preserving DDR4 extraction and GDDR7 binding are complete.
-HBM3 Phase-3 primitive implementation and validation are complete. No target may
-become executable with
-temporary DDR4 geometry, cycle counts, or a partially protected movement path.
-
-### Accepted common execution model — no finite control-engine capacity (2026-09-16)
-
-This common policy applies to **DDR4 PuD, GDDR7 PuD and future HBM PuD**.
-The modeled path is logical PuD operation -> physical PuD primitives -> DRAM
-command sequences. Model physical hierarchy/placement, mat/subarray/Bank
-footprints and conflicts, command resources and timing, no-SALP where applicable,
-movement dependencies, conventional/PuD protection, terminal recovery,
-frontend/dependency ordering and independently modeled queue/resource limits.
-
-Finite SIMDRAM/MIMDRAM bbop/microProgram control-unit throughput capacity is
-**outside the performance abstraction**. RowCopy, MAJ3, MAJ5, NOT, NOT_COPY,
-LC-MOV and GB-MOV have **no finite control-engine charge**. There is no primitive
-engine count and no engine-pool scope. Do not impose E=8 or any other finite E
-as a runtime primitive concurrency limit, multiply E by Banks, or create
-per-Bank pools. This omits a bottleneck; it does not assert infinite physical
-hardware resources. MIMDRAM's reported eight engines remain prior-work
-architecture/area evidence, not this simulator's primitive performance parameter.
-
-Do not introduce parent ADD/MUL/movement contexts, bbop IDs, OPERATION
-directives, completion joins or cross-output GEMV grouping merely to retain E.
-The investigated parent-context model is rejected. Existing arithmetic lowering,
-GEMV calls, reduction ordering, physical traces and CHAIN dependency semantics
-continue without bbop engine identity. G5 concerns target trace/hierarchy
-representation and compatibility; G7 concerns target GEMV placement/mapping
-portability. Neither depends on finite-engine modeling.
-
-**Narrow DDR4 amendment.** Supersede only these finite-engine clauses:
-
-- [Execution/ownership](mimdram-movement-execution-ownership-and-device.md):
-  Resources and admission's E/default/pool and atomic engine-plus-range charge;
-  Recovery, maintenance, and completion's engine retention/release; the
-  compute-versus-movement engine distinction and associated rationale.
-- [Unified DDR4 substrate](ddr4-pud-unified-substrate.md): selectable
-  compute-engine capacity and inherited first-fit finite-engine allocation.
-- [Timing/resources](mimdram-movement-timing-and-resource-model.md): retained
-  compute-engine constraint, E=8/recovery cross-reference and engine waiting.
-- [Mat-target transport](mimdram-mat-target-transport-abstraction.md): retained
-  independent E=8 default and inherited engine ownership.
-
-Those documents contain reciprocal amendments; their other clauses remain
-Accepted. Physical footprint ownership/conflicts, no-SALP, command and movement
-timing, placement, arithmetic/GEMV dependencies, terminal recovery and
-conventional/PuD protection are unchanged. The completed Phase-1 implementation
-still charges one engine per compute Request through recovery and none to
-movement. That is temporarily stale implementation behavior, not the desired
-architecture, and remains the basis of its frozen historical results until
-a separately authorized common code correction establishes a new baseline.
-Completed older plans and the original source audit likewise describe that
-implementation; they do not restore superseded engine authority.
-
-#### Future finite-engine reintroduction requirements
-
-Reintroduction requires a **new explicit architecture/modeling decision** and
-a dedicated audit of SIMDRAM, MIMDRAM, Proteus and later architectures explicitly
-modeling the same bottleneck. For each relevant work, independently establish:
-
-1. What consumes a context: bbop, complete operation, primitive, partition or other entity?
-2. Its scope: controller, Channel, Rank, Bank, subarray or another unit.
-3. The number of contexts.
-4. The allocation event.
-5. The release event.
-6. Whether movement consumes the same resource.
-7. Interaction with BLP.
-8. Interaction with SALP.
-9. Whether one context controls multiple Banks/subarrays.
-10. The actual hardware/control mechanism enabling any such fan-out.
-11. Whether independent operations progress concurrently.
-12. Whether the performance simulator implements finite occupancy/backpressure.
-13. Whether engines appear only in architectural prose or area accounting.
-14. How published performance evaluation accounts for capacity.
-15. The public source/code supporting each claim.
-
-Expose ambiguity, missing mechanisms, architecture/evaluation inconsistencies
-and unavailable implementation details; do not repair them silently. If no
-complete prior-work model is recoverable, label any proposed finite model
-**NEW PROJECT MODELING ASSUMPTION**, not “MIMDRAM engine model.” Evaluation
-must justify, and preferably sensitivity-sweep, count, scope, allocation
-granularity, release lifetime, movement accounting and BLP/SALP interaction.
-Eight reported engines alone cannot restore E=8. E×Banks, one engine per
-primitive/Bank, or arbitrary multi-Bank parent control are forbidden shortcuts
-unless a new audit independently establishes that exact behavior.
+No target may become executable with temporary DDR4 geometry, cycle counts,
+or a partially protected movement path.
 
 ### Accepted GDDR7 ACT-overhead exclusion (2026-09-16)
 
@@ -165,7 +81,7 @@ of eight physical MIMDRAM HFFs per GDDR7 mat. Subdivide rows contiguously:
 
 Authoritative PuD placement remains **hierarchy through Bank + Row + MatRange +
 optional Group**. The PuD trace/Request path does not require a physical
-byte address to execute an operation; this does not select the later G5 encoding.
+byte address to execute an operation; the trace encoding is G5.
 
 Retain the existing DDR4-style Ramulator integration,
 `CacheLineInterleave + RoBaRaCoCh`, for ordinary physical addresses in the
@@ -230,7 +146,8 @@ GDDR7 internal-path calibration.
 
 Finite microProgram-engine capacity is not modeled; primitive engine count is
 none, pool scope is not applicable, and compute/LC/GB admission has no finite
-engine charge, under the common policy above. No unrelated G3 blocker remains.
+engine charge, under the common policy in the
+[execution decision](mimdram-execution-and-timing.md). No unrelated G3 blocker remains.
 Retain the already resolved command-resource/RCK rules:
 
 | PuD command role | Accepted bus / occupancy | Scope and limitation |
@@ -283,7 +200,7 @@ Accepted G2 conversion exactly once:
 
 Retain existing PREab -> REFab/RFMab, REFab/RFMab -> PREab and nPPD
 relationships. Extend conventional PREab nRP and maintenance recovery into
-PuD opening commands when the binding is implemented; keep invocation-local
+PuD opening commands; keep invocation-local
 PRE recovery local. Common protected ownership blocks PREab/REF/RFM that
 intersect any active or recovering invocation, including pre-ACT reservations.
 
@@ -313,17 +230,16 @@ Phase 2; its completion evidence is retained in the plan.
 
 ### Accepted — HBM3 G1/G2/G3/G4/G6 (2026-09-17)
 
-**Accepted by the user's explicit instructions on 2026-09-17.** HBM3 Phase-3
-primitive implementation and validation were separately authorized and are
-complete. The [HBM3 reference](../references/hbm3-pud-modeling-reference.md)
+HBM3 Phase-3 primitive implementation and validation are complete. The [HBM3 reference](../references/hbm3-pud-modeling-reference.md)
 owns source inventory, external provenance, calculations and uncertainty.
 The Accepted common no-finite-control-engine and no-SALP policies are unchanged.
-G5/G7 are Accepted in the Phase-4 sections below.
+G5 is Accepted in the Phase-4 section below; G7 is in the
+[workload decision](pud-gemv-gemm-workload.md).
 
 | Gate | Accepted choice | First Phase-3 consumer |
 | --- | --- | --- |
 | G1 | Restrict initial profile to `HBM3_8Gb_8hi`: actual Channel/PC/Sid/BG/Bank identity, sixteen 512×512 mats/subarray, 512 rows/subarray, sixteen aggregate HFF-equivalent positions/mat and 32 groups. One logical 32-bit participating slice, never Sid-as-Chip. | Target profile factory and resolver validation |
-| G2 | Retain physical PRADA phases (9,4,32.992,27.992,35) ns, independently quantized at exact 312.5 ps/half-CK: A*=29, A=13, A_S*=106, A_S=90, N=112 ticks; target PRE=52 ticks. Correct duration precision before using this calibration. | Clock-duration transport, target timing definitions and occurrence/recovery binding |
+| G2 | Retain physical PRADA phases (9,4,32.992,27.992,35) ns, independently quantized at exact 312.5 ps/half-CK: A*=29, A=13, A_S*=106, A_S=90, N=112 ticks; target PRE=52 ticks. Duration precision is transported exactly (corrected in Phase 3). | Clock-duration transport, target timing definitions and occurrence/recovery binding |
 | G3 | Shared Channel row/column buses; ACT-like compute and ACT_MOV occupy 3 ticks, rising-only with I+3 pairing. N occupies 1 tick, rising-only; RD_MOV/WR_MOV occupy 2 ticks, rising-only; PuD PRE occupies 1 tick on legal rising/falling edges. | HBM34 reservation/edge integration and PC-scoped shared publication |
 | G4 | Retain common LC/GB sequences, same-Bank/subarray endpoint restrictions, HBM3 read/restore/recovery analogues and tRELOC=1 ns independently quantized to nRELOC=4 half-CK ticks. | Movement occurrence/local timing and topology validation |
 | G6 | Fixed project baseline from `HBM3_8Gb_8hi / HBM3_6400Mbps`, with exact-half-CK duration/reporting, narrowly scoped recovery repairs and nRREFD=13 CK source-consistency correction. Open row policy, AllBank REF evaluation, zero RFM; automatic per-bank evaluation remains gated on issue-based set tracking. | Conventional timing repair, clock reporting, refresh integration and mixed-traffic verification |
@@ -341,15 +257,15 @@ Identity group/bit tables and directed `m -> m+1` edges for m=0..14,
 without reverse/wrap/cross-subarray/Bank/Sid/PC paths, are project conventions.
 Retain one-Channel CacheLineInterleave+RoBaRaCoCh as provisional ordinary PA
 compatibility mapping, separately from authoritative explicit PuD placement.
-No realistic GPU PA hash or target trace encoding is selected.
+No realistic GPU PA hash is selected; the target trace encoding is G5.
 
 **G2 exact duration and anchors.** One HBM3 simulator tick is **312.5 ps**,
 the exact nominal half-CK at the selected preset. The existing 312-ps runtime/
 export value is an integer-truncation/reporting artifact, not the desired
 physical-time model; the 312-ps compatibility alternative is not selected.
-Phase 3 must correct shared clock-duration precision transport through
-serialization, runtime duration and reporting before using HBM3 PuD
-physical-time calibration. Preserve integer half-tick scheduling semantics:
+Shared clock-duration precision transport carries it exactly through
+serialization, runtime duration and reporting (corrected in Phase 3 before
+HBM3 PuD physical-time calibration was used). Preserve integer half-tick scheduling semantics:
 this is a duration/reporting correction, not a different clock model.
 Use final-reception anchors and apply
 `issue_gap=interval+occupancy_before-occupancy_after` once, then HBM edge
@@ -409,8 +325,7 @@ PuD blockage is claimed.
 These Accepted choices define a bounded project evaluation model, not
 vendor-calibrated, JEDEC-complete, retention-proof or silicon-accurate HBM3.
 All reference fidelity limitations remain. HBM3 Phase-3 primitive implementation
-and validation are complete; only Phase-4 implementation still requires
-separate user approval.
+and validation are complete, as is the separately authorized Phase 4.
 
 ### Accepted G5 — common trace and global Channel identity (2026-09-17)
 
@@ -444,7 +359,7 @@ require scalar PA.
 Preserve legacy DDR4 trace and layout v4 bytes/content exactly. New targets use
 the common versioned trace and layout v5, including global named Bank metadata.
 Resolve FULL_MAT to explicit inclusive endpoints. The
-[codec and compatibility evidence](../references/pud-phase4-g5-g7-investigation.md#3-g5-representation-candidates)
+[codec and compatibility evidence](../references/investigations/pud-phase4-g5-g7-investigation.md#3-g5-representation-candidates)
 records grammar, validation and investigated alternatives.
 
 **Frontend admission:** at most one ready Request admission attempt per
@@ -455,241 +370,13 @@ deterministic arbitration when multiple ready chains target the same
 controller. Failed admission still consumes that controller's attempt.
 The single-controller DDR4 budget and frozen behavior remain unchanged.
 
-### Accepted G7 — static GEMV placement, packing and fusion (2026-09-17)
+### G7 and GEMM placement — moved
 
-**Re-Accepted by the user's explicit packing/fusion selections.** The
-[packing/fusion investigation](../references/pud-phase4-g5-g7-investigation.md#11-utilization-aware-output-packing-and-request-fusion)
-retains primitive legality, arithmetic proofs, capacities and alternatives.
-The selected policy below applies to new-target Phase-4 GEMV; the frozen
-legacy DDR4 generator remains unchanged.
-
-**Packing and synchronization.** For H <= N <= 512 with N % H == 0, use
-outputs_per_mat=floor(512/N). Pack equal-N outputs into contiguous,
-Group-aligned position ranges in one mat. Leave unused positions unused;
-add no padding, masking, cross-position shuffle or mixed-N packing.
-For N>512 retain existing multi-mat placement, including an unused partial
-final mat tail; do not place another output in that tail.
-
-Outputs sharing physical rows execute arithmetic stages together. Complete
-every member's required movement and preceding-stage suffix restoration before
-executing the next shared arithmetic stage once. Preserve the existing
-non-power-of-two prefold order: movement -> shared ADD -> suffix restoration,
-with every member restored before the next arithmetic stage. Never execute
-one member's whole reduction before another member sharing those rows.
-Each output retains its own H residual positions and numerical result.
-
-**Request fusion.** Maximize legal fusion within one connected path.
-RowCopy, MAJ3, MAJ5, NOT and NOT_COPY may use one inclusive MatRange over
-contiguous compatible mats only when ordered row operands, stage, dependencies
-and physical semantics match. LC-MOV keeps distinct Group pairs as separate
-Requests; one common source/destination Group pair may fuse across a compatible
-contiguous range. GB-MOV remains one directed singleton mat pair; no multi-edge
-primitive is introduced. Use the profile's 16/32/16-mat path as the fusion
-boundary for DDR4/GDDR7/HBM3. Keep DDR4's eight chip paths separate even where
-compute/LC abstractions could span them.
-
-**Fusion before Channel striping.** Form maximally legal fused ranges first,
-then assign successive ranges round-robin to Channels: range i -> Channel
-i % C. Within each Channel, advance through the fixed hierarchy order below.
-Do not narrow or split a legal fused range merely to activate more Channels;
-leave excess Channels idle when there are fewer ranges than Channels.
-Small-workload fusion-width/Channel-utilization sensitivity is deferred.
-This baseline uses all Channels whenever enough fused ranges exist; it makes
-no claim of globally optimal latency.
-
-**Packed output group and dependency ownership.** Use one physical CHAIN per
-synchronized packed output group. This is software/layout grouping, not a
-hardware engine, controller identity or new primitive. Do not share a physical
-Request among independent CHAINs. Complete each physical Request exactly once;
-multiple logical outputs may observe the same completion through metadata.
-For every output retain output ID, position/Group origin, domain, sink/result
-rows, residual positions and physical CHAIN/checkpoint ownership. CHAIN
-remains dependency-only. Snapshot all member readouts before workspace reuse.
-
-**Capacity and reporting.** A/x rows, products/results, workspaces, constants
-and temporary rows use common physical row IDs across packed members; do not
-charge a full row band per member. Use the reference's derived row/capacity
-accounting and reject excess capacity early. Report useful-position utilization,
-occupied mat-rows, logical outputs stored, physical Requests by opcode,
-active CHAINs/controllers and PuD in-memory phase latency separately.
-Request-count reduction does not establish proportional speedup.
-
-Logical output/domain/lane identity still lowers to hierarchy through Bank +
-Row + inclusive MatRange + optional Group. Preserve InterMatFirst/IntraMatFirst
-arithmetic graphs, precision, x duplication, reduction semantics, sequential
-domains, designated-row roles, arithmetic liveness and the operation lowerer.
-Each output and packed output group remains within one Channel/Bank/subarray.
-
-Use each target profile's H directly: DDR4 H=4, GDDR7 H=8, HBM3 H=16.
-Use its connected path: respectively 16, 32 and 16 mats. DDR4 has eight x8
-chips, each contributing a separate 16-mat GB path: 128 logical mats per
-Bank/subarray under one shared Channel interface. Channel aggregation
-multiplies independent output placements and controller resources, never one
-output's connected reduction extent or mats/Bank.
-
-Static placement order for successive fused ranges, fastest to slowest
-(the legacy DDR4 path retains its existing unfused traversal):
-
-| Target | Accepted order |
-| --- | --- |
-| DDR4 | Preserve the frozen existing order exactly |
-| GDDR7 | Channel -> Bank -> range slot -> subarray -> row band |
-| HBM3 | Channel -> PseudoChannel -> BankGroup -> Bank -> Sid -> range slot -> subarray -> row band |
-
-This is a deterministic fusion-first baseline with Channel striping.
-HBM3 BankGroup-before-Bank remains fixed. For M=2048,N=128, full-path fusion
-and full Channel utilization coexist: DDR4 has 32 fused 16-mat ranges on one
-Channel, GDDR7 has 16 fused 32-mat ranges across four Channels, and HBM3 has
-32 fused 16-mat ranges across sixteen Channels. DDR4 here describes the
-separate packed characterization policy, not a change to its legacy baseline.
-No cross-Channel movement, SALP, finite engine limit, padding, shuffle or
-arithmetic/liveness redesign is introduced.
-
-**D = number of domains belonging to one GEMV output.** A domain partitions
-one dot product; it is not an independent output. Capacity tables use
-“output capacity when D=1” or “single-domain-per-output capacity.”
-Each domain leaves H PuD residual values; report D * H residual values/output.
-The existing zero-initialized host graph's D*(H+1) ADD calls/output remain
-separately reportable work.
-
-Report **PuD in-memory phase latency**, ending at PuD residual completion
-including terminal recovery. Host residual readout/folding and inter-domain
-accumulation remain outside the timing model. Cross-target FP8 bit-exact
-equality is not claimed because reduction grouping depends on H and
-connected-path geometry. INT8 semantics remain unchanged.
-
-Runner refresh policy: preserve frozen DDR4 NoRefresh; use GDDR7 Open +
-AllBank REF + zero RFM independently on each of the four x8 Channel
-controllers; retain HBM3's existing Accepted Open + AllBank REF + zero RFM.
-No device-wide refresh barrier or new staggering policy. Keep maintenance
-command counts, total issued-command counts and completed PuD occurrence
-counts separate. Aggregate counts across controllers without summing elapsed
-controller cycles.
-
-Evaluation scopes, multi-Channel routing/admission, H, connected paths,
-Channel-first hierarchy order, refresh policies and all exclusions above are
-not reopened. Preserve all 14 frozen DDR4 workloads exactly: legacy placement,
-trace/layout bytes, Request counts, CHAIN CSVs and cycles. Do not enable packing
-on the legacy generator path or reinterpret its artifacts. Any later packed
-DDR4 characterization must use an explicitly separate mode/artifact identity
-and must not overwrite the frozen baseline.
-
-The [placement evidence](../references/pud-phase4-g5-g7-investigation.md#5-g7-logical-placement-interface)
-retains the earlier one-output capacity derivations and schedule mappings as
-a comparison case; section 11 records the packing/fusion evidence and selected
-alternative. G7 has no remaining packing/fusion gate. **Phase-4 implementation
-remains unauthorized until separate user approval.** No baseline regeneration
-or new target GEMV baseline is authorized.
-
-### Accepted GEMM placement and fusion — 2026-10-11
-
-The user accepted this GEMM extension based on DDR4-packed. Logical inputs,
-arithmetic, completion and measurement boundaries follow the 2026-10-11 GEMM
-[macro contract](pud-gemv-macro-contract.md). Use `DDR4_8Gb_x8` with
-`DDR4_2400R`: one 64-bit Channel/rank containing eight x8 chips, with chip h
-assigned to query h.
-
-Each of the 16 banks within a chip handles 128 outputs. Place four length-128
-dot products in a MAT's 512 positions, using two independent row bands in the
-same subarray. Each band holds the Q/K inputs for four distinct keys per MAT,
-its own workspace and residual storage. The two Q/K operands do not count as
-separate outputs. This gives `16 MATs * 2 bands * 4 slices = 128 outputs` per
-chip-bank and `8 * 16 * 128 = 16,384 outputs` overall. The two bands use the
-same MAT resources, so their operations do not execute simultaneously. No SALP
-is added.
-
-The user subsequently accepted this exact index-to-location enumeration, with
-the logical indices defined by the macro contract:
-
-```text
-Channel = 0; Rank = 0
-bank_index = j // 128
-BankGroup = bank_index // 4; Bank = bank_index % 4
-band = (j % 128) // 64
-local_mat = (j % 64) // 4; slice = j % 4
-chip = h; logical_mat = 16*h + local_mat
-subarray = 0
-position = 128*slice + r
-Group = position // 4; HFF position = position % 4
-```
-
-At that position, the matrix operand is `K[r,j]` and the vector operand is
-`Q[h,r]`. Replicate logical K across chips and Q across the output slices of
-its assigned chip before measurement. The inverse output mapping is
-`j = 128*bank_index + 64*band + 4*local_mat + slice`. Each output occupies a
-distinct slice; neither bands nor chips extend one output's reduction domain.
-
-Use row-band base `band*F`, where `F = 5*w + C + T`, `w=8`, C counts the union of
-declared constants and T is the generated maximum ADD/MUL temporary-row
-requirement. Relative row offsets are K at 0..7, Q at 8..15, primary at 16..23,
-reduction at 24..31, movement at 32..39, followed by protected constants and
-micro-operation temporaries. Current requirements give F=60/64/59 for
-INT8/E4M3/E5M2; derive these values from the operation generator rather than
-hardcoding an independent allocator. Both bands fit the existing subarray.
-After the five local ADD stages, each output's four residuals occupy reduction
-rows at positions `128*slice + {0,1,2,3}` in its own MAT and band. Preserve
-inputs/constants, existing intra-band temporary lifetimes and primary/reduction
-alternation. Do not share workspaces between bands or overwrite retained
-residuals during this workload.
-
-Use exactly 16 physical CHAINs, one per Bank. Each owns 1,024 outputs across
-eight chips and contains all band-0 Requests followed by all band-1 Requests.
-Each band retains its 512-output group and compatible compute/LC ranges over
-logical MATs 0..127. Existing PuDTrace within-chain ordering releases the next
-Request only after the preceding full callback, including terminal recovery.
-Thus band 1 cannot begin before band 0 fully completes. Different Bank CHAINs
-remain independent and may overlap; there is no global barrier. CHAIN IDs
-remain opaque labels, not an ordering rule.
-
-The intermediate checkpoint is the last Request of band 0; final CHAIN
-completion is band-1 completion. Retain per-output residual/readout ownership
-and band membership in GEMM layout metadata. These timestamps do not describe
-MUL/reduction phases. Existing GEMV phase instrumentation is unchanged;
-separate MUL/reduction latency for both GEMM bands is outside this milestone.
-Keep the current DDR4-packed/multistandard `PUD_TRACE 2` grammar and parser.
-No inter-chain predecessor configuration, general DAG scheduler or new frontend
-scheduling mechanism is required or authorized.
-
-**Superseded within this authority:** the earlier 32 Bank/band CHAIN contract
-and D1 optional frontend predecessor extension are replaced by the 16-CHAIN
-contract above. They are historical rationale only, with no compatibility path.
-
-Corresponding locations across chips hold different Q values and the same
-logical K, and execute the same operation sequence. For GEMM, compute with
-matching Bank/subarray, row bindings, dependency frontier and destructive
-semantics may fuse over compatible contiguous cross-chip MatRanges. LC may
-likewise fuse copies within each MAT for one common Group pair. Different
-slice-specific Group pairs remain separate Requests; complete all required
-movement before shared arithmetic. Preserve the existing packed group's
-single physical CHAIN ownership and exactly-once completion contract, with
-per-output query/key identity, residual locations and checkpoints.
-
-Cross-chip compute/LC fusion does not enlarge the connected reduction domain
-or GB topology. GB remains chip-local and directed with singleton endpoints.
-Bank-addressed Requests contend for the shared command bus while exploiting
-bank overlap. Simultaneous multi-bank broadcast is not required, and no new
-command or timing behavior is assumed.
-
-Apply the new policy only through the separate GEMM interface. Preserve
-existing DDR4-packed GEMV defaults and artifact meanings, frozen legacy DDR4
-GEMV, and GDDR7/HBM3 behavior. The existing G7 chip-local fusion policy above
-continues to apply to those GEMV workloads. This section records accepted
-design; the user has authorized its implementation without a commit.
+The Accepted G7 static GEMV placement, packing and fusion policy (2026-09-17)
+and GEMM placement and fusion (2026-10-11) are now in the canonical
+[GEMV/GEMM workload decision](pud-gemv-gemm-workload.md).
 
 Rationale
-
-Two independent GEMM row bands allow all inputs to be preplaced while
-preserving the first band's residuals. Cross-chip fusion uses existing
-compute/LC range support to express the shared-K workload without adding GB
-connections or multi-bank commands.
-
-The superseded D1 chose optional predecessor configuration to retain separate
-band CHAINs without changing trace grammar. The final minimal-design audit
-established that one CHAIN per Bank enforces the same required ordering and
-bank concurrency using existing execution. Band-0 intermediate and band-1 final
-timestamps also fit the current checkpoint interface. The replacement removes
-unnecessary shared frontend changes and bundle-only dependency semantics;
-the trade-off is excluding separate MUL/reduction timing for both bands.
 
 The existing ownership/completion machinery already resides mostly in shared
 Request, ControllerBase and Device code. The remaining coupling is concrete:
@@ -707,14 +394,6 @@ the PuD policy/integration machinery they need.
 Separating standard organization from physical placement also prevents a
 successful hierarchy conversion from being mistaken for physical evidence.
 Existing memory-standard presets cannot determine mats, HFFs or GB topology.
-
-The finite-engine amendment addresses an abstraction mismatch: prior-work
-engines execute bbop/microProgram contexts, whereas the current code charges
-physical compute primitives and excludes movement. The papers and inspected
-public artifacts do not supply a complete finite-control model connecting
-those contexts to evaluated BLP/SALP. Omitting that bottleneck explicitly is
-the selected performance abstraction; neither primitive E=8 nor a speculative
-parent-context model is justified by the reported count alone.
 
 G1 separates explicit PuD placement from replaceable ordinary PA compatibility;
 GPUHammer granularity alone cannot determine either mapper's bit functions.
@@ -741,37 +420,15 @@ evaluated under the baseline's stated fidelity limits.
 
 Evidence
 
-- The user's explicit acceptance on 2026-10-11: one query per chip, two input
-  sets of four dot products per MAT in independent row bands, bank-addressed
-  cross-chip execution, a separate GEMM interface, and preserved GEMV behavior.
-- The user's final 2026-10-11 acceptance preserves the explicit enumeration
-  and replaces the earlier 32-CHAIN/D1 choices with 16 Bank CHAINs, existing
-  within-chain completion ordering, and band-completion checkpoints. It
-  authorizes implementation and small execution/target-size coverage tests.
-- In the [current placement/fusion code](../../../tools/pud_gemv_generator/generator.py),
-  `_group_placement` selects chip-local groups and `_fuse_group` merges
-  compatible adjacent ranges at the same frontier.
-  [Resolver validation](../../../src/ramulator/controller/pud_request_validation.cpp)
-  permits cross-chip compute/LC ranges while enforcing common Bank/subarray
-  context and GB singleton topology. These are reuse mechanisms for the
-  extension, not evidence of a GEMM implementation.
-- At inspected source HEAD `30f15a1`, [PuDTrace](../../../src/ramulator/frontend/impl/memory_trace/pud_trace.cpp)
-  initially readies every nonempty CHAIN and advances only within-chain
-  successors on callback. It has no inter-chain dependency configuration or
-  directive. Repeated CHAIN selection appends to the same chain; numeric IDs
-  and first-appearance order do not establish predecessor completion ordering.
-  [Controller completion](../../../src/ramulator/controller/controller_base.cpp)
-  releases terminal-recovery protection before invoking the callback, providing
-  the existing completion boundary for consecutive bands in one CHAIN.
 - The user's Phase-4 selections on 2026-09-17 accepted G5/G7, including
   evaluation scopes, per-controller frontend admission, HBM3 placement order
   and runner refresh policy. After the narrow packing/fusion investigation,
   the user's explicit closure selections re-Accept G7 with whole-slice packing,
   path-bounded fusion before Channel striping, and one physical CHAIN per
   packed output group, preserving all other selections. The
-  [Phase-4 investigation](../references/pud-phase4-g5-g7-investigation.md)
-  retains source facts, derivations, compatibility checks and alternatives;
-  implementation requires separate approval.
+  [Phase-4 investigation](../references/investigations/pud-phase4-g5-g7-investigation.md)
+  retains source facts, derivations, compatibility checks and alternatives.
+  Phase 4 was subsequently authorized and is complete.
 - The user's explicit HBM3 acceptance instructions on 2026-09-17 select
   G1/G2/G3/G4/G6 above, including exact 312.5-ps half-CK duration. The
   [HBM3 modeling reference](../references/hbm3-pud-modeling-reference.md)
@@ -783,41 +440,35 @@ Evidence
   timing/resource alternatives and conventional-baseline gaps. It selects no
   policy; project status is recorded here.
 - The user's explicit instructions on 2026-09-16 accept the common finite-engine
-  scope amendment and G3, in addition to GDDR7 G1/G2/G4, and
+  scope amendment (now in the [execution decision](mimdram-execution-and-timing.md)) and G3, in addition to GDDR7 G1/G2/G4, and
   preserve the earlier no-ACT-envelope/no-sensitivity sub-decision. The
   [MIMDRAM technical reference](../references/mimdram-inter-column-data-movement.md#12-fine-grained-mat-access-structures)
   records the evaluated <0.5% ACT-latency evidence and its hybrid-applicability
   limitation.
-- [Source audit](../references/pud-multistandard-substrate-audit.md), especially
+- [Source audit](../references/investigations/pud-multistandard-substrate-audit.md), especially
   §§2–5, identifies each current consumer and the actual standard structures.
 - The user's explicit G6 instructions on 2026-09-17 accept the fixed baseline,
   conservative PREab repair and RFM Policy B above. The
   [G6 evidence](../references/gddr7-pud-modeling-reference.md#6-g6--conventional-baseline-evidence-and-uncertainty)
   distinguishes existing-model gaps and placeholder timings from calibration.
 - [Unified DDR4 substrate](ddr4-pud-unified-substrate.md),
-  [placement](mimdram-addressing-geometry-and-payload.md),
-  [execution](mimdram-movement-execution-ownership-and-device.md), and
-  [timing/resources](mimdram-movement-timing-and-resource-model.md) establish
+  [placement](mimdram-geometry-and-placement.md),
+  [execution](mimdram-execution-and-timing.md), and
+  [timing/resources](mimdram-execution-and-timing.md) establish
   the existing contracts being preserved, including disjoint movement progress.
 - [PRADA portability methodology](../references/ddr4-pud-timing-reference.md#11-portability-of-the-timing-methodology)
   explicitly requires phase revalidation instead of copying DDR4 numbers.
 - [Operation lowering](pud-operation-physical-lowering.md) separates local-row
-  allocation from placement; [GEMV](pud-gemv-macro-contract.md) fixes the two
+  allocation from placement; [GEMV](pud-gemv-gemm-workload.md) fixes the two
   current arithmetic schedules and dependency completion boundary.
 
 Open issues
 
-G5/G7 are Accepted, including packing/fusion and the DDR4 compatibility boundary.
-Phase-4 implementation and its validation require separate user approval under
-the [Phase-4 plan](../plans/pud-multistandard-substrate-plan.md#phase-4--reusable-operationgemv-integration-and-characterization).
+G5/G7 are Accepted; G7 packing/fusion and the DDR4 compatibility boundary are
+in the [workload decision](pud-gemv-gemm-workload.md). Phase 4 is implemented
+and validated under the
+[Phase-4 plan](../plans/completed/pud-multistandard-substrate-plan.md#phase-4--reusable-operationgemv-integration-and-characterization);
+new-target characterization awaits review before promotion to a frozen baseline.
 Exact realistic GPU PA hashing remains deferred outside the provisional G1
 mapping; physical-fidelity limitations remain as recorded in the references.
 No energy, SALP or functional payload simulation is selected by G5/G7.
-
-GEMM enumeration, 16 physical Bank CHAINs, per-bank band completion ordering,
-band-completion checkpoints and layout schema v1 are accepted.
-The [GEMM plan](../plans/pud-gemm-plan.md#completion-evidence--2026-10-11)
-records implementation and initial mapping, functional and lifecycle validation.
-Full target-size latency remains unmeasured and approximately 1 ms remains an
-unverified expectation; that timing run is not required for initial validation.
-No runtime dependency extension is part of this milestone.

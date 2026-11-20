@@ -131,7 +131,7 @@ may occupy disjoint ranges.
 
 The general disjoint-range support does not explicitly establish all six
 compute/LC/GB pairwise concurrency cases. The
-[Accepted footprint resource model](../decisions/mimdram-movement-execution-ownership-and-device.md)
+[Accepted footprint resource model](../decisions/mimdram-execution-and-timing.md)
 extends that support as a project inference, including independent progress
 through the global movement path for disjoint GB source/destination footprints.
 This changes neither the mapping nor the reduction schedules below.
@@ -365,7 +365,7 @@ or a path across disconnected/chip-local domains.
 #### Existing accepted project policy, not a MIMDRAM source fact
 
 The current [reduction placement and movement-lowering
-decision](../decisions/mimdram-reduction-placement-and-movement-lowering.md)
+decision](../decisions/pud-gemv-gemm-workload.md)
 selects the derived composition above as a forward fold over consecutive,
 reachable mats in each connected linear domain:
 
@@ -406,7 +406,7 @@ GEMV adaptation and its reachability boundary:
   policy requires a higher-level host combine; it does not present that combine
   as MIMDRAM GB-MOV behavior.
 
-The [Accepted GEMV baseline contract](../decisions/pud-gemv-macro-contract.md)
+The [Accepted GEMV baseline contract](../decisions/pud-gemv-gemm-workload.md)
 also selects **MIMDRAM-IntraMatFirst**: reduce every mat's valid products locally
 with existing LC-MOV/ADD, then fold only its residuals forward using existing
 singleton GB-MOV/ADD. Identical local stages may use Accepted ranged LC within
@@ -445,7 +445,7 @@ not supply these application- and project-specific choices.
 
 The source-backed local/inter-mat movement and arithmetic mechanisms support
 the project's two explicitly selected schedules. The
-[baseline contract](../decisions/pud-gemv-macro-contract.md) owns BLP-first
+[baseline contract](../decisions/pud-gemv-gemm-workload.md) owns BLP-first
 placement and schedule selection; the
 [programming-model specification](gpu-pud-gemv-programming-model.cu) owns the
 exact typed graphs and GPU residual/domain combine. These are project choices,

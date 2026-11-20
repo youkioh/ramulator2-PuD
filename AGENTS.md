@@ -62,10 +62,18 @@ Persistent project documents belong under `docs/pud/`.
 
 ```text
 docs/pud/
+├── README.md              # human-facing index of current documents
 ├── references/
-├── decisions/
-└── plans/
+│   └── investigations/    # dated investigation/audit snapshots
+├── decisions/             # current (Accepted/Proposed) decisions
+│   └── superseded/        # Superseded decisions (historical provenance)
+└── plans/                 # active implementation plans
+    └── completed/         # completed plans (historical artifacts)
 ```
+
+Keep `docs/pud/README.md` current when a document is added, moved,
+superseded, or completed.
+
 ### docs/pud/references/
 
 Contains technical material provided for this research, such as
@@ -73,6 +81,9 @@ summaries or excerpts from papers, specifications, and prior study.
 
 Reference material may contain incomplete or uncertain information.
 Do not silently promote it to a project decision.
+
+Dated investigations, audits, and gap analyses that record exploration
+rather than stable technical facts belong in `references/investigations/`.
 
 ### docs/pud/decisions/
 
@@ -104,15 +115,13 @@ Do not record an unresolved question as an accepted decision.
 Decisions with `Status: Accepted` are current project authority. Prefer that
 actively evolving authority to use the canonical organization above.
 Decisions with `Status: Superseded` are historical provenance, not current
-authority. The `docs/pud/decisions/` directory may contain both.
+authority. Keep current decisions directly in `docs/pud/decisions/` and
+Superseded decisions in `docs/pud/decisions/superseded/`.
 
 If an Accepted decision changes or is consolidated into another canonical
 decision, preserve the old file, mark it Superseded, add a clear successor
-pointer, and retain its historical rationale. A separate `superseded/` or
-`archive/` subdirectory is not required; do not move Superseded files merely
-to make the directory visually cleaner.
-Prefer stable paths and successor links unless there is a concrete
-maintenance reason to reorganize files.
+pointer, retain its historical rationale, and move it to
+`decisions/superseded/`, updating relative links that the move breaks.
 
 External and source facts remain primarily in `docs/pud/references/`.
 Canonical decisions should contain enough local context to understand the
@@ -127,8 +136,9 @@ the plan must persist across sessions.
 Small plans should remain in the current conversation.
 
 Completed implementation plans may remain as historical phase and
-implementation artifacts. Do not retroactively consolidate completed plans
-solely to match the canonical-decision organization.
+implementation artifacts in `docs/pud/plans/completed/`. Do not
+retroactively consolidate completed plans solely to match the
+canonical-decision organization.
 
 A Decision Gate encountered while executing a plan does not automatically
 require a new decision file. Update an existing canonical decision when the
